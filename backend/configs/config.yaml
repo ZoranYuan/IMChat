@@ -1,0 +1,13 @@
+app:
+  name: "IMChat"
+  version: "0.0.1"
+  env: "development"
+server:
+  port: ":8081"
+database:
+  mysql:
+    dsn: "user:123456@tcp(mysql:3306)/IMChat?charset=utf8mb4&parseTime=True&loc=Local"
+jwt:
+  secret: "U2FsdGVkX19anQGSRtiUwgRLpWV333jI4xjlCF32dek="
+  access_expire_hours: 2
+  refresh_expire_hours: 24
