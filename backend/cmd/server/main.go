@@ -57,6 +57,8 @@ func main() {
 		MaxHeaderBytes: 1 << 20, // 1MB
 	}
 
+	defer srv.Close()
+
 	log.Println("start the serve....")
 
 	go func() {

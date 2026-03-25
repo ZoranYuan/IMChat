@@ -6,5 +6,6 @@ import "IM_backend/internal/infrastructure/database/mysql/model"
 type UserRepoInterface interface {
 	FindUserByPhone(string) (*model.User, error)
 	Create(*model.User) error
-	Update(string, string, map[string]interface{}) error
+	FindUserByUserId(userId string) (*model.User, error)
+	UpdateByUserIdAndPhone(string, string, map[string]interface{}) error
 }

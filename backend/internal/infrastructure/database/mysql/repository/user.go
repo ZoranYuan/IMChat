@@ -42,7 +42,16 @@ func (ur *userRepo) Create(user *model.User) error {
 	return nil
 }
 
-func (ur *userRepo) Update(phone string, userId string, updates map[string]interface{}) error {
+func (ur *userRepo) FindUserByUserId(userId string) (*model.User, error) {
+	var user = model.User{}
+	if err := ur.db.Where("userId = ?", userId).First(&user).Error; err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func (ur *userRepo) UpdateByUserIdAndPhone(phone string, userId string, updates map[string]interface{}) error {
 	return ur.db.Model(&model.User{}).
 		Where("user_id = ? AND phone = ?", userId, phone).
 		Updates(updates).

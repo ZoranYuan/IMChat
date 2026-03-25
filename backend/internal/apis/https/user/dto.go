@@ -39,3 +39,11 @@ type UserLoginRes struct {
 type UserLogoutReq struct {
 	UserId string `json:"userId" binding:"required"`
 }
+
+type UserInfoRes struct {
+	UserId   string `json:"userId"`
+	UserName string `json:"username"`
+	NickName string `json:"nickName"`
+	Phone    string `json:"phone"`
+	Avatar   string `json:"avatar"`
+}

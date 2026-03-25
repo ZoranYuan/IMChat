@@ -96,11 +96,10 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 	}
 
 	if userModel == nil {
-		return nil, "", errors.New("该账户为注册")
+		return nil, "", errors.New("账户不存在")
 	}
 
 	// TODO 删除对应的 token 缓存，这里为了防止刷机，可以加一个用户锁
-
 	if err = user_entity.LoginWithPhone(
 		user_valueobject.Phone(phone),
 		user_valueobject.Password(password),
@@ -115,7 +114,7 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 		"on_line_time": userModel.OnLineTime,
 	}
 
-	if err = ua.userRepository.Update(phone, userModel.UserId, updates); err != nil {
+	if err = ua.userRepository.UpdateByUserIdAndPhone(phone, userModel.UserId, updates); err != nil {
 		return nil, "", err
 	}
 
@@ -135,4 +134,40 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 
 	// 更新缓存
 	return userAppDTO, token, nil
+}
+
+func (ua *UserApplication) GetUserByUserId(userId string) (*UserAppDTO, error) {
+	userModel, err := ua.userRepository.FindUserByUserId(userId)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var userApp = &UserAppDTO{
+		UserId:   userModel.UserId,
+		UserName: userModel.UserName,
+		NickName: userModel.NickName,
+		Phone:    userModel.Phone,
+		Avatar:   userModel.Avatar,
+	}
+
+	return userApp, nil
+}
+
+func (ua *UserApplication) Logout(userId string) error {
+	userModel, err := ua.userRepository.FindUserByUserId(userId)
+	if err != nil {
+		return nil
+	}
+
+	if userModel == nil {
+		return errors.New("账户不存在")
+	}
+
+	now := time.Now()
+
+	updates := map[string]interface{}{
+		"off_line_time": now,
+	}
+	return ua.userRepository.UpdateByUserIdAndPhone(userModel.Phone, userModel.UserId, updates)
 }

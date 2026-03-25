@@ -4,6 +4,7 @@ import (
 	"IM_backend/internal/apis/response"
 	application_user "IM_backend/internal/applications/user"
 	user_valueobject "IM_backend/internal/domain/user/value_object"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,14 @@ func NewUserHandler(app *application_user.UserApplication) *UserHandler {
 // @Router /user/login [post]
 func (uh *UserHandler) Login(c *gin.Context) {
 	var req = UserLoginReq{}
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("panic, ", r)
+		}
+
+		c.JSON(http.StatusInternalServerError, response.Error(201, "未知错误"))
+	}()
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, response.Error(201, "error request"))
@@ -62,20 +71,31 @@ func (uh *UserHandler) Login(c *gin.Context) {
 	}
 
 	var res = UserRegisterRes{
-		UserId:    userApp.UserId,
-		UserName:  userApp.UserName,
-		NickName:  userApp.NickName,
-		Phone:     userApp.Phone,
-		Avatar:    userApp.Avatar,
-		WxOpenID:  userApp.WxOpenID,
-		WxUnionID: userApp.WxUnionID,
-		Token:     token,
+		UserId:   userApp.UserId,
+		UserName: userApp.UserName,
+		NickName: userApp.NickName,
+		Phone:    userApp.Phone,
+		Avatar:   userApp.Avatar,
+		Token:    token,
 	}
 
 	c.JSON(http.StatusOK, response.Success(res))
 }
 
 func (uh *UserHandler) Logout(c *gin.Context) {
+	userId := c.GetString("userId")
+
+	if userId == "" {
+		c.JSON(401, response.Error(201, "请登录之后再操作"))
+		return
+	}
+
+	if err := uh.app.Logout(userId); err != nil {
+		log.Println("failed to logout, ", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, response.Success(nil))
 
 }
 
@@ -110,16 +130,40 @@ func (uh *UserHandler) Register(c *gin.Context) {
 	}
 
 	var res = UserRegisterRes{
-		UserId:    userApp.UserId,
-		UserName:  userApp.UserName,
-		NickName:  userApp.NickName,
-		Phone:     userApp.Phone,
-		Avatar:    userApp.Avatar,
-		WxOpenID:  userApp.WxOpenID,
-		WxUnionID: userApp.WxUnionID,
-		Token:     token,
+		UserId:   userApp.UserId,
+		UserName: userApp.UserName,
+		NickName: userApp.NickName,
+		Phone:    userApp.Phone,
+		Avatar:   userApp.Avatar,
+		Token:    token,
 	}
 
 	// TODO 更新 Redis
 	c.JSON(http.StatusOK, response.Success(res))
+}
+
+func (uh *UserHandler) GetUserByUserId(c *gin.Context) {
+	userId := c.Param("userId")
+	if userId == "" {
+		c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
+		return
+	}
+
+	userApp, err := uh.app.GetUserByUserId(userId)
+
+	if err != nil {
+		log.Println("failed to get user by userId, ", err)
+		c.JSON(http.StatusInternalServerError, response.Error(201, "获取失败"))
+		return
+	}
+
+	var userRes = UserInfoRes{
+		UserId:   userApp.UserId,
+		UserName: userApp.UserName,
+		NickName: userApp.NickName,
+		Phone:    userApp.Phone,
+		Avatar:   userApp.Avatar,
+	}
+
+	c.JSON(http.StatusOK, response.Success(userRes))
 }
