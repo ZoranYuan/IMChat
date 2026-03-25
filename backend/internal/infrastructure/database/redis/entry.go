@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"context"
 	"log"
 
 	"github.com/redis/go-redis/v9"
@@ -12,5 +13,14 @@ func InitRedis(dsn string) *redis.Client {
 		log.Fatal("failed to init redis, ", err)
 	}
 
-	return redis.NewClient(opt)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := redis.NewClient(opt)
+
+	if err = client.Ping(ctx).Err(); err != nil {
+		log.Fatal("failed to ping redis, ", err)
+	}
+
+	return client
 }
