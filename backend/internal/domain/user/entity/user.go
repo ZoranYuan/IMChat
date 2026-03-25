@@ -14,10 +14,50 @@ type User struct {
 	Avatar      string                    `json:"avatar"`
 	Status      user_valueobject.Status   `json:"status"`
 	OnLineTime  time.Time                 `json:"onLineTime"`
-	OffLineTime time.Time                 `json:"offLineTime"`
+	OffLineTime *time.Time                `json:"offLineTime"`
 
 	// 用于可以利用微信、手机号、QQ 登录
-	LoginType user_valueobject.Status `json:"loginType"`
-	WxOpenID  string                  `json:"-" gorm:"type:varchar(64);index;comment:微信OpenID(预留)"`
-	WxUnionID string                  `json:"-" gorm:"type:varchar(64);index;comment:微信UnionID(预留)"`
+	LoginType user_valueobject.LoginType `json:"loginType"`
+	WxOpenID  string                     `json:"-" gorm:"type:varchar(64);index;comment:微信OpenID(预留)"`
+	WxUnionID string                     `json:"-" gorm:"type:varchar(64);index;comment:微信UnionID(预留)"`
+}
+
+func RegisterWithPhone(phone user_valueobject.Phone, password user_valueobject.Password) (*User, error) {
+	if !phone.Validate() {
+		return nil, errInvalidPhone
+	}
+
+	// hash 加密
+	hp, err := password.GenPasswordHash()
+
+	// 生成 UserId
+
+	if err != nil {
+		return nil, err
+	}
+
+	var newUser = User{
+		Phone:       phone,
+		LoginType:   user_valueobject.PhoneType,
+		Status:      user_valueobject.StatusActivate,
+		Password:    hp,
+		UserName:    string(phone),
+		OnLineTime:  time.Now(),
+		OffLineTime: nil,
+	}
+
+	return &newUser, nil
+}
+
+func LoginWithPhone(phone user_valueobject.Phone, password user_valueobject.Password, hPassword string) error {
+	if !phone.Validate() {
+		return errInvalidPhone
+	}
+
+	// 解密
+	if isCheck := password.VertifyPasswordHash([]byte(hPassword)); !isCheck {
+		return errWrongPassword
+	}
+
+	return nil
 }

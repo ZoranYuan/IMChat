@@ -7,8 +7,8 @@ import (
 )
 
 func RegisterUserRouter(r *gin.Engine, uh *https_user.UserHandler) {
-	r.Group("/api/v1")
+	apiGroup := r.Group("/api/v1")
 
-	ug := r.Group("/user")
+	ug := apiGroup.Group("/user")
 	https_user.AddUserRouter(ug, uh)
 }

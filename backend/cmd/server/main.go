@@ -5,9 +5,9 @@ import (
 	apis "IM_backend/internal/apis/https"
 	https_user "IM_backend/internal/apis/https/user"
 	"IM_backend/internal/apis/ws"
-	"IM_backend/internal/applications"
+	application_user "IM_backend/internal/applications/user"
 	"IM_backend/internal/infrastructure/database/mysql"
-	"IM_backend/internal/infrastructure/database/mysql/repository"
+	user_repository "IM_backend/internal/infrastructure/database/mysql/repository"
 	"context"
 	"log"
 	"net/http"
@@ -31,6 +31,7 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// redis := redis.InitRedis(cfg.Database.Redis.DSN)
 	db := mysql.InitMysql(cfg.Database.MySQL.DSN)
 	defer func() {
 		db = nil
@@ -38,8 +39,8 @@ func main() {
 	}()
 
 	// 构造依赖
-	userRepository := repository.NewUserRepository(db)
-	userApp := applications.NewUserApplication(userRepository)
+	userRepository := user_repository.NewUserRepository(db)
+	userApp := application_user.NewUserApplication(userRepository, cfg)
 	userHandler := https_user.NewUserHandler(userApp)
 
 	// 注册路由
@@ -47,8 +48,13 @@ func main() {
 	ws.RegisterWsRouter(r)
 
 	srv := &http.Server{
-		Addr:    cfg.Server.Port,
-		Handler: r,
+		Addr:         cfg.Server.Port,
+		Handler:      r,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+		// 关键：最大连接数限制
+		MaxHeaderBytes: 1 << 20, // 1MB
 	}
 
 	log.Println("start the serve....")

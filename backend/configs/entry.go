@@ -8,10 +8,11 @@ import (
 )
 
 type Config struct {
-	App      App      `yaml:"app"`
-	Server   Server   `yaml:"server"`
-	Database Database `yaml:"database"`
-	JWT      JWT      `yaml:"jwt"`
+	App       App       `yaml:"app"`
+	Server    Server    `yaml:"server"`
+	Database  Database  `yaml:"database"`
+	JWT       JWT       `yaml:"jwt"`
+	Snowflake Snowflake `yaml:"snowflake"`
 }
 
 type App struct {
@@ -24,8 +25,17 @@ type Server struct {
 	Port string `yaml:"port"`
 }
 
+type Snowflake struct {
+	MachineID int64 `yaml:"machineId"`
+}
+
 type Database struct {
 	MySQL MySQL `yaml:"mysql"`
+	Redis Redis `yaml:"redis"`
+}
+
+type Redis struct {
+	DSN string `yaml:"dsn"`
 }
 
 type MySQL struct {
