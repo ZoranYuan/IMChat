@@ -11,9 +11,9 @@ type User struct {
 	UserId      string     `json:"userId" gorm:"size:32;uniqueIndex;not null;comment:用户ID"`
 	UserName    string     `json:"username" gorm:"size:16;uniqueIndex;not null"`
 	NickName    string     `json:"nickName" gorm:"size:64"`
-	Password    string     `json:"password"`
-	Phone       string     `json:"phone"`
-	Avatar      string     `json:"avatar"`
+	Password    string     `json:"password" gorm:"size:255"`
+	Phone       string     `json:"phone" gorm:"size:20;uniqueIndex"`
+	Avatar      string     `json:"avatar" gorm:"size:100"`
 	Status      int        `json:"status" gorm:"default:1;comment:1正常2禁用"`
 	OnLineTime  time.Time  `json:"onLineTime"`
 	OffLineTime *time.Time `json:"offLineTime"`

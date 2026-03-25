@@ -5,8 +5,7 @@ import (
 )
 
 func AddUserRouter(ug *gin.RouterGroup, uh *UserHandler) {
-	ug.GET("/")
-
+	ug.GET("/:id")
 	ug.POST("/login", uh.Login)
 	ug.POST("/register", uh.Register)
 }
