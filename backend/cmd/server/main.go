@@ -7,7 +7,7 @@ import (
 	"IM_backend/internal/apis/ws"
 	application_user "IM_backend/internal/applications/user"
 	"IM_backend/internal/infrastructure/database/mysql"
-	user_repository "IM_backend/internal/infrastructure/database/mysql/repository"
+	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
 	"context"
 	"log"
 	"net/http"

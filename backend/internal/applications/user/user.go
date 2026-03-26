@@ -5,7 +5,7 @@ import (
 	"IM_backend/internal/domain/user"
 	user_entity "IM_backend/internal/domain/user/entity"
 	user_valueobject "IM_backend/internal/domain/user/value_object"
-	user_repository "IM_backend/internal/infrastructure/database/mysql/repository"
+	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
 	"IM_backend/internal/infrastructure/pkg/jwt"
 	"IM_backend/internal/infrastructure/pkg/snow"
 	"errors"
