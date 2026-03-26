@@ -6,6 +6,7 @@ import (
 )
 
 type FriendRequest struct {
+	RequestId  string                            `json:"requestId"`
 	FromUserId string                            `json:"fromUserId"`
 	ToUserId   string                            `json:"toUserId"`
 	Status     friend_request_valueobject.Status `json:"status"`
@@ -13,9 +14,8 @@ type FriendRequest struct {
 	ApplyTime  time.Time                         `json:"applyTime"`
 }
 
-func NewFriendRequest(fromUserId, toUserId, message string) *FriendRequest {
+func NewFriendRequest(reqId, fromUserId, toUserId, message string) *FriendRequest {
 	// TODO 对 message 做一些额外的处理
-
 	var newFriendRequest = &FriendRequest{
 		FromUserId: fromUserId,
 		ToUserId:   toUserId,
@@ -27,7 +27,7 @@ func NewFriendRequest(fromUserId, toUserId, message string) *FriendRequest {
 	return newFriendRequest
 }
 
-func (fq *FriendRequest) ReApply(message string) error {
+func (fq *FriendRequest) ReRequest(message string) error {
 	if time.Since(fq.ApplyTime) < 10*time.Minute {
 		return ErrApplyingTooFrequently
 	}
@@ -37,4 +37,26 @@ func (fq *FriendRequest) ReApply(message string) error {
 	fq.ApplyTime = time.Now()
 
 	return nil
+}
+
+func (fq *FriendRequest) Accept() error {
+	var err error
+	if fq.Status != friend_request_valueobject.Pedding {
+		return ErrDuplicateOperation
+	}
+
+	fq.Status = friend_request_valueobject.Accepted
+
+	return err
+}
+
+func (fq *FriendRequest) Refuse() error {
+	var err error
+	if fq.Status != friend_request_valueobject.Pedding {
+		return ErrDuplicateOperation
+	}
+
+	fq.Status = friend_request_valueobject.Refused
+
+	return err
 }

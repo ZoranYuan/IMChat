@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-type friendRequestDTO struct {
+type FriendRequestDTO struct {
+	RequestId  string    `json:"requestId"`
 	FromUserId string    `json:"fromUserId"`
 	ToUserId   string    `json:"toUserId"`
 	Message    string    `json:"message"`
@@ -13,8 +14,8 @@ type friendRequestDTO struct {
 	ApplyTime  time.Time `json:"applyTime"`
 }
 
-func toDTO(fr *friend_request_entity.FriendRequest) *friendRequestDTO {
-	return &friendRequestDTO{
+func toDTO(fr *friend_request_entity.FriendRequest) *FriendRequestDTO {
+	return &FriendRequestDTO{
 		FromUserId: fr.FromUserId,
 		ToUserId:   fr.ToUserId,
 		Message:    fr.Message,

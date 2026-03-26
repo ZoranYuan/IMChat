@@ -1,15 +1,18 @@
 package application_friend
 
 import (
+	"IM_backend/configs"
 	friend_request "IM_backend/internal/domain/frient_request"
 	friend_request_entity "IM_backend/internal/domain/frient_request/entity"
 	"IM_backend/internal/domain/user"
+	"IM_backend/internal/infrastructure/pkg/snow"
 	"errors"
 )
 
 type FriendApplication struct {
 	friendRequestRepository friend_request.FriendRequestInterface
 	userRepository          user.UserRepoInterface
+	config                  configs.Config
 }
 
 func NewFriendApplication(friendRequestRepository friend_request.FriendRequestInterface, userRepository user.UserRepoInterface) *FriendApplication {
@@ -19,8 +22,7 @@ func NewFriendApplication(friendRequestRepository friend_request.FriendRequestIn
 	}
 }
 
-func (fa *FriendApplication) NewFriendRequest(userId, toUserId, message string) (*friendRequestDTO, error) {
-	// TODO 查询 user 数据库，未来可以转换成 gprc 去升级为微服务
+func (fa *FriendApplication) NewFriendRequest(userId, toUserId, message string) (*FriendRequestDTO, error) {
 	user, err := fa.userRepository.FindUserByUserId(toUserId)
 	if err != nil {
 		return nil, err
@@ -36,8 +38,12 @@ func (fa *FriendApplication) NewFriendRequest(userId, toUserId, message string) 
 	}
 
 	if record == nil {
+		requestId, err := snow.GenerateSnowId(int(fa.config.Snowflake.MachineID))
+		if err != nil {
+			return nil, err
+		}
 		// 建立新的申请对象
-		newFriendRequest := friend_request_entity.NewFriendRequest(userId, toUserId, message)
+		newFriendRequest := friend_request_entity.NewFriendRequest(requestId, userId, toUserId, message)
 
 		// 入库
 		newRecord, err := fa.friendRequestRepository.Create(newFriendRequest)
@@ -45,25 +51,69 @@ func (fa *FriendApplication) NewFriendRequest(userId, toUserId, message string) 
 			return nil, err
 		}
 
-		return &friendRequestDTO{
-			FromUserId: newRecord.FromUserId,
-			ToUserId:   newRecord.ToUserId,
-			Message:    newRecord.Message,
-			Status:     int(newRecord.Status),
-			ApplyTime:  newRecord.ApplyTime,
-		}, nil
+		return toDTO(newRecord), nil
 	} else {
-		// 有记录
-		if err := record.ReApply(message); err != nil {
+		// 这里需要排除二者已经是好友了
+
+		if err := record.ReRequest(message); err != nil {
+			return nil, err
+		}
+		if err := fa.friendRequestRepository.Update(record); err != nil {
 			return nil, err
 		}
 
-		return &friendRequestDTO{
-			FromUserId: record.FromUserId,
-			ToUserId:   record.ToUserId,
-			Message:    record.Message,
-			Status:     int(record.Status),
-			ApplyTime:  record.ApplyTime,
-		}, nil
+		// TODO 用户信息字段未 get
+
+		return toDTO(record), nil
 	}
+}
+
+func (fa *FriendApplication) Refuse(requestId string) error {
+	record, err := fa.friendRequestRepository.FindByRequestId(requestId)
+
+	if err != nil {
+		return err
+	}
+
+	if err := record.Refuse(); err != nil {
+		return err
+	}
+
+	if err := fa.friendRequestRepository.Update(record); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (fa *FriendApplication) Accept(requestId string) error {
+	record, err := fa.friendRequestRepository.FindByRequestId(requestId)
+
+	if err != nil {
+		return err
+	}
+
+	if err := record.Accept(); err != nil {
+		return err
+	}
+
+	if err := fa.friendRequestRepository.Update(record); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (fa *FriendApplication) GetFriendRequstList(userId string) ([]*FriendRequestDTO, error) {
+	records, err := fa.friendRequestRepository.List(userId)
+	if err != nil {
+		return nil, err
+	}
+
+	friendRequestDTOs := make([]*FriendRequestDTO, 0, len(records))
+	for _, r := range records {
+		friendRequestDTOs = append(friendRequestDTOs, toDTO(r))
+	}
+
+	return friendRequestDTOs, nil
 }

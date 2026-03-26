@@ -6,7 +6,7 @@ import (
 	"IM_backend/internal/infrastructure/database/mysql/model"
 )
 
-func toDomain(m *model.FriendRequest) *friend_request_entity.FriendRequest {
+func toDomain(m model.FriendRequest) *friend_request_entity.FriendRequest {
 	return &friend_request_entity.FriendRequest{
 		FromUserId: m.FromUserId,
 		ToUserId:   m.ToUserId,
@@ -16,8 +16,8 @@ func toDomain(m *model.FriendRequest) *friend_request_entity.FriendRequest {
 	}
 }
 
-func toModel(e *friend_request_entity.FriendRequest) *model.FriendRequest {
-	return &model.FriendRequest{
+func toModel(e *friend_request_entity.FriendRequest) model.FriendRequest {
+	return model.FriendRequest{
 		FromUserId: e.FromUserId,
 		ToUserId:   e.ToUserId,
 		Message:    e.Message,

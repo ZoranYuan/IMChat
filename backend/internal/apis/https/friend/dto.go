@@ -1,6 +1,21 @@
-package friend
+package https_friend
+
+import "time"
 
 type FriendRequestReq struct {
-	RequestId string `json:"requestId; binding:requried"`
-	Message   string `json:"message; binding:requried"` // 可选留言
+	ToUserId string `json:"toUserId" binding:"required"`
+	Message  string `json:"message" binding:"required"` // 可选留言
+}
+
+type FriendRequestRes struct {
+	RequestId string    `json:"requestId"`
+	ToUserId  string    `json:"toUserId"`
+	Message   string    `json:"message"`
+	Status    int       `json:"status"`
+	ApplyTime time.Time `json:"applyTime"`
+}
+
+type OperateRequestReq struct {
+	RequestId string `json:"requestId" binding:"required"`
+	IsAccept  bool   `json:"isAccept" binding:"required"` // 可选留言
 }

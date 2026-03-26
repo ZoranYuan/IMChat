@@ -44,7 +44,8 @@ func main() {
 	userHandler := https_user.NewUserHandler(userApp)
 
 	// 注册路由
-	apis.RegisterUserRouter(r, userHandler)
+	apiGroup := r.Group("/api/v1")
+	apis.RegisterUserRouter(apiGroup, userHandler)
 	ws.RegisterWsRouter(r)
 
 	srv := &http.Server{
