@@ -33,7 +33,7 @@ func (fa *FriendApplication) NewFriendRequest(userId, toUserId, message string) 
 		return nil, errors.New("用户不存在")
 	}
 
-	record, err := fa.friendRequestRepository.FindByUsers(userId, toUserId)
+	record, err := fa.friendRequestRepository.FindByUsersByIds(userId, toUserId)
 	if err != nil {
 		return nil, err
 	}

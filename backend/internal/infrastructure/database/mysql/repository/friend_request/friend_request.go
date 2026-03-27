@@ -12,13 +12,13 @@ type friendRequestRepo struct {
 	db *gorm.DB
 }
 
-func NewFriendRequestRepository(db *gorm.DB) *friendRequestRepo {
-	return &friendRequestRepo{
+func NewFriendRequestRepository(db *gorm.DB) friendRequestRepo {
+	return friendRequestRepo{
 		db: db,
 	}
 }
 
-func (fr *friendRequestRepo) FindByUsers(userId, toUserId string) (*friend_request_entity.FriendRequest, error) {
+func (fr friendRequestRepo) FindByUsersByIds(userId, toUserId string) (*friend_request_entity.FriendRequest, error) {
 	var friendRequestModel model.FriendRequest
 	err := fr.db.
 		Where("from_user_id = ? AND to_user_id = ?", userId, toUserId).
@@ -34,7 +34,7 @@ func (fr *friendRequestRepo) FindByUsers(userId, toUserId string) (*friend_reque
 	return toDomain(friendRequestModel), nil
 }
 
-func (fr *friendRequestRepo) Create(domain *friend_request_entity.FriendRequest) (*friend_request_entity.FriendRequest, error) {
+func (fr friendRequestRepo) Create(domain *friend_request_entity.FriendRequest) (*friend_request_entity.FriendRequest, error) {
 	m := toModel(domain)
 
 	if err := fr.db.Create(&m).Error; err != nil {
@@ -44,7 +44,7 @@ func (fr *friendRequestRepo) Create(domain *friend_request_entity.FriendRequest)
 	return toDomain(m), nil
 }
 
-func (fr *friendRequestRepo) ReRequest(domain *friend_request_entity.FriendRequest) error {
+func (fr friendRequestRepo) ReRequest(domain *friend_request_entity.FriendRequest) error {
 	m := toModel(domain)
 	result := fr.db.Model(&model.FriendRequest{}).
 		Where(
@@ -67,7 +67,7 @@ func (fr *friendRequestRepo) ReRequest(domain *friend_request_entity.FriendReque
 	return nil
 }
 
-func (fr *friendRequestRepo) OperateRequest(requestId string, expectStatus, newStatus int) error {
+func (fr friendRequestRepo) OperateRequest(requestId string, expectStatus, newStatus int) error {
 	result := fr.db.Model(&model.FriendRequest{}).
 		Where(
 			"request_id = ? AND status = ?",
@@ -89,7 +89,7 @@ func (fr *friendRequestRepo) OperateRequest(requestId string, expectStatus, newS
 	return nil
 }
 
-func (fr *friendRequestRepo) List(userId string) ([]*friend_request_entity.FriendRequest, error) {
+func (fr friendRequestRepo) ListByUserId(userId string) ([]*friend_request_entity.FriendRequest, error) {
 	var m []model.FriendRequest
 	if err := fr.db.Where("to_user_id = ?", userId).Find(&m).Error; err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (fr *friendRequestRepo) List(userId string) ([]*friend_request_entity.Frien
 	return domainList, nil
 }
 
-func (fr *friendRequestRepo) FindByRequestId(requestId string) (*friend_request_entity.FriendRequest, error) {
+func (fr friendRequestRepo) FindByRequestId(requestId string) (*friend_request_entity.FriendRequest, error) {
 	var m model.FriendRequest
 
 	if err := fr.db.Where("request_id = ?", requestId).First(&m).Error; err != nil {
