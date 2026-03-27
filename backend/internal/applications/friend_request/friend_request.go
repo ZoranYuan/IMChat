@@ -1,9 +1,10 @@
-package application_friend
+package application_friend_request
 
 import (
 	"IM_backend/configs"
 	friend_request "IM_backend/internal/domain/frient_request"
 	friend_request_entity "IM_backend/internal/domain/frient_request/entity"
+	friend_request_valueobject "IM_backend/internal/domain/frient_request/value_object"
 	"IM_backend/internal/domain/user"
 	"IM_backend/internal/infrastructure/pkg/snow"
 	"errors"
@@ -58,7 +59,7 @@ func (fa *FriendApplication) NewFriendRequest(userId, toUserId, message string) 
 		if err := record.ReRequest(message); err != nil {
 			return nil, err
 		}
-		if err := fa.friendRequestRepository.Update(record); err != nil {
+		if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pedding), int(record.Status)); err != nil {
 			return nil, err
 		}
 
@@ -79,7 +80,7 @@ func (fa *FriendApplication) Refuse(requestId string) error {
 		return err
 	}
 
-	if err := fa.friendRequestRepository.Update(record); err != nil {
+	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pedding), int(record.Status)); err != nil {
 		return err
 	}
 
@@ -97,15 +98,15 @@ func (fa *FriendApplication) Accept(requestId string) error {
 		return err
 	}
 
-	if err := fa.friendRequestRepository.Update(record); err != nil {
+	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pedding), int(record.Status)); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (fa *FriendApplication) GetFriendRequstList(userId string) ([]*FriendRequestDTO, error) {
-	records, err := fa.friendRequestRepository.List(userId)
+func (fa *FriendApplication) GetFriendRequstListByUserId(userId string) ([]*FriendRequestDTO, error) {
+	records, err := fa.friendRequestRepository.ListByUserId(userId)
 	if err != nil {
 		return nil, err
 	}

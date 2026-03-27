@@ -29,6 +29,6 @@ func InitMysql(dns string) *gorm.DB {
 		log.Fatal("filed to init mysql", err)
 	}
 
-	db.AutoMigrate(&model.User{})
+	db.AutoMigrate(&model.User{}, &model.FriendRequest{})
 	return db
 }

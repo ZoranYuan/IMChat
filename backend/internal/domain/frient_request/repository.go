@@ -8,7 +8,8 @@ import (
 type FriendRequestInterface interface {
 	FindByUsers(userId string, toUserId string) (*friend_request_entity.FriendRequest, error)
 	Create(domain *friend_request_entity.FriendRequest) (*friend_request_entity.FriendRequest, error)
-	Update(domain *friend_request_entity.FriendRequest) error
-	List(userId string) ([]*friend_request_entity.FriendRequest, error)
+	OperateRequest(requestId string, expectStatus, newStatus int) error
+	ReRequest(domain *friend_request_entity.FriendRequest) error
+	ListByUserId(userId string) ([]*friend_request_entity.FriendRequest, error)
 	FindByRequestId(requestId string) (*friend_request_entity.FriendRequest, error)
 }

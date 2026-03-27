@@ -1,8 +1,8 @@
-package https_friend
+package https_friend_request
 
 import (
 	"IM_backend/internal/apis/response"
-	application_friend "IM_backend/internal/applications/friend"
+	application_friend_request "IM_backend/internal/applications/friend_request"
 	"log"
 	"net/http"
 
@@ -10,10 +10,10 @@ import (
 )
 
 type FriendHandle struct {
-	app *application_friend.FriendApplication
+	app *application_friend_request.FriendApplication
 }
 
-func NewUserHandler(app *application_friend.FriendApplication) *FriendHandle {
+func NewUserHandler(app *application_friend_request.FriendApplication) *FriendHandle {
 	return &FriendHandle{
 		app: app,
 	}
@@ -81,7 +81,7 @@ func (fh *FriendHandle) RequestList(c *gin.Context) {
 		return
 	}
 
-	requestListApp, err := fh.app.GetFriendRequstList(userId)
+	requestListApp, err := fh.app.GetFriendRequstListByUserId(userId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, response.Error(201, "服务端错误"))
 		return

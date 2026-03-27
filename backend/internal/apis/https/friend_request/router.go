@@ -1,4 +1,4 @@
-package https_friend
+package https_friend_request
 
 import (
 	"github.com/gin-gonic/gin"

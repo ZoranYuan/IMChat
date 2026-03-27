@@ -1,4 +1,4 @@
-package application_friend
+package application_friend_request
 
 import (
 	friend_request_entity "IM_backend/internal/domain/frient_request/entity"

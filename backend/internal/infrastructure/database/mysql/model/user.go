@@ -19,9 +19,9 @@ type User struct {
 	OffLineTime *time.Time `json:"offLineTime"`
 
 	// 用于可以利用微信、手机号、QQ 登录
-	LoginType int    `json:"loginType"`
-	WxOpenID  string `json:"-" gorm:"type:varchar(64);uniqueIndex;comment:微信OpenID(预留)"`
-	WxUnionID string `json:"-" gorm:"type:varchar(64);uniqueIndex;comment:微信UnionID(预留)"`
+	LoginType int     `json:"loginType"`
+	WxOpenID  *string `json:"-" gorm:"type:varchar(64);uniqueIndex;comment:微信OpenID(预留)"`
+	WxUnionID *string `json:"-" gorm:"type:varchar(64);uniqueIndex;comment:微信UnionID(预留)"`
 }
 
 func (u *User) TableName() string {
