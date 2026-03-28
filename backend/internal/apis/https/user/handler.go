@@ -20,16 +20,6 @@ func NewUserHandler(app *application_user.UserApplication) *UserHandler {
 	}
 }
 
-// @Summary Create a mytodo
-// @Description Create a mytodo by GetTodoReq (base or vip)
-// @Tags todos
-// @Accept json
-// @Produce json
-// @Param req body GetTodoReq true "create todoList request message"
-// @Success 200 {string} string "ok"
-// @Failure 400 {string} string "bad request"
-// @Failure 500 {string} string "Internal Server Error"
-// @Router /user/login [post]
 func (uh *UserHandler) Login(c *gin.Context) {
 	var req = UserLoginReq{}
 
@@ -48,7 +38,6 @@ func (uh *UserHandler) Login(c *gin.Context) {
 
 	var (
 		userApp *application_user.UserAppDTO
-		token   string
 		err     error
 	)
 
@@ -59,7 +48,7 @@ func (uh *UserHandler) Login(c *gin.Context) {
 			return
 		}
 
-		userApp, token, err = uh.app.LoginWithPhone(req.Phone, req.Password)
+		userApp, err = uh.app.LoginWithPhone(req.Phone, req.Password)
 	case int(user_valueobject.UserNameType):
 	case int(user_valueobject.WxType):
 		// TODO 首先判断该微信用户是否注册，如果为注册，则调用注册接口
@@ -76,10 +65,20 @@ func (uh *UserHandler) Login(c *gin.Context) {
 		NickName: userApp.NickName,
 		Phone:    userApp.Phone,
 		Avatar:   userApp.Avatar,
-		Token:    token,
+		Token:    userApp.AccessToken,
 	}
 
 	c.JSON(http.StatusOK, response.Success(res))
+
+	c.SetCookie(
+		"refresh_token",
+		userApp.RefreshToken,
+		7*24*3600,
+		"/",
+		"",
+		false,
+		true,
+	)
 }
 
 func (uh *UserHandler) Logout(c *gin.Context) {
@@ -119,7 +118,7 @@ func (uh *UserHandler) Register(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
 			return
 		}
-		userApp, token, err = uh.app.RegisterWithPhone(req.Password, req.Phone, req.ReconfirmPassword)
+		userApp, err = uh.app.RegisterWithPhone(req.Password, req.Phone, req.ReconfirmPassword)
 	case int(user_valueobject.WxType):
 		// TODO 微信登录
 	}
@@ -140,6 +139,16 @@ func (uh *UserHandler) Register(c *gin.Context) {
 
 	// TODO 更新 Redis
 	c.JSON(http.StatusOK, response.Success(res))
+
+	c.SetCookie(
+		"refresh_token",
+		userApp.RefreshToken,
+		7*24*3600,
+		"/",
+		"",
+		false,
+		true,
+	)
 }
 
 func (uh *UserHandler) GetUserByUserId(c *gin.Context) {

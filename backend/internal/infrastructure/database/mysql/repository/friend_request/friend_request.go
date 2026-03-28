@@ -44,12 +44,14 @@ func (fr friendRequestRepo) Create(domain *friend_request_entity.FriendRequest) 
 	return toDomain(m), nil
 }
 
-func (fr friendRequestRepo) ReRequest(domain *friend_request_entity.FriendRequest) error {
+func (fr friendRequestRepo) ReRequest(domain *friend_request_entity.FriendRequest, expectStatus []int) error {
 	m := toModel(domain)
+
 	result := fr.db.Model(&model.FriendRequest{}).
 		Where(
-			"request_id = ?",
+			"request_id = ? AND status IN ?",
 			m.RequestId,
+			expectStatus,
 		).
 		Updates(map[string]interface{}{
 			"status":  m.Status,
@@ -91,7 +93,9 @@ func (fr friendRequestRepo) OperateRequest(requestId string, expectStatus, newSt
 
 func (fr friendRequestRepo) ListByUserId(userId string) ([]*friend_request_entity.FriendRequest, error) {
 	var m []model.FriendRequest
-	if err := fr.db.Where("to_user_id = ?", userId).Find(&m).Error; err != nil {
+	if err := fr.db.Where("to_user_id = ?", userId).
+		Order("updated_at DESC").
+		Find(&m).Error; err != nil {
 		return nil, err
 	}
 

@@ -56,15 +56,20 @@ func (fa *FriendApplication) NewFriendRequest(userId, toUserId, message string) 
 	} else {
 		// 这里需要排除二者已经是好友了
 
-		if err := record.ReRequest(message); err != nil {
-			return nil, err
-		}
-		if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pedding), int(record.Status)); err != nil {
-			return nil, err
-		}
+		switch record.Status {
+		case friend_request_valueobject.Accepted:
+			// TODO 重新创建一个新的请求
+		default:
+			if err := record.ReRequest(message); err != nil {
+				return nil, err
+			}
+			if err := fa.friendRequestRepository.ReRequest(record,
+				[]int{int(friend_request_valueobject.Pending), int(friend_request_valueobject.Refused)},
+			); err != nil {
+				return nil, err
+			}
 
-		// TODO 用户信息字段未 get
-
+		}
 		return toDTO(record), nil
 	}
 }
@@ -80,7 +85,7 @@ func (fa *FriendApplication) Refuse(requestId string) error {
 		return err
 	}
 
-	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pedding), int(record.Status)); err != nil {
+	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pending), int(record.Status)); err != nil {
 		return err
 	}
 
@@ -98,7 +103,7 @@ func (fa *FriendApplication) Accept(requestId string) error {
 		return err
 	}
 
-	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pedding), int(record.Status)); err != nil {
+	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pending), int(record.Status)); err != nil {
 		return err
 	}
 

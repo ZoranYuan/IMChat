@@ -6,10 +6,10 @@ import (
 
 // TODO 定义 user_repository 的接口
 type FriendRequestInterface interface {
-	FindByUsers(userId string, toUserId string) (*friend_request_entity.FriendRequest, error)
+	FindByUsersByIds(userId string, toUserId string) (*friend_request_entity.FriendRequest, error)
 	Create(domain *friend_request_entity.FriendRequest) (*friend_request_entity.FriendRequest, error)
 	OperateRequest(requestId string, expectStatus, newStatus int) error
-	ReRequest(domain *friend_request_entity.FriendRequest) error
+	ReRequest(domain *friend_request_entity.FriendRequest, expectStatus []int) error
 	ListByUserId(userId string) ([]*friend_request_entity.FriendRequest, error)
 	FindByRequestId(requestId string) (*friend_request_entity.FriendRequest, error)
 }

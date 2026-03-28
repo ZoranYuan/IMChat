@@ -2,12 +2,14 @@ package application_user
 
 import (
 	"IM_backend/configs"
+	auth_cache_interface "IM_backend/internal/applications/interface/cache/auth"
 	"IM_backend/internal/domain/user"
 	user_entity "IM_backend/internal/domain/user/entity"
 	user_valueobject "IM_backend/internal/domain/user/value_object"
 	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
-	"IM_backend/internal/infrastructure/pkg/jwt"
 	"IM_backend/internal/infrastructure/pkg/snow"
+	service_auth "IM_backend/internal/service/auth"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -18,34 +20,37 @@ import (
 
 type UserApplication struct {
 	userRepository user.UserRepoInterface
+	authService    service_auth.AuthService
 	config         configs.Config
+	authCache      auth_cache_interface.AuthCacheInterface
 }
 
-func NewUserApplication(userRepository user.UserRepoInterface, config configs.Config) *UserApplication {
+func NewUserApplication(userRepository user.UserRepoInterface, config configs.Config, authCache auth_cache_interface.AuthCacheInterface) *UserApplication {
 	return &UserApplication{
 		userRepository: userRepository,
 		config:         config,
+		authCache:      authCache,
 	}
 }
 
-func (ua *UserApplication) RegisterWithPhone(password string, phone string, reconfirmPassword string) (*UserAppDTO, string, error) {
+func (ua *UserApplication) RegisterWithPhone(password string, phone string, reconfirmPassword string) (*UserAppDTO, error) {
 	// TODO 检查当前用户是否存在
 	user, err := ua.userRepository.FindUserByPhone(phone)
 
 	fmt.Println("user is ", user)
 	if user != nil {
-		return nil, "", errors.New("账号已被注册，请返回登录")
+		return nil, errors.New("账号已被注册，请返回登录")
 	}
 
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Println("failed to register user, ", err)
-			return nil, "", err
+			return nil, err
 		}
 	}
 
 	if password != reconfirmPassword {
-		return nil, "", errors.New("两次密码不一致")
+		return nil, errors.New("两次密码不一致")
 	}
 
 	newUser, err := user_entity.RegisterWithPhone(
@@ -54,49 +59,57 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 	)
 
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	// 生成 UserId
 	userId, err := snow.GenerateSnowId(int(ua.config.Snowflake.MachineID))
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	newUser.UserId = userId
 	err = ua.userRepository.Create(user_repository.ToUserModel(newUser))
 
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	// 生成 token
-	token, err := jwt.GenerateToken(userId, ua.config.JWT.Secret, time.Duration(ua.config.JWT.AccessExpireHours))
+	accessToken, refreshToken, err := ua.authService.IssueToken(userId)
+
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	userApp := &UserAppDTO{
-		UserId:   newUser.UserId,
-		UserName: newUser.UserName,
-		NickName: newUser.NickName,
-		Avatar:   newUser.Avatar,
-		Phone:    string(newUser.Phone),
+		UserId:       newUser.UserId,
+		UserName:     newUser.UserName,
+		NickName:     newUser.NickName,
+		Avatar:       newUser.Avatar,
+		Phone:        string(newUser.Phone),
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
 	}
 
-	return userApp, token, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	ua.authCache.SetAccessToken(ctx, userId, accessToken, time.Duration(ua.config.JWT.AccessExpireHours)*time.Minute)
+	ua.authCache.SetRefreshToken(ctx, userId, refreshToken, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
+	return userApp, nil
 }
 
-func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, string, error) {
+func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, error) {
 	userModel, err := ua.userRepository.FindUserByPhone(phone)
 
 	if err != nil {
 		log.Println("failed to register user, ", err)
-		return nil, "", err
+		return nil, err
 	}
 
 	if userModel == nil {
-		return nil, "", errors.New("账户不存在")
+		return nil, errors.New("账户不存在")
 	}
 
 	// TODO 删除对应的 token 缓存，这里为了防止刷机，可以加一个用户锁
@@ -105,7 +118,7 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 		user_valueobject.Password(password),
 		userModel.Password,
 	); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	userModel.OnLineTime = time.Now()
@@ -115,25 +128,36 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 	}
 
 	if err = ua.userRepository.UpdateByUserIdAndPhone(phone, userModel.UserId, updates); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	// 生成 token
-	token, err := jwt.GenerateToken(userModel.UserId, ua.config.JWT.Secret, time.Duration(ua.config.JWT.AccessExpireHours))
+	accessToken, refreshToken, err := ua.authService.IssueToken(userModel.UserId)
+
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	userAppDTO := &UserAppDTO{
-		UserId:   userModel.UserId,
-		UserName: userModel.UserName,
-		NickName: userModel.NickName,
-		Avatar:   userModel.Avatar,
-		Phone:    userModel.Phone,
+		UserId:       userModel.UserId,
+		UserName:     userModel.UserName,
+		NickName:     userModel.NickName,
+		Avatar:       userModel.Avatar,
+		Phone:        userModel.Phone,
+		RefreshToken: refreshToken,
+		AccessToken:  accessToken,
 	}
 
+	// TODO 将之前的缓存删除
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	ua.authCache.SetAccessToken(ctx, userAppDTO.UserId, accessToken, time.Duration(ua.config.JWT.AccessExpireHours)*time.Minute)
+	ua.authCache.SetRefreshToken(ctx, userAppDTO.UserId, refreshToken, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
+
 	// 更新缓存
-	return userAppDTO, token, nil
+	return userAppDTO, nil
 }
 
 func (ua *UserApplication) GetUserByUserId(userId string) (*UserAppDTO, error) {

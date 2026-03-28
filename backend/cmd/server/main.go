@@ -11,6 +11,8 @@ import (
 	"IM_backend/internal/infrastructure/database/mysql"
 	friend_request_repository "IM_backend/internal/infrastructure/database/mysql/repository/friend_request"
 	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
+	"IM_backend/internal/infrastructure/database/redis"
+	auth_cache "IM_backend/internal/infrastructure/database/redis/cache/auth"
 	"context"
 	"log"
 	"net/http"
@@ -34,16 +36,18 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// redis := redis.InitRedis(cfg.Database.Redis.DSN)
+	redis := redis.InitRedis(cfg.Database.Redis.DSN)
 	db := mysql.InitMysql(cfg.Database.MySQL.DSN)
 	defer func() {
 		db = nil
 		cancel()
 	}()
 
+	authCache := auth_cache.NewAuthCache(redis)
+
 	// 构造依赖
 	userRepository := user_repository.NewUserRepository(db)
-	userApp := application_user.NewUserApplication(userRepository, cfg)
+	userApp := application_user.NewUserApplication(userRepository, cfg, authCache)
 	userHandler := https_user.NewUserHandler(userApp)
 
 	friendRequestRepositoy := friend_request_repository.NewFriendRequestRepository(db)
