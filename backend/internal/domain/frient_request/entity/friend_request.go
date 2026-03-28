@@ -18,6 +18,7 @@ func NewFriendRequest(reqId, fromUserId, toUserId, message string) *FriendReques
 	// TODO 对 message 做一些额外的处理
 	var newFriendRequest = &FriendRequest{
 		FromUserId: fromUserId,
+		RequestId:  reqId,
 		ToUserId:   toUserId,
 		Message:    message,
 		Status:     friend_request_valueobject.Pending,

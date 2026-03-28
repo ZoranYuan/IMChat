@@ -10,6 +10,7 @@ func toDomain(m model.FriendRequest) *friend_request_entity.FriendRequest {
 	return &friend_request_entity.FriendRequest{
 		FromUserId: m.FromUserId,
 		ToUserId:   m.ToUserId,
+		RequestId:  m.RequestId,
 		Message:    m.Message,
 		Status:     friend_request_valueobject.Status(m.Status),
 		ApplyTime:  m.UpdatedAt,
@@ -19,6 +20,7 @@ func toDomain(m model.FriendRequest) *friend_request_entity.FriendRequest {
 func toModel(e *friend_request_entity.FriendRequest) model.FriendRequest {
 	return model.FriendRequest{
 		FromUserId: e.FromUserId,
+		RequestId:  e.RequestId,
 		ToUserId:   e.ToUserId,
 		Message:    e.Message,
 		Status:     int(e.Status),

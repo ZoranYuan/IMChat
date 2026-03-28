@@ -2,7 +2,7 @@ package response
 
 func Success(data interface{}) response {
 	return response{
-		Code:    0,
+		Code:    200,
 		Message: "success",
 		Data:    data,
 	}

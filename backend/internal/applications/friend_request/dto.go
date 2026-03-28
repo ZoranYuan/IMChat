@@ -16,6 +16,7 @@ type FriendRequestDTO struct {
 
 func toDTO(fr *friend_request_entity.FriendRequest) *FriendRequestDTO {
 	return &FriendRequestDTO{
+		RequestId:  fr.RequestId,
 		FromUserId: fr.FromUserId,
 		ToUserId:   fr.ToUserId,
 		Message:    fr.Message,

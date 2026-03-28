@@ -44,7 +44,7 @@ func (ur *userRepo) Create(user *model.User) error {
 
 func (ur *userRepo) FindUserByUserId(userId string) (*model.User, error) {
 	var user = model.User{}
-	if err := ur.db.Where("userId = ?", userId).First(&user).Error; err != nil {
+	if err := ur.db.Where("user_id = ?", userId).First(&user).Error; err != nil {
 		return nil, err
 	}
 

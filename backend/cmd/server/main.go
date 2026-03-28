@@ -4,6 +4,7 @@ import (
 	"IM_backend/configs"
 	apis "IM_backend/internal/apis/https"
 	https_friend_request "IM_backend/internal/apis/https/friend_request"
+	"IM_backend/internal/apis/https/middleware"
 	https_user "IM_backend/internal/apis/https/user"
 	"IM_backend/internal/apis/ws"
 	application_friend_request "IM_backend/internal/applications/friend_request"
@@ -13,6 +14,7 @@ import (
 	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
 	"IM_backend/internal/infrastructure/database/redis"
 	auth_cache "IM_backend/internal/infrastructure/database/redis/cache/auth"
+	service_auth "IM_backend/internal/service/auth"
 	"context"
 	"log"
 	"net/http"
@@ -44,20 +46,24 @@ func main() {
 	}()
 
 	authCache := auth_cache.NewAuthCache(redis)
+	authService := service_auth.NewAuthService(cfg)
 
 	// 构造依赖
 	userRepository := user_repository.NewUserRepository(db)
-	userApp := application_user.NewUserApplication(userRepository, cfg, authCache)
+	userApp := application_user.NewUserApplication(userRepository, cfg, authCache, authService)
 	userHandler := https_user.NewUserHandler(userApp)
 
 	friendRequestRepositoy := friend_request_repository.NewFriendRequestRepository(db)
 	friendRequestApp := application_friend_request.NewFriendApplication(friendRequestRepositoy, userRepository)
 	friendRequestHandler := https_friend_request.NewUserHandler(friendRequestApp)
 
+	// 注册中间件
+	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
+
 	// 注册路由
 	apiGroup := r.Group("/api/v1")
 	apis.RegisterUserRouter(apiGroup, userHandler)
-	apis.RegisterFriendRouter(apiGroup, friendRequestHandler)
+	apis.RegisterFriendRouter(apiGroup, friendRequestHandler, authMiddle)
 	ws.RegisterWsRouter(r)
 
 	srv := &http.Server{

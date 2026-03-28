@@ -61,14 +61,14 @@ func (fa *FriendApplication) NewFriendRequest(userId, toUserId, message string) 
 			// TODO 重新创建一个新的请求
 		default:
 			if err := record.ReRequest(message); err != nil {
-				return nil, err
+				// record.ReRequest(message) 只会返回 ErrApplyingTooFrequently 错误，app 层做映射投回 api ，控制数据流向
+				return nil, friend_request_entity.ErrApplyingTooFrequently
 			}
 			if err := fa.friendRequestRepository.ReRequest(record,
 				[]int{int(friend_request_valueobject.Pending), int(friend_request_valueobject.Refused)},
 			); err != nil {
 				return nil, err
 			}
-
 		}
 		return toDTO(record), nil
 	}

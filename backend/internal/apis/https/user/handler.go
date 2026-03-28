@@ -26,9 +26,8 @@ func (uh *UserHandler) Login(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Println("panic, ", r)
+			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "未知错误"))
 		}
-
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "未知错误"))
 	}()
 
 	if err := c.ShouldBindJSON(&req); err != nil {

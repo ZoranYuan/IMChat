@@ -25,11 +25,12 @@ type UserApplication struct {
 	authCache      auth_cache_interface.AuthCacheInterface
 }
 
-func NewUserApplication(userRepository user.UserRepoInterface, config configs.Config, authCache auth_cache_interface.AuthCacheInterface) *UserApplication {
+func NewUserApplication(userRepository user.UserRepoInterface, config configs.Config, authCache auth_cache_interface.AuthCacheInterface, authService service_auth.AuthService) *UserApplication {
 	return &UserApplication{
 		userRepository: userRepository,
 		config:         config,
 		authCache:      authCache,
+		authService:    authService,
 	}
 }
 
@@ -95,8 +96,8 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	ua.authCache.SetAccessToken(ctx, userId, accessToken, time.Duration(ua.config.JWT.AccessExpireHours)*time.Minute)
-	ua.authCache.SetRefreshToken(ctx, userId, refreshToken, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
+	ua.authCache.SetAccessToken(ctx, accessToken, userId, time.Duration(ua.config.JWT.AccessExpireHours)*time.Minute)
+	ua.authCache.SetRefreshToken(ctx, refreshToken, userId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
 	return userApp, nil
 }
 
@@ -153,8 +154,8 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	ua.authCache.SetAccessToken(ctx, userAppDTO.UserId, accessToken, time.Duration(ua.config.JWT.AccessExpireHours)*time.Minute)
-	ua.authCache.SetRefreshToken(ctx, userAppDTO.UserId, refreshToken, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
+	ua.authCache.SetAccessToken(ctx, accessToken, userAppDTO.UserId, time.Duration(ua.config.JWT.AccessExpireHours)*time.Minute)
+	ua.authCache.SetRefreshToken(ctx, refreshToken, userAppDTO.UserId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
 
 	// 更新缓存
 	return userAppDTO, nil

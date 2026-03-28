@@ -3,6 +3,8 @@ package https_friend_request
 import (
 	"IM_backend/internal/apis/response"
 	application_friend_request "IM_backend/internal/applications/friend_request"
+	friend_request_entity "IM_backend/internal/domain/frient_request/entity"
+	"errors"
 	"log"
 	"net/http"
 
@@ -37,7 +39,11 @@ func (fh *FriendHandle) Request(c *gin.Context) {
 	friendRequestApp, err := fh.app.NewFriendRequest(userId, newFriendRequest.ToUserId, newFriendRequest.Message)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, err.Error()))
+		if errors.Is(err, friend_request_entity.ErrApplyingTooFrequently) {
+			c.JSON(http.StatusOK, response.Error(http.StatusOK, err.Error()))
+		} else {
+			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "网络错误"))
+		}
 		return
 	}
 
