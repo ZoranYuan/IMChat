@@ -20,7 +20,7 @@ func NewFriendRequest(reqId, fromUserId, toUserId, message string) *FriendReques
 		FromUserId: fromUserId,
 		ToUserId:   toUserId,
 		Message:    message,
-		Status:     friend_request_valueobject.Pedding,
+		Status:     friend_request_valueobject.Pending,
 		ApplyTime:  time.Now(),
 	}
 
@@ -33,7 +33,7 @@ func (fq *FriendRequest) ReRequest(message string) error {
 	}
 
 	fq.Message = message
-	fq.Status = friend_request_valueobject.Pedding
+	fq.Status = friend_request_valueobject.Pending
 	fq.ApplyTime = time.Now()
 
 	return nil
@@ -41,7 +41,7 @@ func (fq *FriendRequest) ReRequest(message string) error {
 
 func (fq *FriendRequest) Accept() error {
 	var err error
-	if fq.Status != friend_request_valueobject.Pedding {
+	if fq.Status != friend_request_valueobject.Pending {
 		return ErrDuplicateOperation
 	}
 
@@ -52,7 +52,7 @@ func (fq *FriendRequest) Accept() error {
 
 func (fq *FriendRequest) Refuse() error {
 	var err error
-	if fq.Status != friend_request_valueobject.Pedding {
+	if fq.Status != friend_request_valueobject.Pending {
 		return ErrDuplicateOperation
 	}
 
