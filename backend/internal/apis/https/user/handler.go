@@ -28,11 +28,11 @@ func (uh *UserHandler) Login(c *gin.Context) {
 			log.Println("panic, ", r)
 		}
 
-		c.JSON(http.StatusInternalServerError, response.Error(201, "未知错误"))
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "未知错误"))
 	}()
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(201, "error request"))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "error request"))
 		return
 	}
 
@@ -44,7 +44,7 @@ func (uh *UserHandler) Login(c *gin.Context) {
 	switch req.LoginType {
 	case int(user_valueobject.PhoneType):
 		if req.Phone == "" || req.Password == "" {
-			c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 			return
 		}
 
@@ -55,7 +55,7 @@ func (uh *UserHandler) Login(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(201, err.Error()))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
 		return
 	}
 
@@ -85,7 +85,7 @@ func (uh *UserHandler) Logout(c *gin.Context) {
 	userId := c.GetString("userId")
 
 	if userId == "" {
-		c.JSON(401, response.Error(201, "请登录之后再操作"))
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "请登录之后再操作"))
 		return
 	}
 
@@ -102,7 +102,7 @@ func (uh *UserHandler) Register(c *gin.Context) {
 	var req = UserRegisterReq{}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(201, "error request"))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "error request"))
 		return
 	}
 
@@ -115,7 +115,7 @@ func (uh *UserHandler) Register(c *gin.Context) {
 	case int(user_valueobject.PhoneType):
 		// 验证密码，手机号字段
 		if req.Phone == "" || req.Password == "" || req.ReconfirmPassword == "" {
-			c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 			return
 		}
 		userApp, err = uh.app.RegisterWithPhone(req.Password, req.Phone, req.ReconfirmPassword)
@@ -124,7 +124,7 @@ func (uh *UserHandler) Register(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(201, response.Error(201, err.Error()))
+		c.JSON(http.StatusInternalServerError, response.Error(201, err.Error()))
 		return
 	}
 

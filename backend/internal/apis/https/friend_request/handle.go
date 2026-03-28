@@ -23,21 +23,21 @@ func (fh *FriendHandle) Request(c *gin.Context) {
 	userId := c.GetString("userId")
 
 	if userId == "" {
-		c.JSON(http.StatusUnauthorized, response.Error(201, "登录过期"))
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 		return
 	}
 
 	var newFriendRequest FriendRequestReq
 	if err := c.ShouldBindJSON(&newFriendRequest); err != nil {
 		log.Println("failed to parse newFriendRequest, ", err)
-		c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
 
 	friendRequestApp, err := fh.app.NewFriendRequest(userId, newFriendRequest.ToUserId, newFriendRequest.Message)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(201, err.Error()))
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
@@ -54,7 +54,7 @@ func (fh *FriendHandle) OperateRequest(c *gin.Context) {
 	var res OperateRequestReq
 
 	if err := c.ShouldBindJSON(&res); err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
 
@@ -66,7 +66,7 @@ func (fh *FriendHandle) OperateRequest(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(201, err.Error()))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
 		return
 	}
 
@@ -77,13 +77,13 @@ func (fh *FriendHandle) RequestList(c *gin.Context) {
 	userId := c.GetString("userId")
 
 	if userId == "" {
-		c.JSON(http.StatusUnauthorized, response.Error(201, "登录过期"))
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 		return
 	}
 
 	requestListApp, err := fh.app.GetFriendRequstListByUserId(userId)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(201, "服务端错误"))
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "服务端错误"))
 		return
 	}
 
