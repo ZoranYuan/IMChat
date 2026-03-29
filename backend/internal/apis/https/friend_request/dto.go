@@ -7,6 +7,13 @@ type FriendRequestReq struct {
 	Message  string `json:"message" binding:"required"` // 可选留言
 }
 
+type ActionType int
+
+const (
+	ActionAccept ActionType = 1
+	ActionReject ActionType = 2
+)
+
 type FriendRequestRes struct {
 	RequestId string    `json:"requestId"`
 	ToUserId  string    `json:"toUserId"`
@@ -16,6 +23,6 @@ type FriendRequestRes struct {
 }
 
 type OperateRequestReq struct {
-	RequestId string `json:"requestId" binding:"required"`
-	IsAccept  bool   `json:"isAccept" binding:"required"` // 可选留言
+	RequestId string     `json:"requestId" binding:"required"`
+	Action    ActionType `json:"action" binding:"required"` // 可选留言
 }

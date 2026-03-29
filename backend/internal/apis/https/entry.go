@@ -8,12 +8,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterUserRouter(r *gin.RouterGroup, uh *https_user.UserHandler) {
+func RegisterUserRouter(r *gin.RouterGroup, uh *https_user.UserHandle) {
 	ug := r.Group("/user")
 	https_user.AddUserRouter(ug, uh)
 }
 
-func RegisterFriendRouter(r *gin.RouterGroup, fh *https_friend_request.FriendHandle, authMiddle *middleware.AuthMiddleware) {
+func RegisterFriendRouter(r *gin.RouterGroup, fh *https_friend_request.FriendRequestHandle, authMiddle *middleware.AuthMiddleware) {
 	fg := r.Group("/friend/request").Use(authMiddle.JWTAuthMiddleware())
 	https_friend_request.AddFriendRouter(fg, fh)
 }

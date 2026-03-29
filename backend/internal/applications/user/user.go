@@ -3,12 +3,12 @@ package application_user
 import (
 	"IM_backend/configs"
 	auth_cache_interface "IM_backend/internal/applications/interface/cache/auth"
-	"IM_backend/internal/domain/user"
+	auth_service_interface "IM_backend/internal/applications/interface/service"
 	user_entity "IM_backend/internal/domain/user/entity"
+	user_repository_interface "IM_backend/internal/domain/user/repository"
 	user_valueobject "IM_backend/internal/domain/user/value_object"
 	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
 	"IM_backend/internal/infrastructure/pkg/snow"
-	service_auth "IM_backend/internal/service/auth"
 	"context"
 	"errors"
 	"fmt"
@@ -19,13 +19,13 @@ import (
 )
 
 type UserApplication struct {
-	userRepository user.UserRepoInterface
-	authService    service_auth.AuthService
+	userRepository user_repository_interface.UserRepoInterface
+	authService    auth_service_interface.AuthService
 	config         configs.Config
 	authCache      auth_cache_interface.AuthCacheInterface
 }
 
-func NewUserApplication(userRepository user.UserRepoInterface, config configs.Config, authCache auth_cache_interface.AuthCacheInterface, authService service_auth.AuthService) *UserApplication {
+func NewUserApplication(userRepository user_repository_interface.UserRepoInterface, config configs.Config, authCache auth_cache_interface.AuthCacheInterface, authService auth_service_interface.AuthService) *UserApplication {
 	return &UserApplication{
 		userRepository: userRepository,
 		config:         config,
@@ -162,7 +162,7 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 }
 
 func (ua *UserApplication) GetUserByUserId(userId string) (*UserAppDTO, error) {
-	userModel, err := ua.userRepository.FindUserByUserId(userId)
+	userModel, err := ua.userRepository.FindByUserId(userId)
 
 	if err != nil {
 		return nil, err
@@ -180,7 +180,7 @@ func (ua *UserApplication) GetUserByUserId(userId string) (*UserAppDTO, error) {
 }
 
 func (ua *UserApplication) Logout(userId string) error {
-	userModel, err := ua.userRepository.FindUserByUserId(userId)
+	userModel, err := ua.userRepository.FindByUserId(userId)
 	if err != nil {
 		return nil
 	}

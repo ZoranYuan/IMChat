@@ -10,10 +10,12 @@ import (
 	application_friend_request "IM_backend/internal/applications/friend_request"
 	application_user "IM_backend/internal/applications/user"
 	"IM_backend/internal/infrastructure/database/mysql"
+	friend_repository "IM_backend/internal/infrastructure/database/mysql/repository/friend"
 	friend_request_repository "IM_backend/internal/infrastructure/database/mysql/repository/friend_request"
 	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
 	"IM_backend/internal/infrastructure/database/redis"
 	auth_cache "IM_backend/internal/infrastructure/database/redis/cache/auth"
+	"IM_backend/internal/infrastructure/persistence"
 	service_auth "IM_backend/internal/service/auth"
 	"context"
 	"log"
@@ -45,24 +47,28 @@ func main() {
 		cancel()
 	}()
 
+	txManager := persistence.NewGormTxManager(db)
+
 	authCache := auth_cache.NewAuthCache(redis)
 	authService := service_auth.NewAuthService(cfg)
 
 	// 构造依赖
 	userRepository := user_repository.NewUserRepository(db)
 	userApp := application_user.NewUserApplication(userRepository, cfg, authCache, authService)
-	userHandler := https_user.NewUserHandler(userApp)
+	userHandle := https_user.NewUserHandle(userApp)
+
+	friendRepository := friend_repository.NewFriendRepository(db)
 
 	friendRequestRepositoy := friend_request_repository.NewFriendRequestRepository(db)
-	friendRequestApp := application_friend_request.NewFriendApplication(friendRequestRepositoy, userRepository)
-	friendRequestHandler := https_friend_request.NewUserHandler(friendRequestApp)
+	friendRequestApp := application_friend_request.NewFriendApplication(friendRequestRepositoy, userRepository, cfg, friendRepository, txManager)
+	friendRequestHandler := https_friend_request.NewFriendRequestHandle(friendRequestApp)
 
 	// 注册中间件
 	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
 
 	// 注册路由
 	apiGroup := r.Group("/api/v1")
-	apis.RegisterUserRouter(apiGroup, userHandler)
+	apis.RegisterUserRouter(apiGroup, userHandle)
 	apis.RegisterFriendRouter(apiGroup, friendRequestHandler, authMiddle)
 	ws.RegisterWsRouter(r)
 

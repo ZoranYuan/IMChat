@@ -2,6 +2,7 @@ package user_repository
 
 import (
 	user_entity "IM_backend/internal/domain/user/entity"
+	user_repository_interface "IM_backend/internal/domain/user/repository"
 	user_valueobject "IM_backend/internal/domain/user/value_object"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 	"errors"
@@ -9,17 +10,21 @@ import (
 	"gorm.io/gorm"
 )
 
-type userRepo struct {
+type userRepository struct {
 	db *gorm.DB
 }
 
-func NewUserRepository(db *gorm.DB) *userRepo {
-	return &userRepo{
+func NewUserRepository(db *gorm.DB) user_repository_interface.UserRepoInterface {
+	return &userRepository{
 		db: db,
 	}
 }
 
-func (ur *userRepo) FindUserByPhone(phone string) (*model.User, error) {
+func (r *userRepository) WithTx(tx *gorm.DB) user_repository_interface.UserRepoInterface {
+	return &userRepository{db: tx}
+}
+
+func (ur *userRepository) FindUserByPhone(phone string) (*model.User, error) {
 	var user = model.User{}
 	if err := ur.db.Where("phone = ?", phone).First(&user).Error; err != nil {
 		return nil, err
@@ -28,7 +33,7 @@ func (ur *userRepo) FindUserByPhone(phone string) (*model.User, error) {
 	return &user, nil
 }
 
-func (ur *userRepo) Create(user *model.User) error {
+func (ur *userRepository) Create(user *model.User) error {
 	result := ur.db.Where("phone = ?", user.Phone).FirstOrCreate(user)
 
 	if result.Error != nil {
@@ -42,7 +47,7 @@ func (ur *userRepo) Create(user *model.User) error {
 	return nil
 }
 
-func (ur *userRepo) FindUserByUserId(userId string) (*model.User, error) {
+func (ur *userRepository) FindByUserId(userId string) (*model.User, error) {
 	var user = model.User{}
 	if err := ur.db.Where("user_id = ?", userId).First(&user).Error; err != nil {
 		return nil, err
@@ -51,7 +56,29 @@ func (ur *userRepo) FindUserByUserId(userId string) (*model.User, error) {
 	return &user, nil
 }
 
-func (ur *userRepo) UpdateByUserIdAndPhone(phone string, userId string, updates map[string]interface{}) error {
+func (ur *userRepository) FindByUserIds(userIds []string) ([]user_entity.User, error) {
+	if len(userIds) == 0 {
+		return []user_entity.User{}, nil
+	}
+
+	var models []model.User
+
+	err := ur.db.
+		Where("user_id IN ?", userIds).
+		Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]user_entity.User, 0, len(models))
+	for _, m := range models {
+		users = append(users, toDomain(m))
+	}
+
+	return users, nil
+}
+
+func (ur *userRepository) UpdateByUserIdAndPhone(phone string, userId string, updates map[string]interface{}) error {
 	return ur.db.Model(&model.User{}).
 		Where("user_id = ? AND phone = ?", userId, phone).
 		Updates(updates).

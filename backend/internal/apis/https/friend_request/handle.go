@@ -11,17 +11,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type FriendHandle struct {
+type FriendRequestHandle struct {
 	app *application_friend_request.FriendApplication
 }
 
-func NewUserHandler(app *application_friend_request.FriendApplication) *FriendHandle {
-	return &FriendHandle{
+func NewFriendRequestHandle(app *application_friend_request.FriendApplication) *FriendRequestHandle {
+	return &FriendRequestHandle{
 		app: app,
 	}
 }
 
-func (fh *FriendHandle) Request(c *gin.Context) {
+func (fh *FriendRequestHandle) Request(c *gin.Context) {
 	userId := c.GetString("userId")
 
 	if userId == "" {
@@ -56,8 +56,14 @@ func (fh *FriendHandle) Request(c *gin.Context) {
 	}))
 }
 
-func (fh *FriendHandle) OperateRequest(c *gin.Context) {
+func (fh *FriendRequestHandle) OperateRequest(c *gin.Context) {
 	var res OperateRequestReq
+
+	userId := c.GetString("userId")
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		return
+	}
 
 	if err := c.ShouldBindJSON(&res); err != nil {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
@@ -65,21 +71,21 @@ func (fh *FriendHandle) OperateRequest(c *gin.Context) {
 	}
 
 	var err error
-	if res.IsAccept {
-		err = fh.app.Accept(res.RequestId)
+	if res.Action == ActionAccept {
+		err = fh.app.Accept(res.RequestId, userId)
 	} else {
-		err = fh.app.Refuse(res.RequestId)
+		err = fh.app.Refuse(res.RequestId, userId)
 	}
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
 	c.JSON(http.StatusOK, response.Success(nil))
 }
 
-func (fh *FriendHandle) RequestList(c *gin.Context) {
+func (fh *FriendRequestHandle) RequestList(c *gin.Context) {
 	userId := c.GetString("userId")
 
 	if userId == "" {
