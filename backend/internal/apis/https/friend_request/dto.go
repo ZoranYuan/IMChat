@@ -1,7 +1,5 @@
 package https_friend_request
 
-import "time"
-
 type FriendRequestReq struct {
 	ToUserId string `json:"toUserId" binding:"required"`
 	Message  string `json:"message" binding:"required"` // 可选留言
@@ -15,11 +13,11 @@ const (
 )
 
 type FriendRequestRes struct {
-	RequestId string    `json:"requestId"`
-	ToUserId  string    `json:"toUserId"`
-	Message   string    `json:"message"`
-	Status    int       `json:"status"`
-	ApplyTime time.Time `json:"applyTime"`
+	RequestId string `json:"requestId"`
+	ToUserId  string `json:"toUserId"`
+	Message   string `json:"message"`
+	Status    int    `json:"status"`
+	ApplyTime int64  `json:"applyTime"`
 }
 
 type OperateRequestReq struct {

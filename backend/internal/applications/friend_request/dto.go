@@ -2,16 +2,15 @@ package application_friend_request
 
 import (
 	friend_request_entity "IM_backend/internal/domain/frient_request/entity"
-	"time"
 )
 
 type FriendRequestDTO struct {
-	RequestId  string    `json:"requestId"`
-	FromUserId string    `json:"fromUserId"`
-	ToUserId   string    `json:"toUserId"`
-	Message    string    `json:"message"`
-	Status     int       `json:"status"`
-	ApplyTime  time.Time `json:"applyTime"`
+	RequestId  string `json:"requestId"`
+	FromUserId string `json:"fromUserId"`
+	ToUserId   string `json:"toUserId"`
+	Message    string `json:"message"`
+	Status     int    `json:"status"`
+	ApplyTime  int64  `json:"applyTime"`
 }
 
 func toDTO(fr *friend_request_entity.FriendRequest) FriendRequestDTO {
