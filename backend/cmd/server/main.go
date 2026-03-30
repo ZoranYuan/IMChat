@@ -3,10 +3,12 @@ package main
 import (
 	"IM_backend/configs"
 	apis "IM_backend/internal/apis/https"
+	https_friend "IM_backend/internal/apis/https/friend"
 	https_friend_request "IM_backend/internal/apis/https/friend_request"
 	"IM_backend/internal/apis/https/middleware"
 	https_user "IM_backend/internal/apis/https/user"
 	"IM_backend/internal/apis/ws"
+	application_friend "IM_backend/internal/applications/friend"
 	application_friend_request "IM_backend/internal/applications/friend_request"
 	application_user "IM_backend/internal/applications/user"
 	"IM_backend/internal/infrastructure/database/mysql"
@@ -57,11 +59,15 @@ func main() {
 	userApp := application_user.NewUserApplication(userRepository, cfg, authCache, authService)
 	userHandle := https_user.NewUserHandle(userApp)
 
-	friendRepository := friend_repository.NewFriendRepository(db)
+	friendRequestRepository := friend_repository.NewFriendRepository(db)
 
 	friendRequestRepositoy := friend_request_repository.NewFriendRequestRepository(db)
-	friendRequestApp := application_friend_request.NewFriendApplication(friendRequestRepositoy, userRepository, cfg, friendRepository, txManager)
-	friendRequestHandler := https_friend_request.NewFriendRequestHandle(friendRequestApp)
+	friendRequestApp := application_friend_request.NewFriendApplication(friendRequestRepositoy, userRepository, cfg, friendRequestRepository, txManager)
+	friendRequestHandle := https_friend_request.NewFriendRequestHandle(friendRequestApp)
+
+	friendRepository := friend_repository.NewFriendRepository(db)
+	friendApp := application_friend.NewFriendApplication(friendRepository)
+	friendHandle := https_friend.NewFriendHandle(friendApp)
 
 	// 注册中间件
 	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
@@ -69,7 +75,8 @@ func main() {
 	// 注册路由
 	apiGroup := r.Group("/api/v1")
 	apis.RegisterUserRouter(apiGroup, userHandle)
-	apis.RegisterFriendRouter(apiGroup, friendRequestHandler, authMiddle)
+	apis.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
+	apis.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	ws.RegisterWsRouter(r)
 
 	srv := &http.Server{
