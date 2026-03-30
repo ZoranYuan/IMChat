@@ -11,7 +11,7 @@ type FriendRequest struct {
 	ToUserId   string                            `json:"toUserId"`
 	Status     friend_request_valueobject.Status `json:"status"`
 	Message    string                            `json:"message"` // 可选留言
-	ApplyTime  time.Time                         `json:"applyTime"`
+	ApplyTime  int64                             `json:"applyTime"`
 }
 
 func NewFriendRequest(reqId, fromUserId, toUserId, message string) (*FriendRequest, error) {
@@ -26,7 +26,7 @@ func NewFriendRequest(reqId, fromUserId, toUserId, message string) (*FriendReque
 		ToUserId:   toUserId,
 		Message:    message,
 		Status:     friend_request_valueobject.Pending,
-		ApplyTime:  time.Now(),
+		ApplyTime:  time.Now().Unix(),
 	}
 
 	return newFriendRequest, nil
@@ -37,7 +37,7 @@ func (fq *FriendRequest) ReRequest(message string) error {
 		return ErrRequestSelf
 	}
 
-	if time.Since(fq.ApplyTime) < 10*time.Minute {
+	if time.Duration(time.Now().Unix()-fq.ApplyTime)*time.Second < 10*time.Minute {
 		return ErrApplyingTooFrequently
 	}
 
@@ -47,7 +47,7 @@ func (fq *FriendRequest) ReRequest(message string) error {
 
 	fq.Message = message
 	fq.Status = friend_request_valueobject.Pending
-	fq.ApplyTime = time.Now()
+	fq.ApplyTime = time.Now().Unix()
 
 	return nil
 }
