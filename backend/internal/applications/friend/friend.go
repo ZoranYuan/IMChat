@@ -13,9 +13,11 @@ type FriendApplication struct {
 
 func NewFriendApplication(
 	friendRepository friend_repository_interface.FriendRepositoryInterface,
+	userRepository user_repository_interface.UserRepoInterface,
 ) *FriendApplication {
 	return &FriendApplication{
 		friendRepository: friendRepository,
+		userRepository:   userRepository,
 	}
 }
 
@@ -23,7 +25,7 @@ func (fa *FriendApplication) GetUserFriendList(userId string) ([]FriendAppDTO, e
 	// TODO 权衡这里是否有必要加入 userId 的查询，判断当前用户是否存在
 	friends, err := fa.friendRepository.GetUserFriendList(
 		userId,
-		[]int{int(friend_valueobject.DeleteOther), int(friend_valueobject.BeDeleted)},
+		int(friend_valueobject.DeleteOther),
 	)
 
 	userIds := make([]string, 0, len(friends))
@@ -39,7 +41,7 @@ func (fa *FriendApplication) GetUserFriendList(userId string) ([]FriendAppDTO, e
 	}
 
 	friendListApp := make([]FriendAppDTO, 0, len(users))
-	for i := range friendListApp {
+	for i := range users {
 		friendListApp = append(friendListApp, FriendAppDTO{
 			FriendUserId:   friends[i].FriendUserId,
 			FriendAvatar:   users[i].Avatar,

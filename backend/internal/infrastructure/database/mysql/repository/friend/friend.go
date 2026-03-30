@@ -40,11 +40,11 @@ func (fr *friendRepository) Create(domains []friend_entity.Friend) error {
 	})
 }
 
-func (fr *friendRepository) GetUserFriendList(userId string, status []int) ([]friend_entity.Friend, error) {
+func (fr *friendRepository) GetUserFriendList(userId string, status int) ([]friend_entity.Friend, error) {
 	var m []model.Friend
 
 	if err := fr.db.
-		Where("user_id = ? AND status IN ?", userId, status).
+		Where("user_id = ? AND status != ?", userId, status).
 		Find(&m).
 		Error; err != nil {
 		return nil, err

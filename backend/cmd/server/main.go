@@ -66,7 +66,7 @@ func main() {
 	friendRequestHandle := https_friend_request.NewFriendRequestHandle(friendRequestApp)
 
 	friendRepository := friend_repository.NewFriendRepository(db)
-	friendApp := application_friend.NewFriendApplication(friendRepository)
+	friendApp := application_friend.NewFriendApplication(friendRepository, userRepository)
 	friendHandle := https_friend.NewFriendHandle(friendApp)
 
 	// 注册中间件

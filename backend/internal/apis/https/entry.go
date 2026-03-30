@@ -1,6 +1,7 @@
 package apis
 
 import (
+	https_friend "IM_backend/internal/apis/https/friend"
 	https_friend_request "IM_backend/internal/apis/https/friend_request"
 	"IM_backend/internal/apis/https/middleware"
 	https_user "IM_backend/internal/apis/https/user"
@@ -13,7 +14,12 @@ func RegisterUserRouter(r *gin.RouterGroup, uh *https_user.UserHandle) {
 	https_user.AddUserRouter(ug, uh)
 }
 
-func RegisterFriendRouter(r *gin.RouterGroup, fh *https_friend_request.FriendRequestHandle, authMiddle *middleware.AuthMiddleware) {
+func RegisterFriendRequestRouter(r *gin.RouterGroup, fh *https_friend_request.FriendRequestHandle, authMiddle *middleware.AuthMiddleware) {
 	fg := r.Group("/friend/request").Use(authMiddle.JWTAuthMiddleware())
-	https_friend_request.AddFriendRouter(fg, fh)
+	https_friend_request.AddFriendRequstRouter(fg, fh)
+}
+
+func RegisterFriendRouter(r *gin.RouterGroup, fh *https_friend.FriendHandle, authMiddle *middleware.AuthMiddleware) {
+	fr := r.Group("/friend").Use(authMiddle.JWTAuthMiddleware())
+	https_friend.AddFriendRouter(fr, fh)
 }

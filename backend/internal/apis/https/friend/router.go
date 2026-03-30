@@ -2,6 +2,6 @@ package https_friend
 
 import "github.com/gin-gonic/gin"
 
-func AddFriendRouter(fg gin.IRoutes, fh *FriendHandle) {
-	fg.GET("", fh.GetFriendList)
+func AddFriendRouter(fr gin.IRoutes, fh *FriendHandle) {
+	fr.GET("", fh.GetFriendList)
 }
