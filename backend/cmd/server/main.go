@@ -6,17 +6,22 @@ import (
 	https_friend "IM_backend/internal/apis/https/friend"
 	https_friend_request "IM_backend/internal/apis/https/friend_request"
 	"IM_backend/internal/apis/https/middleware"
+	https_room "IM_backend/internal/apis/https/room"
 	https_user "IM_backend/internal/apis/https/user"
 	"IM_backend/internal/apis/ws"
 	application_friend "IM_backend/internal/applications/friend"
 	application_friend_request "IM_backend/internal/applications/friend_request"
+	application_room "IM_backend/internal/applications/room"
 	application_user "IM_backend/internal/applications/user"
 	"IM_backend/internal/infrastructure/database/mysql"
 	friend_repository "IM_backend/internal/infrastructure/database/mysql/repository/friend"
 	friend_request_repository "IM_backend/internal/infrastructure/database/mysql/repository/friend_request"
+	room_repository "IM_backend/internal/infrastructure/database/mysql/repository/room"
+	room_user_repository "IM_backend/internal/infrastructure/database/mysql/repository/room_user"
 	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
 	"IM_backend/internal/infrastructure/database/redis"
 	auth_cache "IM_backend/internal/infrastructure/database/redis/cache/auth"
+	room_cache "IM_backend/internal/infrastructure/database/redis/cache/room"
 	"IM_backend/internal/infrastructure/persistence"
 	service_auth "IM_backend/internal/service/auth"
 	"context"
@@ -52,6 +57,7 @@ func main() {
 	txManager := persistence.NewGormTxManager(db)
 
 	authCache := auth_cache.NewAuthCache(redis)
+	roomCache := room_cache.NewRoomCache(redis)
 	authService := service_auth.NewAuthService(cfg)
 
 	// 构造依赖
@@ -69,6 +75,11 @@ func main() {
 	friendApp := application_friend.NewFriendApplication(friendRepository, userRepository)
 	friendHandle := https_friend.NewFriendHandle(friendApp)
 
+	roomUserRepository := room_user_repository.NewRoomUserRepository(db)
+	roomRepository := room_repository.NewRoomRepository(db)
+	roomApp := application_room.NewRoomApplication(roomRepository, roomUserRepository, cfg, roomCache, txManager)
+	roomHandle := https_room.NewRoomHandle(roomApp)
+
 	// 注册中间件
 	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
 
@@ -77,6 +88,8 @@ func main() {
 	apis.RegisterUserRouter(apiGroup, userHandle)
 	apis.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
 	apis.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
+	apis.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
+
 	ws.RegisterWsRouter(r)
 
 	srv := &http.Server{

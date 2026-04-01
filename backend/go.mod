@@ -26,6 +26,7 @@ require (
 	github.com/go-openapi/swag/typeutils v0.25.5 // indirect
 	github.com/go-openapi/swag/yamlutils v0.25.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.3.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/mailru/easyjson v0.9.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
