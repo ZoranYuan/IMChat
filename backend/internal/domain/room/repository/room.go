@@ -9,5 +9,5 @@ import (
 type RoomRepositoryInterface interface {
 	Create(domain *room_entity.Room) (*room_entity.Room, error)
 	WithTx(tx *gorm.DB) RoomRepositoryInterface
-	FindRoomByRoomId(roomId string) (*room_entity.Room, error)
+	FindActiveRoom(roomId string, status int) (*room_entity.Room, error)
 }

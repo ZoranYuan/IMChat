@@ -10,17 +10,58 @@ type RoomUser struct {
 	RoomId    string
 	Role      room_valueobject.Role
 	Status    room_valueobject.RoomUserStatus
-	MuteUntil int64
+	MuteUtil  *int64
 	JoinTime  int64
+	LeaveTime *int64
+	Version   int64
 }
 
 func NewRoomUser(userId, roomId string, role room_valueobject.Role) *RoomUser {
 	return &RoomUser{
-		UserId:    userId,
-		RoomId:    roomId,
-		Role:      role,
-		Status:    room_valueobject.Activate,
-		MuteUntil: 0,
-		JoinTime:  time.Now().Unix(),
+		UserId:   userId,
+		RoomId:   roomId,
+		Role:     role,
+		Status:   room_valueobject.Activate,
+		MuteUtil: nil,
+		JoinTime: time.Now().Unix(),
+		Version:  1,
 	}
+}
+
+func (ru *RoomUser) Invite() error {
+	if ru.Status != room_valueobject.Activate {
+		return ErrNoPermission
+	}
+
+	return nil
+}
+
+func (ru *RoomUser) Join() {
+	ru.Status = room_valueobject.Activate
+	ru.JoinTime = time.Now().Unix()
+	ru.MuteUtil = nil
+	ru.LeaveTime = nil
+}
+
+func (ru *RoomUser) ReJoin() error {
+	if ru.Status != room_valueobject.BeKicked || ru.Status != room_valueobject.Left {
+		return ErrDuplicateJoin
+	}
+
+	ru.Status = room_valueobject.Activate
+	ru.JoinTime = time.Now().Unix()
+	ru.MuteUtil = nil
+	ru.LeaveTime = nil
+	return nil
+}
+
+func (ru *RoomUser) Leave() error {
+	if ru.Status != room_valueobject.BeMuted || ru.Status != room_valueobject.Activate {
+		return ErrDuplicateLeft
+	}
+	ru.Status = room_valueobject.Left
+	now := time.Now().Unix()
+	ru.LeaveTime = &now
+
+	return nil
 }

@@ -46,7 +46,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		return nil, err
 	}
 
-	roomDomain, err := room_entity.NewRoom(roomId, userId, description, roomName, avatar)
+	room, err := room_entity.NewRoom(roomId, userId, description, roomName, avatar)
 	if err != nil {
 		if errors.Is(err, room_entity.ErrRoomNameIsNotNull) {
 			return nil, ErrRoomNameIsNotNull
@@ -54,7 +54,8 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 			return nil, ErrUnknownError
 		}
 	}
-	roomUserDomain := room_entity.NewRoomUser(userId, roomId, room_valueobject.HomeOwner)
+	roomUser := room_entity.NewRoomUser(userId, roomId, room_valueobject.HomeOwner)
+	roomUser.Join()
 
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(3)*time.Second)
 	defer cancel()
@@ -63,11 +64,13 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		roomRepository := ra.roomRepository.WithTx(tx)
 		roomUserRepository := ra.roomUserRepository.WithTx(tx)
 
-		if _, err := roomRepository.Create(roomDomain); err != nil {
-			return err
+		if _, err := roomRepository.Create(room); err != nil {
+			if errors.Is(err, room_entity.ErrDuplicateCreate) {
+				return ErrConcurrentUpdate
+			}
 		}
 
-		if _, err := roomUserRepository.Create(roomUserDomain); err != nil {
+		if _, err := roomUserRepository.Create(roomUser); err != nil {
 			return err
 		}
 
@@ -84,11 +87,11 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		inviteCode = "110234675"
 	}
 
-	return toDTO(roomDomain, inviteCode), nil
+	return toRoomAppDTO(room, inviteCode), nil
 }
 
 func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (string, error) {
-	room, err := ra.roomRepository.FindRoomByRoomId(roomId)
+	room, err := ra.roomRepository.FindActiveRoom(roomId, int(room_valueobject.Activate))
 	if err != nil {
 		if errors.Is(err, room_entity.ErrRoomNotFound) {
 			return "", ErrRoomNotFound
@@ -98,7 +101,20 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 		return "", ErrUnknownError
 	}
 
-	if !room.CanInvite() {
+	// 查看当前用户是否在房间内
+	roomUser, err := ra.roomUserRepository.GetRelationByIds(roomId, userId)
+	if err != nil {
+		if errors.Is(err, room_entity.ErrRecordNotFound) {
+			return "", ErrNotInRoom
+		}
+		return "", ErrUnknownError
+	}
+
+	if err := roomUser.Invite(); err != nil {
+		return "", ErrNoPermission
+	}
+
+	if !room.Invite() {
 		return "", ErrNotAvaiableRoom
 	}
 
@@ -112,4 +128,63 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 	return invitecode, nil
 }
 
-func (ra *RoomApplication) Join(ctx context.Context, userId, roomId string) (string, error)
+func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) (*RoomUserDTO, *RoomAppDTO, error) {
+	roomId, err := ra.roomCache.GetRoomIdByCode(ctx, inviteCode)
+
+	if err != nil {
+		if errors.Is(err, room_entity.ErrUnavaiableCode) {
+			return nil, nil, ErrUnavaiableCode
+		}
+
+		log.Println("failed to get roomId ", err)
+		return nil, nil, ErrUnknownError
+	}
+
+	room, err := ra.roomRepository.FindActiveRoom(roomId, int(room_valueobject.Normal))
+	if err != nil {
+		if errors.Is(err, room_entity.ErrUnavaiableCode) {
+			return nil, nil, ErrUnavaiableCode
+		}
+
+		return nil, nil, ErrUnknownError
+	}
+
+	roomUser := room_entity.NewRoomUser(userId, roomId, room_valueobject.RegularUser)
+	roomUser.Join()
+
+	if err := ra.roomUserRepository.JoinRoom(roomUser); err != nil {
+		if errors.Is(err, room_entity.ErrVersionConflict) {
+			return nil, nil, ErrConcurrentUpdate
+		}
+
+		log.Println("failed to join the room, ", err)
+		return nil, nil, ErrUnknownError
+	}
+
+	return toRoomUserDTO(roomUser), toRoomAppDTO(room, ""), nil
+}
+
+func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) error {
+	roomUser, err := ra.roomUserRepository.GetRelationByIds(userId, roomId)
+
+	if err != nil {
+		return ErrUnknownError
+	}
+
+	if roomUser == nil {
+		return ErrNotInRoom
+	}
+
+	if err := roomUser.Leave(); err != nil {
+		return err
+	}
+
+	if err := ra.roomUserRepository.Leave(roomUser, []int{int(room_valueobject.Activate), int(room_valueobject.BeMuted)}); err != nil {
+		if errors.Is(err, room_entity.ErrVersionConflict) {
+			return ErrConcurrentUpdate
+		}
+		return ErrUnknownError
+	}
+
+	return nil
+}

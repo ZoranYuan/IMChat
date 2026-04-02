@@ -40,7 +40,7 @@ func NewRoom(
 	}, nil
 }
 
-func (r *Room) CanInvite() bool {
+func (r *Room) Invite() bool {
 	if r.Status != room_valueobject.Normal {
 		return false
 	}

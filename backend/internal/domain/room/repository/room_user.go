@@ -7,6 +7,9 @@ import (
 )
 
 type RoomUserRepositoryInterface interface {
-	Create(domain *room_entity.RoomUser) (*room_entity.RoomUser, error)
-	WithTx(tx *gorm.DB) RoomUserRepositoryInterface
+	Create(*room_entity.RoomUser) (*room_entity.RoomUser, error)
+	WithTx(*gorm.DB) RoomUserRepositoryInterface
+	GetRelationByIds(string, string) (*room_entity.RoomUser, error)
+	JoinRoom(*room_entity.RoomUser) error
+	Leave(*room_entity.RoomUser, []int) error
 }

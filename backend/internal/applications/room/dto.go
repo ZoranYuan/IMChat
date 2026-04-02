@@ -8,13 +8,24 @@ type RoomAppDTO struct {
 	Description string
 	RoomName    string
 	Status      int
+	UserRole    int
 	Avatar      string
 	MemberCount int
 	MaxMembers  int
 	InviteCode  string
 }
 
-func toDTO(r *room_entity.Room, inviteCode string) *RoomAppDTO {
+type RoomUserDTO struct {
+	UserId    string
+	RoomId    string
+	Role      int
+	Status    int
+	MuteUtil  *int64 // 禁言到什么时候（时间戳）
+	JoinTime  int64
+	LeaveTime *int64
+}
+
+func toRoomAppDTO(r *room_entity.Room, inviteCode string) *RoomAppDTO {
 	return &RoomAppDTO{
 		RoomId:      r.RoomId,
 		OwnerUserId: r.OwnerUserId,
@@ -25,5 +36,17 @@ func toDTO(r *room_entity.Room, inviteCode string) *RoomAppDTO {
 		MemberCount: r.MemberCount,
 		MaxMembers:  r.MaxMembers,
 		InviteCode:  inviteCode,
+	}
+}
+
+func toRoomUserDTO(r *room_entity.RoomUser) *RoomUserDTO {
+	return &RoomUserDTO{
+		UserId:    r.UserId,
+		RoomId:    r.RoomId,
+		Role:      int(r.Role),
+		Status:    int(r.Status),
+		MuteUtil:  r.MuteUtil,
+		JoinTime:  r.JoinTime,
+		LeaveTime: r.LeaveTime,
 	}
 }

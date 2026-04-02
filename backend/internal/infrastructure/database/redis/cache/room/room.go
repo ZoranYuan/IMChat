@@ -1,6 +1,7 @@
 package room_cache
 
 import (
+	room_entity "IM_backend/internal/domain/room/entity"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -38,7 +39,7 @@ func (rc *RoomCache) randCode(count int) (string, error) {
 	return string(b), nil
 }
 
-func (rc *RoomCache) GetInviteCode(
+func (rc *RoomCache) UpdateInviteCode(
 	ctx context.Context,
 	roomId string,
 	ttl int,
@@ -100,4 +101,30 @@ func (rc *RoomCache) GetInviteCode(
 	}
 
 	return "", errors.New("failed to get invite code")
+}
+
+func (rc *RoomCache) GetInviteCode(ctx context.Context, roomId string) (string, error) {
+	inviteCode, err := rc.rb.Get(ctx, RoomInviteKey(roomId)).Result()
+
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", room_entity.ErrRoomNotFound
+		}
+
+		return "", err
+	}
+
+	return inviteCode, err
+}
+
+func (rc *RoomCache) GetRoomIdByCode(ctx context.Context, code string) (string, error) {
+	roomId, err := rc.rb.Get(ctx, InviteKey(code)).Result()
+
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", room_entity.ErrUnavaiableCode
+		}
+	}
+
+	return roomId, nil
 }

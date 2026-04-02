@@ -15,6 +15,10 @@ type CreateRoomRes struct {
 	InviteCode  string `json:"inviteCode"`
 }
 
+type JoinRoomReq struct {
+	InviteCode string `json:"inviteCode" binding:"required"`
+}
+
 type JoinRoomRes struct {
 	RoomId      string `json:"roomId"`
 	Description string `json:"description"`
@@ -22,6 +26,5 @@ type JoinRoomRes struct {
 	Avatar      string `json:"avatar"`
 	MemberCount int    `json:"memberCount"`
 	Role        int
-	Status      int
-	MuteUntil   int64
+	JoinTime    int64
 }

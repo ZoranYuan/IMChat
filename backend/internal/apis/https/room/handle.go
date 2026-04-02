@@ -78,4 +78,34 @@ func (rh *RoomHandle) Invite(c *gin.Context) {
 	c.JSON(http.StatusOK, response.Success(inviteCode))
 }
 
-func (rh *RoomHandle) Join(c *gin.Context) {}
+func (rh *RoomHandle) Join(c *gin.Context) {
+	userId := c.GetString("userId")
+
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		return
+	}
+
+	var req JoinRoomReq
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+	ctx := c.Request.Context()
+	roomUserApp, roomApp, err := rh.app.Join(ctx, userId, req.InviteCode)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, response.Success(JoinRoomRes{
+		RoomId:      roomApp.RoomId,
+		RoomName:    roomApp.RoomName,
+		Avatar:      roomApp.Avatar,
+		MemberCount: roomApp.MemberCount,
+		Role:        roomUserApp.Role,
+		JoinTime:    roomUserApp.JoinTime,
+	}))
+}
