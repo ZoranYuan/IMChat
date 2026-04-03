@@ -3,8 +3,8 @@ package model
 import "gorm.io/gorm"
 
 type Room struct {
-	RoomId      string `json:"userId" gorm:"size:32;uniqueIndex;index:idx_room_status;not null"`
-	OwnerUserId string `json:"ownerUserId" gorm:"size:32; not null"`
+	RoomId      string `json:"userId" gorm:"size:32;primaryKey;not null"`
+	OwnerUserId string `json:"ownerUserId" gorm:"size:32;not null"`
 	Description string `json:"description" gorm:"comment:群介绍"`
 	RoomName    string `json:"roomName" gorm:"size:10;index;comment:群昵称"`
 	Status      int    `json:"status" gorm:"tinyInt;index:idx_room_status;comment:1为正常，0为暂时不可用"`

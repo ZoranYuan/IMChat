@@ -2,13 +2,10 @@ package model
 
 import (
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type User struct {
-	gorm.Model
-	UserId      string     `json:"userId" gorm:"size:32;uniqueIndex;not null;comment:用户ID"`
+	UserId      string     `json:"userId" gorm:"size:32;primaryKey;not null;comment:用户ID"`
 	UserName    string     `json:"username" gorm:"size:16;uniqueIndex;not null"`
 	NickName    string     `json:"nickName" gorm:"size:64"`
 	Password    string     `json:"password" gorm:"size:255"`
@@ -22,6 +19,9 @@ type User struct {
 	LoginType int     `json:"loginType"`
 	WxOpenID  *string `json:"-" gorm:"type:varchar(64);uniqueIndex;comment:微信OpenID(预留)"`
 	WxUnionID *string `json:"-" gorm:"type:varchar(64);uniqueIndex;comment:微信UnionID(预留)"`
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func (u *User) TableName() string {
