@@ -1,8 +1,6 @@
 package model
 
-import (
-	"gorm.io/gorm"
-)
+import "time"
 
 type RoomUser struct {
 	UserId    string `json:"userId" gorm:"size:32;primaryKey;not null;comment:用户ID"`
@@ -13,7 +11,8 @@ type RoomUser struct {
 	JoinTime  int64
 	LeaveTime *int64
 	Version   int64
-	gorm.Model
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func (u *RoomUser) TableName() string {

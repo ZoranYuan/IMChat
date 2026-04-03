@@ -1,6 +1,6 @@
 package model
 
-import "gorm.io/gorm"
+import "time"
 
 type Room struct {
 	RoomId      string `json:"userId" gorm:"size:32;primaryKey;not null"`
@@ -11,7 +11,8 @@ type Room struct {
 	Avatar      string `json:"avatar" gorm:"size:255;comment:房间头像URL"`
 	MemberCount int    `json:"memberCount" gorm:"type:int;default:0;comment:房间人数"`
 	MaxMembers  int    `json:"maxUsers" gorm:"default:100;comment:房间最大人数"`
-	gorm.Model
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 func (u *Room) TableName() string {
