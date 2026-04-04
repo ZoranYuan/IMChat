@@ -8,10 +8,11 @@ import (
 )
 
 type Config struct {
-	App      App      `yaml:"app"`
-	Server   Server   `yaml:"server"`
-	Database Database `yaml:"database"`
-	JWT      JWT      `yaml:"jwt"`
+	App       App             `yaml:"app"`
+	Server    Server          `yaml:"server"`
+	Database  Database        `yaml:"database"`
+	JWT       JWT             `yaml:"jwt"`
+	WebSocket WebSocketConfig `yaml:"ws"`
 }
 
 type App struct {
@@ -19,6 +20,13 @@ type App struct {
 	Version   string `yaml:"version"`
 	Env       string `yaml:"env"`
 	MachineID int64  `yaml:"machineId"`
+}
+
+type WebSocketConfig struct {
+	WriteWaitSeconds         int `yaml:"write_wait_seconds"`
+	PongWaitSeconds          int `yaml:"pong_wait_seconds"`
+	MaxMessageSize           int `yaml:"max_message_size"`
+	MaxMessageSendBufferSize int `yaml:"max_message_send_buffer_size"`
 }
 
 type Server struct {

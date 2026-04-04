@@ -12,5 +12,10 @@ database:
     dsn: "redis://redis:6379/0?dial_timeout=5s&read_timeout=3s&pool_size=50"
 jwt:
   secret: "U2FsdGVkX19anQGSRtiUwgRLpWV333jI4xjlCF32dek="
-  access_expire_hours: 15
+  access_expire_hours: 0.25
   refresh_expire_hours: 168
+ws:
+  write_wait_seconds: 10
+  pong_wait_seconds: 60
+  max_message_size: 5120
+  max_message_send_buffer_size: 256
