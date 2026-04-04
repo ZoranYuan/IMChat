@@ -40,7 +40,7 @@ func NewRoomApplication(roomRepository room_repository_interface.RoomRepositoryI
 }
 
 func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar, description string) (*RoomAppDTO, error) {
-	roomId, err := snow.GenerateSnowId(int(ra.config.Snowflake.MachineID))
+	roomId, err := snow.GenerateSnowId(int(ra.config.App.MachineID))
 
 	if err != nil {
 		return nil, err

@@ -2,6 +2,7 @@ app:
   name: "IMChat"
   version: "0.0.1"
   env: "development"
+  machineId: 1
 server:
   port: ":8081"
 database:
@@ -13,5 +14,3 @@ jwt:
   secret: "U2FsdGVkX19anQGSRtiUwgRLpWV333jI4xjlCF32dek="
   access_expire_hours: 15
   refresh_expire_hours: 168
-snowflake:
-  machineId: 1

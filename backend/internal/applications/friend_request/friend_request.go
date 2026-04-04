@@ -62,7 +62,7 @@ func (fa *FriendApplication) NewFriendRequest(userId, toUserId, message string) 
 	}
 
 	if record == nil {
-		requestId, err := snow.GenerateSnowId(int(fa.config.Snowflake.MachineID))
+		requestId, err := snow.GenerateSnowId(int(fa.config.App.MachineID))
 		if err != nil {
 			return FriendRequestDTO{}, err
 		}

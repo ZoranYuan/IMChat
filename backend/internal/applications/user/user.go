@@ -64,7 +64,7 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 	}
 
 	// 生成 UserId
-	userId, err := snow.GenerateSnowId(int(ua.config.Snowflake.MachineID))
+	userId, err := snow.GenerateSnowId(int(ua.config.App.MachineID))
 	if err != nil {
 		return nil, err
 	}

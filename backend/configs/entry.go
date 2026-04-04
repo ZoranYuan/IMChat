@@ -8,25 +8,21 @@ import (
 )
 
 type Config struct {
-	App       App       `yaml:"app"`
-	Server    Server    `yaml:"server"`
-	Database  Database  `yaml:"database"`
-	JWT       JWT       `yaml:"jwt"`
-	Snowflake Snowflake `yaml:"snowflake"`
+	App      App      `yaml:"app"`
+	Server   Server   `yaml:"server"`
+	Database Database `yaml:"database"`
+	JWT      JWT      `yaml:"jwt"`
 }
 
 type App struct {
-	Name    string `yaml:"name"`
-	Version string `yaml:"version"`
-	Env     string `yaml:"env"`
+	Name      string `yaml:"name"`
+	Version   string `yaml:"version"`
+	Env       string `yaml:"env"`
+	MachineID int64  `yaml:"machineId"`
 }
 
 type Server struct {
 	Port string `yaml:"port"`
-}
-
-type Snowflake struct {
-	MachineID int64 `yaml:"machineId"`
 }
 
 type Database struct {
