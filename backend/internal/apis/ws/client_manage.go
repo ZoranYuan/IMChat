@@ -39,39 +39,36 @@ func (cm *ClientManager) AddClient(client *Client) {
 	}
 
 	value[client.sessionId] = struct{}{}
-	return
 }
 
-func (cm *ClientManager) RemoveClient(userId, sessionId string) {
+func (cm *ClientManager) RemoveClient(c *Client) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	delete(cm.sessions, sessionId)
+	delete(cm.sessions, c.sessionId)
 
-	sessions, ok := cm.userSessions[userId]
+	sessions, ok := cm.userSessions[c.userId]
 
 	if !ok {
 		return
 	}
 
-	delete(sessions, sessionId)
+	delete(sessions, c.sessionId)
 
 	// 防止内存泄露
 	if len(sessions) == 0 {
-		delete(cm.userSessions, userId)
+		delete(cm.userSessions, c.userId)
 	}
 }
 
-func (cm *ClientManager) SendToUser(userId string, msg []byte) {
+func (cm *ClientManager) GetClients(userId string) []*Client {
 	cm.mu.RLock()
-
+	defer cm.mu.RUnlock()
 	sessions, ok := cm.userSessions[userId]
 
 	if !ok {
 		// 目标用户不再当前节点
-		return
+		return nil
 	}
-
-	// 由于写 socket 是满操作，先拷贝再写可以提升性能
 
 	clients := make([]*Client, 0, len(sessions))
 	for sessionId := range sessions {
@@ -79,9 +76,6 @@ func (cm *ClientManager) SendToUser(userId string, msg []byte) {
 			clients = append(clients, c)
 		}
 	}
-	cm.mu.RUnlock()
 
-	for client := range clients {
-		// TODO 做事情
-	}
+	return clients
 }

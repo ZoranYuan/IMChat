@@ -8,7 +8,6 @@ import (
 	"IM_backend/internal/apis/https/middleware"
 	https_room "IM_backend/internal/apis/https/room"
 	https_user "IM_backend/internal/apis/https/user"
-	"IM_backend/internal/apis/ws"
 	application_friend "IM_backend/internal/applications/friend"
 	application_friend_request "IM_backend/internal/applications/friend_request"
 	application_room "IM_backend/internal/applications/room"
@@ -89,8 +88,7 @@ func main() {
 	apis.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
 	apis.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	apis.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
-
-	ws.RegisterWsRouter(r)
+	// getway.RegisterWsRouter(r, wsHandle)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Port,
