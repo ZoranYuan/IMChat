@@ -4,7 +4,6 @@ import (
 	"context"
 
 	message_entity "IM_backend/internal/domain/message/entity"
-	message_repository_interface "IM_backend/internal/domain/message/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 
 	"gorm.io/gorm"
@@ -15,7 +14,7 @@ type UserConversationRepository struct {
 	db *gorm.DB
 }
 
-func NewUserConversationRepository(db *gorm.DB) message_repository_interface.UserConversationRepositoryInterface {
+func NewUserConversationRepository(db *gorm.DB) *UserConversationRepository {
 	return &UserConversationRepository{db: db}
 }
 
@@ -45,7 +44,7 @@ func (r *UserConversationRepository) Upsert(
 		Create(m).Error
 }
 
-func (r *UserConversationRepository) WithTx(tx any) message_repository_interface.UserConversationRepositoryInterface {
+func (r *UserConversationRepository) WithTx(tx any) *UserConversationRepository {
 	return &UserConversationRepository{
 		db: tx.(*gorm.DB),
 	}

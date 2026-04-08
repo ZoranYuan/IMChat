@@ -2,7 +2,6 @@ package friend_repository
 
 import (
 	friend_entity "IM_backend/internal/domain/friend/entity"
-	friend_repository_interface "IM_backend/internal/domain/friend/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 	"errors"
 
@@ -14,13 +13,13 @@ type friendRepository struct {
 	db *gorm.DB
 }
 
-func NewFriendRepository(db *gorm.DB) friend_repository_interface.FriendRepositoryInterface {
+func NewFriendRepository(db *gorm.DB) *friendRepository {
 	return &friendRepository{
 		db: db,
 	}
 }
 
-func (r *friendRepository) WithTx(tx *gorm.DB) friend_repository_interface.FriendRepositoryInterface {
+func (r *friendRepository) WithTx(tx *gorm.DB) *friendRepository {
 	return &friendRepository{db: tx}
 }
 

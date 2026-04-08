@@ -2,7 +2,6 @@ package room_repository
 
 import (
 	room_entity "IM_backend/internal/domain/room/entity"
-	room_repository_interface "IM_backend/internal/domain/room/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 	"errors"
 
@@ -13,7 +12,7 @@ type RoomRepository struct {
 	db *gorm.DB
 }
 
-func NewRoomRepository(db *gorm.DB) room_repository_interface.RoomRepositoryInterface {
+func NewRoomRepository(db *gorm.DB) *RoomRepository {
 	return &RoomRepository{
 		db: db,
 	}
@@ -45,7 +44,7 @@ func (rr *RoomRepository) FindActiveRoom(roomId string, status int) (*room_entit
 	return toDomain(m), nil
 }
 
-func (rr *RoomRepository) WithTx(tx *gorm.DB) room_repository_interface.RoomRepositoryInterface {
+func (rr *RoomRepository) WithTx(tx *gorm.DB) *RoomRepository {
 	return &RoomRepository{
 		db: tx,
 	}

@@ -1,4 +1,4 @@
-package mq_interface
+package mq
 
 import "context"
 

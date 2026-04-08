@@ -4,7 +4,6 @@ import (
 	"context"
 
 	message_entity "IM_backend/internal/domain/message/entity"
-	message_repository_interface "IM_backend/internal/domain/message/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 
 	"gorm.io/gorm"
@@ -14,11 +13,11 @@ type MessageRepository struct {
 	db *gorm.DB
 }
 
-func NewMessageRepository(db *gorm.DB) message_repository_interface.MessageRepositoryInterface {
+func NewMessageRepository(db *gorm.DB) *MessageRepository {
 	return &MessageRepository{db: db}
 }
 
-func (r *MessageRepository) WithTx(tx any) message_repository_interface.MessageRepositoryInterface {
+func (r *MessageRepository) WithTx(tx any) *MessageRepository {
 	return &MessageRepository{
 		db: tx.(*gorm.DB),
 	}

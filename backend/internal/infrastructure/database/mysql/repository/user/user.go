@@ -2,7 +2,6 @@ package user_repository
 
 import (
 	user_entity "IM_backend/internal/domain/user/entity"
-	user_repository_interface "IM_backend/internal/domain/user/repository"
 	user_valueobject "IM_backend/internal/domain/user/value_object"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 	"errors"
@@ -14,13 +13,13 @@ type userRepository struct {
 	db *gorm.DB
 }
 
-func NewUserRepository(db *gorm.DB) user_repository_interface.UserRepoInterface {
+func NewUserRepository(db *gorm.DB) *userRepository {
 	return &userRepository{
 		db: db,
 	}
 }
 
-func (r *userRepository) WithTx(tx *gorm.DB) user_repository_interface.UserRepoInterface {
+func (r *userRepository) WithTx(tx *gorm.DB) *userRepository {
 	return &userRepository{db: tx}
 }
 
