@@ -10,3 +10,7 @@ func InviteKey(code string) string {
 func RoomInviteKey(roomId string) string {
 	return fmt.Sprintf("room:%s:invite", roomId)
 }
+
+func RoomMembersKey(roomId string) string {
+	return "room:members:" + roomId
+}

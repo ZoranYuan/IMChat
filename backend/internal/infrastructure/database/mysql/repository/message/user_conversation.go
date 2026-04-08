@@ -8,6 +8,7 @@ import (
 	"IM_backend/internal/infrastructure/database/mysql/model"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type UserConversationRepository struct {
@@ -24,17 +25,24 @@ func (r *UserConversationRepository) Save(ctx context.Context, uc *message_entit
 }
 
 // 更新已读 seq
-func (r *UserConversationRepository) UpdateReadSeq(
+func (r *UserConversationRepository) Upsert(
 	ctx context.Context,
-	userId string,
-	conversationId string,
-	seq int64,
+	domain *message_entity.UserConversation,
 ) error {
 
+	m := toUserConversationModel(domain)
+
 	return r.db.WithContext(ctx).
-		Model(&model.UserConversation{}).
-		Where("user_id = ? AND conversation_id = ?", userId, conversationId).
-		Update("laset_read_seq", seq).Error
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "user_id"},
+				{Name: "conversation_id"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"latest_read_seq": m.LatestReadSeq,
+			}),
+		}).
+		Create(m).Error
 }
 
 func (r *UserConversationRepository) WithTx(tx any) message_repository_interface.UserConversationRepositoryInterface {

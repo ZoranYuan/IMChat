@@ -80,6 +80,9 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 	}
 
 	inviteCode, err := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
+	if err := ra.roomCache.JoinRoom(ctx, roomId, userId); err != nil {
+		return nil, ErrConnectRoom
+	}
 
 	if err != nil {
 		// 降级处理
@@ -102,7 +105,7 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 	}
 
 	// 查看当前用户是否在房间内
-	roomUser, err := ra.roomUserRepository.GetRelationByIds(roomId, userId)
+	roomUser, err := ra.roomUserRepository.GetRelationByIds(userId, roomId)
 	if err != nil {
 		if errors.Is(err, room_entity.ErrRecordNotFound) {
 			return "", ErrNotInRoom
@@ -161,6 +164,10 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		return nil, nil, ErrUnknownError
 	}
 
+	if err := ra.roomCache.JoinRoom(ctx, roomId, userId); err != nil {
+		return nil, nil, ErrConnectRoom
+	}
+
 	return toRoomUserDTO(roomUser), toRoomAppDTO(room, ""), nil
 }
 
@@ -184,6 +191,10 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 			return ErrConcurrentUpdate
 		}
 		return ErrUnknownError
+	}
+
+	if err := ra.roomCache.LeaveRoom(ctx, roomId, userId); err != nil {
+		return ErrConnectRoom
 	}
 
 	return nil

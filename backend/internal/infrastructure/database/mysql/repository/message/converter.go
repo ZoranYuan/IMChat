@@ -20,6 +20,7 @@ func toMessageDomain(m *model.Message) *message_entity.Message {
 		Content:        m.Content,
 		VideoTime:      m.VideoTime,
 		Status:         message_valueobject.Status(m.Status),
+		SendTime:       m.SendTime,
 	}
 }
 
@@ -37,6 +38,7 @@ func toMessageModel(d *message_entity.Message) *model.Message {
 		Content:        d.Content,
 		VideoTime:      d.VideoTime,
 		Status:         int8(d.Status),
+		SendTime:       d.SendTime,
 	}
 }
 
@@ -48,7 +50,7 @@ func toUserConversationDomain(u *model.UserConversation) *message_entity.UserCon
 	return &message_entity.UserConversation{
 		UserId:         u.UserId,
 		ConversationId: u.ConversationId,
-		LasetReadSeq:   u.LasetReadSeq,
+		LasetReadSeq:   u.LatestReadSeq,
 		IsMuted:        u.IsMuted,
 	}
 }
@@ -61,7 +63,7 @@ func toUserConversationModel(d *message_entity.UserConversation) *model.UserConv
 	return &model.UserConversation{
 		UserId:         d.UserId,
 		ConversationId: d.ConversationId,
-		LasetReadSeq:   d.LasetReadSeq,
+		LatestReadSeq:  d.LasetReadSeq,
 		IsMuted:        d.IsMuted,
 	}
 }
@@ -73,7 +75,7 @@ func toConversationDomain(c *model.Conversation) *message_entity.Conversation {
 
 	return &message_entity.Conversation{
 		ConversationId: c.ConversationId,
-		Type:           message_valueobject.ConvType(c.Type),
+		Convtype:       message_valueobject.ConvType(c.Convtype),
 		UserId1:        c.UserId1,
 		UserId2:        c.UserId2,
 		RoomId:         c.RoomId,
@@ -88,7 +90,7 @@ func toConversationModel(d *message_entity.Conversation) *model.Conversation {
 
 	return &model.Conversation{
 		ConversationId: d.ConversationId,
-		Type:           int8(d.Type),
+		Convtype:       int8(d.Convtype),
 		UserId1:        d.UserId1,
 		UserId2:        d.UserId2,
 		RoomId:         d.RoomId,

@@ -14,10 +14,9 @@ type ConversationRepositoryInterface interface {
 	GetById(ctx context.Context, conversationId string) (*message_entity.Conversation, error)
 
 	// 更新会话的最新 seq
-	UpdateLastSeq(
+	Upsert(
 		ctx context.Context,
-		conversationId string,
-		seq int64,
+		domain *message_entity.Conversation,
 	) error
 
 	WithTx(tx any) ConversationRepositoryInterface

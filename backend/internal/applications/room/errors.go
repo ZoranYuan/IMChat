@@ -12,4 +12,5 @@ var (
 	ErrUnavaiableCode    = errors.New("邀请码失效")
 	ErrConcurrentUpdate  = errors.New("请勿重复操作")
 	ErrNoPermission      = errors.New("没有权限")
+	ErrConnectRoom       = errors.New("连接房间失败")
 )

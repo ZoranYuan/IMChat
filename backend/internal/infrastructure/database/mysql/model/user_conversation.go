@@ -6,7 +6,7 @@ type UserConversation struct {
 	UserId         string `gorm:"size:32;primaryKey"`
 	ConversationId string `gorm:"size:64;primaryKey"`
 
-	LasetReadSeq int64 `gorm:"not null;default:0"`
+	LatestReadSeq int64 `gorm:"not null;default:0"`
 
 	IsMuted bool `gorm:"not null;defalt:false"`
 

@@ -29,7 +29,7 @@ func (rur *RoomUserRepository) WithTx(tx *gorm.DB) room_repository_interface.Roo
 func (rur *RoomUserRepository) GetRelationByIds(userId, roomId string) (*room_entity.RoomUser, error) {
 	var m model.RoomUser
 	if err := rur.db.Where("user_id = ? AND room_id = ?", userId, roomId).
-		Find(&m).Error; err != nil {
+		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, room_entity.ErrRecordNotFound
 		}

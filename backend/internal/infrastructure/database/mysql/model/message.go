@@ -1,7 +1,5 @@
 package model
 
-import "time"
-
 type Message struct {
 	MessageId      string `gorm:"size:32;primaryKey"`
 	ConversationId string `gorm:"size:64;not null;index:idx_conv_seq,priority:1"`
@@ -14,7 +12,7 @@ type Message struct {
 	Type    int8   `gorm:"not null;comment:1=文本 2=图片 3=视频"`
 	Content string `gorm:"type:text"`
 	// 消息状态
-	VideoTime int64     `gorm:"not null;comment:消息对应的视频时间"`
-	Status    int8      `gorm:"default:0;comment:1=正常 2=撤回"`
-	CreatedAt time.Time `gorm:"index"`
+	VideoTime int64 `gorm:"not null;comment:消息对应的视频时间"`
+	Status    int8  `gorm:"default:0;comment:1=正常 2=撤回"`
+	SendTime  int64 `gorm:"index"`
 }

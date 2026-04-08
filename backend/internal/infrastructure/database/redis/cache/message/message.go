@@ -53,3 +53,15 @@ func (mc *MessageCache) GetConvLatestSeq(ctx context.Context, convId string) (in
 
 	return seq, nil
 }
+
+func (mc *MessageCache) SetConvSeq(ctx context.Context, convId string, seq int64) error {
+	key := ConversationSeqKeys(convId)
+
+	return mc.rb.Set(ctx, key, seq, 0).Err() // 永不过期
+}
+
+func (mc *MessageCache) IncrConvSeq(ctx context.Context, convId string) (int64, error) {
+	key := ConversationSeqKeys(convId)
+
+	return mc.rb.Incr(ctx, key).Result()
+}

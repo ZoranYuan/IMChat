@@ -107,7 +107,6 @@ func (uh *UserHandle) Register(c *gin.Context) {
 
 	var (
 		userApp *application_user.UserAppDTO
-		token   string
 		err     error
 	)
 	switch req.LoginType {
@@ -133,7 +132,7 @@ func (uh *UserHandle) Register(c *gin.Context) {
 		NickName: userApp.NickName,
 		Phone:    userApp.Phone,
 		Avatar:   userApp.Avatar,
-		Token:    token,
+		Token:    userApp.AccessToken,
 	}
 
 	// TODO 更新 Redis

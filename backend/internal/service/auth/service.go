@@ -19,7 +19,7 @@ func NewAuthService(config configs.Config) *authService {
 func (a *authService) IssueToken(userId string) (string, string, error) {
 	accessToken, err := jwt.GenerateToken(userId,
 		a.config.JWT.Secret,
-		time.Duration(a.config.JWT.AccessExpireHours)*time.Hour,
+		time.Duration(a.config.JWT.AccessExpireMinutes)*time.Hour,
 	)
 	if err != nil {
 		return "", "", err
@@ -28,7 +28,7 @@ func (a *authService) IssueToken(userId string) (string, string, error) {
 	refreshToken, err := jwt.GenerateToken(
 		userId,
 		a.config.JWT.Secret,
-		time.Duration(a.config.JWT.AccessExpireHours)*time.Hour,
+		time.Duration(a.config.JWT.AccessExpireMinutes)*time.Hour,
 	)
 
 	if err != nil {

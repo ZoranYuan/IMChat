@@ -8,19 +8,24 @@ import (
 	"IM_backend/internal/apis/https/middleware"
 	https_room "IM_backend/internal/apis/https/room"
 	https_user "IM_backend/internal/apis/https/user"
+	"IM_backend/internal/apis/ws"
 	application_friend "IM_backend/internal/applications/friend"
 	application_friend_request "IM_backend/internal/applications/friend_request"
+	application_message "IM_backend/internal/applications/message"
 	application_room "IM_backend/internal/applications/room"
 	application_user "IM_backend/internal/applications/user"
 	"IM_backend/internal/infrastructure/database/mysql"
 	friend_repository "IM_backend/internal/infrastructure/database/mysql/repository/friend"
 	friend_request_repository "IM_backend/internal/infrastructure/database/mysql/repository/friend_request"
+	message_repository "IM_backend/internal/infrastructure/database/mysql/repository/message"
 	room_repository "IM_backend/internal/infrastructure/database/mysql/repository/room"
 	room_user_repository "IM_backend/internal/infrastructure/database/mysql/repository/room_user"
 	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
 	"IM_backend/internal/infrastructure/database/redis"
 	auth_cache "IM_backend/internal/infrastructure/database/redis/cache/auth"
+	message_cache "IM_backend/internal/infrastructure/database/redis/cache/message"
 	room_cache "IM_backend/internal/infrastructure/database/redis/cache/room"
+	"IM_backend/internal/infrastructure/mq"
 	"IM_backend/internal/infrastructure/persistence"
 	service_auth "IM_backend/internal/service/auth"
 	"context"
@@ -55,11 +60,23 @@ func main() {
 
 	txManager := persistence.NewGormTxManager(db)
 
+	getWay := ws.NewGetWay()
+	go getWay.KeepAlive(cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
+
 	authCache := auth_cache.NewAuthCache(redis)
 	roomCache := room_cache.NewRoomCache(redis)
+	messageCache := message_cache.NewMessageCache(redis)
+
+	dispatcher := ws.NewDispatcher()
+	producer := mq.NewProducer(getWay, roomCache)
+
 	authService := service_auth.NewAuthService(cfg)
 
 	// 构造依赖
+	messageRepository := message_repository.NewMessageRepository(db)
+	conversationRepository := message_repository.NewConversationRepository(db)
+	userConversitory := message_repository.NewUserConversationRepository(db)
+
 	userRepository := user_repository.NewUserRepository(db)
 	userApp := application_user.NewUserApplication(userRepository, cfg, authCache, authService)
 	userHandle := https_user.NewUserHandle(userApp)
@@ -79,16 +96,35 @@ func main() {
 	roomApp := application_room.NewRoomApplication(roomRepository, roomUserRepository, cfg, roomCache, txManager)
 	roomHandle := https_room.NewRoomHandle(roomApp)
 
+	wsApp := application_message.NewMessageApplication(
+		cfg,
+		messageCache,
+		txManager,
+		producer,
+		userConversitory,
+		conversationRepository,
+		messageRepository,
+	)
+
+	wsHandle := ws.NewWshandler(
+		wsApp,
+		cfg,
+		dispatcher,
+		getWay,
+	)
+
 	// 注册中间件
 	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
 
 	// 注册路由
 	apiGroup := r.Group("/api/v1")
+
+	apiGroupWithAuth := apiGroup.Use(authMiddle.JWTAuthMiddleware())
 	apis.RegisterUserRouter(apiGroup, userHandle)
 	apis.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
 	apis.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	apis.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
-	// getway.RegisterWsRouter(r, wsHandle)
+	ws.RegisterWsRouter(apiGroupWithAuth, wsHandle)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Port,

@@ -7,7 +7,7 @@ import (
 type Conversation struct {
 	ConversationId string
 
-	Type message_valueobject.ConvType
+	Convtype message_valueobject.ConvType
 
 	UserId1 string
 	UserId2 string
@@ -18,8 +18,7 @@ type Conversation struct {
 	LastSeq int64
 }
 
-func NewConversation(conversationId, userId, recvId string, convTye int) *Conversation {
-
+func BuildConversation(conversationId, sendId, recvId string, convTye int) *Conversation {
 	var (
 		user2Id string
 		roomId  string
@@ -33,10 +32,19 @@ func NewConversation(conversationId, userId, recvId string, convTye int) *Conver
 
 	return &Conversation{
 		ConversationId: conversationId,
-		Type:           message_valueobject.ConvType(convTye), // 或根据业务
-		UserId1:        userId,
+		Convtype:       message_valueobject.ConvType(convTye), // 或根据业务
+		UserId1:        sendId,
 		UserId2:        user2Id, // 单聊需要
 		RoomId:         roomId,
 		LastSeq:        0,
 	}
+}
+
+func GetConversation(sendId, targetId string, convType int) string {
+	if convType == int(message_valueobject.PrivateChat) {
+		return max(targetId, sendId) + "_" + min(targetId, sendId)
+	}
+
+	// group chat
+	return targetId
 }

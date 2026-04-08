@@ -57,7 +57,7 @@ func (rh *RoomHandle) Invite(c *gin.Context) {
 	roomId := c.Param("roomId")
 
 	if roomId == "" {
-		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
 

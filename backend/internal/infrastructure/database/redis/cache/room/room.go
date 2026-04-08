@@ -128,3 +128,27 @@ func (rc *RoomCache) GetRoomIdByCode(ctx context.Context, code string) (string, 
 
 	return roomId, nil
 }
+
+func (rc *RoomCache) JoinRoom(ctx context.Context, roomId, userId string) error {
+	key := RoomMembersKey(roomId)
+
+	if err := rc.rb.SAdd(ctx, key, userId).Err(); err != nil {
+		return err
+	}
+
+	rc.rb.Expire(ctx, key, 24*time.Hour) // 不过期 or 设置 24h
+
+	return nil
+}
+
+func (rc *RoomCache) LeaveRoom(ctx context.Context, roomId, userId string) error {
+	key := RoomMembersKey(roomId)
+
+	return rc.rb.SRem(ctx, key, userId).Err()
+}
+
+func (rc *RoomCache) GetRoomMembers(ctx context.Context, roomId string) ([]string, error) {
+	key := RoomMembersKey(roomId)
+
+	return rc.rb.SMembers(ctx, key).Result()
+}

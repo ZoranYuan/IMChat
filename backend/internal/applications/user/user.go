@@ -96,7 +96,7 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	ua.authCache.SetAccessToken(ctx, accessToken, userId, time.Duration(ua.config.JWT.AccessExpireHours)*time.Minute)
+	ua.authCache.SetAccessToken(ctx, accessToken, userId, time.Duration(ua.config.JWT.AccessExpireMinutes)*time.Hour)
 	ua.authCache.SetRefreshToken(ctx, refreshToken, userId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
 	return userApp, nil
 }
@@ -154,7 +154,7 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	ua.authCache.SetAccessToken(ctx, accessToken, userAppDTO.UserId, time.Duration(ua.config.JWT.AccessExpireHours)*time.Minute)
+	ua.authCache.SetAccessToken(ctx, accessToken, userAppDTO.UserId, time.Duration(ua.config.JWT.AccessExpireMinutes)*time.Minute)
 	ua.authCache.SetRefreshToken(ctx, refreshToken, userAppDTO.UserId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
 
 	// 更新缓存

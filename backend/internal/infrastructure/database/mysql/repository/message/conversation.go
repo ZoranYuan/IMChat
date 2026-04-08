@@ -2,12 +2,14 @@ package message_repository
 
 import (
 	"context"
+	"errors"
 
 	message_entity "IM_backend/internal/domain/message/entity"
 	message_repository_interface "IM_backend/internal/domain/message/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ConversationRepository struct {
@@ -38,6 +40,10 @@ func (r *ConversationRepository) GetById(ctx context.Context, id string) (*messa
 		First(&m).Error
 
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+
 		return nil, err
 	}
 
@@ -45,14 +51,21 @@ func (r *ConversationRepository) GetById(ctx context.Context, id string) (*messa
 }
 
 // 更新 LastSeq（发消息核心操作）
-func (r *ConversationRepository) UpdateLastSeq(
+func (r *ConversationRepository) Upsert(
 	ctx context.Context,
-	conversationId string,
-	seq int64,
+	domain *message_entity.Conversation,
 ) error {
+	m := toConversationModel(domain)
 
 	return r.db.WithContext(ctx).
-		Model(&model.Conversation{}).
-		Where("conversation_id = ?", conversationId).
-		Update("last_seq", seq).Error
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "conversation_id"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				// 防止乱序回退
+				"last_seq": gorm.Expr("GREATEST(last_seq, ?)", domain.LastSeq),
+			}),
+		}).
+		Create(m).Error
 }

@@ -25,6 +25,8 @@ type App struct {
 type WebSocketConfig struct {
 	WriteWaitSeconds         int `yaml:"write_wait_seconds"`
 	PongWaitSeconds          int `yaml:"pong_wait_seconds"`
+	PingPeriodSeconds        int `yaml:"ping_period_seconds"`
+	TimerInterval            int `yaml:"timer_interval_seconds"`
 	MaxMessageSize           int `yaml:"max_message_size"`
 	MaxMessageSendBufferSize int `yaml:"max_message_send_buffer_size"`
 }
@@ -47,9 +49,9 @@ type MySQL struct {
 }
 
 type JWT struct {
-	Secret             string `yaml:"secret"`
-	AccessExpireHours  int    `yaml:"access_expire_hours"`
-	RefreshExpireHours int    `yaml:"refresh_expire_hours"`
+	Secret              string `yaml:"secret"`
+	AccessExpireMinutes int    `yaml:"access_expire_minutes"`
+	RefreshExpireHours  int    `yaml:"refresh_expire_hours"`
 }
 
 func LoadConfig(path string) Config {

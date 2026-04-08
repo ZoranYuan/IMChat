@@ -18,11 +18,9 @@ type UserConversationRepositoryInterface interface {
 	) (*message_entity.UserConversation, error)
 
 	// 更新已读位置
-	UpdateReadSeq(
+	Upsert(
 		ctx context.Context,
-		userId string,
-		conversationId string,
-		seq int64,
+		domain *message_entity.UserConversation,
 	) error
 
 	// 获取用户所有会话（会话列表）
