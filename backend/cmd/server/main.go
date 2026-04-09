@@ -23,6 +23,7 @@ import (
 	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
 	"IM_backend/internal/infrastructure/database/redis"
 	auth_cache "IM_backend/internal/infrastructure/database/redis/cache/auth"
+	conversation_cache "IM_backend/internal/infrastructure/database/redis/cache/conversation"
 	message_cache "IM_backend/internal/infrastructure/database/redis/cache/message"
 	room_cache "IM_backend/internal/infrastructure/database/redis/cache/room"
 	"IM_backend/internal/infrastructure/mq"
@@ -67,6 +68,8 @@ func main() {
 
 	authCache := auth_cache.NewAuthCache(redis)
 	roomCache := room_cache.NewRoomCache(redis)
+
+	conversationCache := conversation_cache.NewConversationCache(redis)
 	messageCache := message_cache.NewMessageCache(redis)
 
 	kafkaClient, err := kafka.NewClient(cfg.Kafka)
@@ -85,7 +88,7 @@ func main() {
 	messageProducer := kafka.NewProducer(kafkaClient, "chat")
 
 	dispatcher := ws.NewDispatcher()
-	taskManager := mq.NewTaskManager(messageProducer, roomCache)
+	taskManager := mq.NewTaskManager(messageProducer, conversationCache)
 
 	authService := service_auth.NewAuthService(cfg)
 
@@ -110,7 +113,16 @@ func main() {
 
 	roomUserRepository := room_user_repository.NewRoomUserRepository(db)
 	roomRepository := room_repository.NewRoomRepository(db)
-	roomApp := application_room.NewRoomApplication(roomRepository, roomUserRepository, cfg, roomCache, txManager)
+	roomApp := application_room.NewRoomApplication(
+		roomRepository,
+		roomUserRepository,
+		userConversationRepository,
+		conversationRepository,
+		cfg,
+		roomCache,
+		conversationCache,
+		txManager,
+	)
 	roomHandle := https_room.NewRoomHandle(roomApp)
 
 	wsApp := application_message.NewMessageApplication(

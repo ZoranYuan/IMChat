@@ -2,21 +2,21 @@ package mq
 
 import (
 	mq_client "IM_backend/internal/infrastructure/mq/client"
-	room_port "IM_backend/internal/port/room"
+	conversation_port "IM_backend/internal/port/conversation"
 	"IM_backend/internal/protocol"
 	"context"
 	"encoding/json"
 )
 
 type TaskManager struct {
-	client       mq_client.Client
-	roomResolver room_port.RoomMembersCacheInterface
+	client            mq_client.Client
+	conversationCache conversation_port.ConversationCacheInterface
 }
 
-func NewTaskManager(c mq_client.Client, roomResolver room_port.RoomMembersCacheInterface) *TaskManager {
+func NewTaskManager(c mq_client.Client, conversationCache conversation_port.ConversationCacheInterface) *TaskManager {
 	return &TaskManager{
-		client:       c,
-		roomResolver: roomResolver,
+		client:            c,
+		conversationCache: conversationCache,
 	}
 }
 
@@ -45,7 +45,7 @@ func (t *TaskManager) handleChat(topic string, key string, event protocol.Messag
 
 func (t *TaskManager) handleRoomChat(ctx context.Context, topic string, key string, event protocol.MessageEvent) error {
 	// 通过 conversationId 作为 key ，让同一个会话消息尽量落在同一个分区上，对于群聊，roomId 就是 conversationId
-	memberIds, err := t.roomResolver.GetRoomMembers(ctx, key)
+	memberIds, err := t.conversationCache.GetMembers(ctx, key)
 
 	if err != nil {
 		return err

@@ -50,7 +50,9 @@ func (g *GetWay) KeepAlive(interval int, pongWait int) {
 
 func (g *GetWay) AddClient(client *Client) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
+	defer func() {
+		g.mu.Unlock()
+	}()
 
 	g.sessions[client.sessionId] = client
 

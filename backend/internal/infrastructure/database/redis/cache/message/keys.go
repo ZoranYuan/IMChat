@@ -3,5 +3,6 @@ package message_cache
 import "fmt"
 
 func ConversationSeqKeys(convId string) string {
-	return fmt.Sprintf("conversation:%s", convId)
+	// TODO 修改 key
+	return fmt.Sprintf("conversation:seq:%s", convId)
 }

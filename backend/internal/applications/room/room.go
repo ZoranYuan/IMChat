@@ -4,10 +4,14 @@ import (
 	"IM_backend/configs"
 	room_cache_interface "IM_backend/internal/applications/interface/cache/room"
 	tx_repository_interface "IM_backend/internal/applications/interface/repository/tx_manager"
+	message_entity "IM_backend/internal/domain/message/entity"
+	message_repository_interface "IM_backend/internal/domain/message/repository"
+	message_valueobject "IM_backend/internal/domain/message/value_object"
 	room_entity "IM_backend/internal/domain/room/entity"
 	room_repository_interface "IM_backend/internal/domain/room/repository"
 	room_valueobject "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/pkg/snow"
+	conversation_port "IM_backend/internal/port/conversation"
 	"context"
 	"errors"
 	"log"
@@ -17,31 +21,40 @@ import (
 )
 
 type RoomApplication struct {
-	roomRepository     room_repository_interface.RoomRepositoryInterface
-	roomUserRepository room_repository_interface.RoomUserRepositoryInterface
-	config             configs.Config
-	roomCache          room_cache_interface.RoomCacheInterface
-	txManager          tx_repository_interface.TxRepositoryInterface
+	roomRepository             room_repository_interface.RoomRepositoryInterface
+	roomUserRepository         room_repository_interface.RoomUserRepositoryInterface
+	userConversationRepository message_repository_interface.UserConversationRepositoryInterface
+	conversationRepository     message_repository_interface.ConversationRepositoryInterface
+	config                     configs.Config
+	conversationCache          conversation_port.ConversationCacheInterface
+	roomCache                  room_cache_interface.RoomCacheInterface
+	txManager                  tx_repository_interface.TxRepositoryInterface
 }
 
 func NewRoomApplication(roomRepository room_repository_interface.RoomRepositoryInterface,
 	roomUserRepository room_repository_interface.RoomUserRepositoryInterface,
+	userConversationRepository message_repository_interface.UserConversationRepositoryInterface,
+	conversationRepository message_repository_interface.ConversationRepositoryInterface,
 	config configs.Config,
 	roomCache room_cache_interface.RoomCacheInterface,
+	conversationCache conversation_port.ConversationCacheInterface,
 	txManager tx_repository_interface.TxRepositoryInterface,
 ) *RoomApplication {
 	return &RoomApplication{
-		roomRepository:     roomRepository,
-		roomUserRepository: roomUserRepository,
-		config:             config,
-		roomCache:          roomCache,
-		txManager:          txManager,
+		roomRepository:             roomRepository,
+		roomUserRepository:         roomUserRepository,
+		conversationRepository:     conversationRepository,
+		userConversationRepository: userConversationRepository,
+		config:                     config,
+		roomCache:                  roomCache,
+		conversationCache:          conversationCache,
+		txManager:                  txManager,
 	}
 }
 
 func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar, description string) (*RoomAppDTO, error) {
 	roomId, err := snow.GenerateSnowId(int(ra.config.App.MachineID))
-
+	conversationId := roomId
 	if err != nil {
 		return nil, err
 	}
@@ -57,12 +70,27 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 	roomUser := room_entity.NewRoomUser(userId, roomId, room_valueobject.HomeOwner)
 	roomUser.Join()
 
+	conversation := message_entity.BuildConversation(
+		conversationId,
+		userId,
+		roomId,
+		int(message_valueobject.RoomChat),
+	)
+
+	userConversation := message_entity.BuildUserConversation(
+		userId,
+		conversationId,
+		0,
+	)
+
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(3)*time.Second)
 	defer cancel()
 
 	if err := ra.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
 		roomRepository := ra.roomRepository.WithTx(tx)
 		roomUserRepository := ra.roomUserRepository.WithTx(tx)
+		conversationRepository := ra.conversationRepository.WithTx(tx)
+		userConversationRepository := ra.userConversationRepository.WithTx(tx)
 
 		if _, err := roomRepository.Create(room); err != nil {
 			if errors.Is(err, room_entity.ErrDuplicateCreate) {
@@ -74,13 +102,21 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 			return err
 		}
 
+		if err := conversationRepository.Save(ctx, conversation); err != nil {
+			return err
+		}
+
+		if err := userConversationRepository.Save(ctx, userConversation); err != nil {
+			return err
+		}
+
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
 	inviteCode, err := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
-	if err := ra.roomCache.JoinRoom(ctx, roomId, userId); err != nil {
+	if err := ra.conversationCache.AddMember(ctx, conversationId, userId); err != nil {
 		return nil, ErrConnectRoom
 	}
 
@@ -133,7 +169,7 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 
 func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) (*RoomUserDTO, *RoomAppDTO, error) {
 	roomId, err := ra.roomCache.GetRoomIdByCode(ctx, inviteCode)
-
+	conversationId := roomId
 	if err != nil {
 		if errors.Is(err, room_entity.ErrUnavaiableCode) {
 			return nil, nil, ErrUnavaiableCode
@@ -164,7 +200,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		return nil, nil, ErrUnknownError
 	}
 
-	if err := ra.roomCache.JoinRoom(ctx, roomId, userId); err != nil {
+	if err := ra.conversationCache.AddMember(ctx, conversationId, userId); err != nil {
 		return nil, nil, ErrConnectRoom
 	}
 
@@ -173,7 +209,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 
 func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) error {
 	roomUser, err := ra.roomUserRepository.GetRelationByIds(userId, roomId)
-
+	conversationId := roomId
 	if err != nil {
 		return ErrUnknownError
 	}
@@ -193,7 +229,7 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 		return ErrUnknownError
 	}
 
-	if err := ra.roomCache.LeaveRoom(ctx, roomId, userId); err != nil {
+	if err := ra.conversationCache.RemoveMember(ctx, conversationId, userId); err != nil {
 		return ErrConnectRoom
 	}
 

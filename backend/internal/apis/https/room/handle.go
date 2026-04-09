@@ -4,6 +4,7 @@ import (
 	"IM_backend/internal/apis/response"
 	application_room "IM_backend/internal/applications/room"
 	"context"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,13 @@ func NewRoomHandle(app *application_room.RoomApplication) *RoomHandle {
 }
 
 func (rh *RoomHandle) Create(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("panic ", r)
+			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "网络错误"))
+		}
+	}()
+
 	userId := c.GetString("userId")
 
 	if userId == "" {
