@@ -13,6 +13,42 @@ type Config struct {
 	Database  Database        `yaml:"database"`
 	JWT       JWT             `yaml:"jwt"`
 	WebSocket WebSocketConfig `yaml:"ws"`
+	Kafka     KafkaConfig     `ymal:"kafka"`
+}
+
+type KafkaConfig struct {
+	Brokers []string `yaml:"brokers"`
+
+	Topics KafkaTopics `yaml:"topics"`
+
+	Consumer KafkaConsumerConfig `yaml:"consumer"`
+
+	Producer KafkaProducerConfig `yaml:"producer"`
+
+	Partition KafkaPartitionConfig `yaml:"partition"`
+}
+
+type KafkaTopics struct {
+	Chat string `yaml:"chat"`
+	Ack  string `yaml:"ack"`
+}
+
+type KafkaConsumerConfig struct {
+	GroupID  string `yaml:"group_id"`
+	Version  string `yaml:"version"`
+	Assignor string `yaml:"assignor"` // range / roundrobin / sticky
+}
+
+type KafkaProducerConfig struct {
+	Acks        string `yaml:"acks"`
+	Retries     int    `yaml:"retries"`
+	BatchSize   int    `yaml:"batch_size"`
+	LingerMs    int    `yaml:"linger_ms"`
+	Compression string `yaml:"compression"`
+}
+
+type KafkaPartitionConfig struct {
+	Strategy string `yaml:"strategy"` // conversation_hash / user_hash / random
 }
 
 type App struct {

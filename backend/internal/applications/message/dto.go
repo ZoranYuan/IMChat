@@ -12,14 +12,3 @@ type MessageAppeDTO struct {
 
 	VideoTime int64
 }
-
-type MessageEvent struct {
-	MessageId      string
-	ConversationId string
-	SendId         string
-	RecvId         string
-	ConvType       int
-	CType          int
-	Content        string
-	SendTime       int64
-}

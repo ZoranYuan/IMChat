@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	message_entity "IM_backend/internal/domain/message/entity"
+	message_repository_interface "IM_backend/internal/domain/message/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 
 	"gorm.io/gorm"
@@ -19,7 +20,7 @@ func NewConversationRepository(db *gorm.DB) *ConversationRepository {
 	return &ConversationRepository{db: db}
 }
 
-func (r *ConversationRepository) WithTx(tx any) *ConversationRepository {
+func (r *ConversationRepository) WithTx(tx any) message_repository_interface.ConversationRepositoryInterface {
 	return &ConversationRepository{
 		db: tx.(*gorm.DB),
 	}

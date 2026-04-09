@@ -4,6 +4,7 @@ import (
 	"context"
 
 	message_entity "IM_backend/internal/domain/message/entity"
+	message_repository_interface "IM_backend/internal/domain/message/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 
 	"gorm.io/gorm"
@@ -17,7 +18,7 @@ func NewMessageRepository(db *gorm.DB) *MessageRepository {
 	return &MessageRepository{db: db}
 }
 
-func (r *MessageRepository) WithTx(tx any) *MessageRepository {
+func (r *MessageRepository) WithTx(tx any) message_repository_interface.MessageRepositoryInterface {
 	return &MessageRepository{
 		db: tx.(*gorm.DB),
 	}

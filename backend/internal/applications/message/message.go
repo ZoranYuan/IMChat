@@ -9,8 +9,8 @@ import (
 	message_repository_interface "IM_backend/internal/domain/message/repository"
 	message_valueobject "IM_backend/internal/domain/message/value_object"
 	"IM_backend/internal/infrastructure/pkg/snow"
+	"IM_backend/internal/protocol"
 	"context"
-	"encoding/json"
 	"log"
 
 	"gorm.io/gorm"
@@ -23,14 +23,14 @@ type MessageApplication struct {
 	txManager                  tx_repository_interface.TxRepositoryInterface
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface
 	conversationRepository     message_repository_interface.ConversationRepositoryInterface
-	producer                   mq_interface.Producer
+	taskManager                mq_interface.TaskManager
 }
 
 func NewMessageApplication(
 	config configs.Config,
 	messageCache message_cache_interface.MessageCacheInterface,
 	txManager tx_repository_interface.TxRepositoryInterface,
-	producer mq_interface.Producer,
+	taskManager mq_interface.TaskManager,
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface,
 	conversationRepository message_repository_interface.ConversationRepositoryInterface,
 	messageRepository message_repository_interface.MessageRepositoryInterface,
@@ -39,7 +39,7 @@ func NewMessageApplication(
 		config:                     config,
 		messageCache:               messageCache,
 		txManager:                  txManager,
-		producer:                   producer,
+		taskManager:                taskManager,
 		messageRepository:          messageRepository,
 		conversationRepository:     conversationRepository,
 		userConversationRepository: userConversationRepository,
@@ -49,19 +49,16 @@ func NewMessageApplication(
 func (w *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) error {
 	conversationId := message_entity.GetConversation(dto.SendId, dto.RecvId, dto.ConvType)
 
-	// 1. 获取最新 seq
 	seq, err := w.messageCache.GetConvLatestSeq(ctx, conversationId)
 	if err != nil {
 		return ErrConversationNotFound
 	}
 
-	// 2. messageId
 	messageId, err := snow.GenerateSnowId(int(w.config.App.MachineID))
 	if err != nil {
 		return ErrUnknown
 	}
 
-	// 3. 构造 message
 	message := message_entity.BuildMessage(
 		messageId,
 		conversationId,
@@ -126,8 +123,15 @@ func (w *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeD
 		// TODO 异步补偿机制
 	}
 
-	// 5. 构造 event
-	event := MessageEvent{
+	value := ctx.Value("op")
+
+	op, ok := value.(string)
+
+	if !ok || op == "" {
+		return ErrUnknown
+	}
+
+	event := protocol.MessageEvent{
 		MessageId:      messageId,
 		ConversationId: conversationId,
 		SendId:         dto.SendId,
@@ -138,29 +142,12 @@ func (w *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeD
 		SendTime:       message.SendTime,
 	}
 
-	data, err := json.Marshal(event)
-	if err != nil {
-		log.Println("failed to marshal event:", err)
-		return ErrUnknown
-	}
-
-	// 6. topic 选择
-	var topic string
-	switch event.ConvType {
-	case int(message_valueobject.PrivateChat):
-		topic = "private_chat"
-	case int(message_valueobject.RoomChat):
-		topic = "room_chat"
-	default:
-		return ErrUnknown
-	}
-
 	// 7. 发送 MQ
-	if err := w.producer.SendMessage(
+	if err := w.taskManager.SendMessage(
 		ctx,
-		topic,
+		"chat",
 		conversationId,
-		data,
+		event,
 	); err != nil {
 		log.Printf("mq send failed: %v", err)
 		return ErrUnknown

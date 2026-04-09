@@ -2,6 +2,7 @@ package friend_repository
 
 import (
 	friend_entity "IM_backend/internal/domain/friend/entity"
+	friend_repository_interface "IM_backend/internal/domain/friend/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 	"errors"
 
@@ -9,21 +10,21 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-type friendRepository struct {
+type FriendRepository struct {
 	db *gorm.DB
 }
 
-func NewFriendRepository(db *gorm.DB) *friendRepository {
-	return &friendRepository{
+func NewFriendRepository(db *gorm.DB) *FriendRepository {
+	return &FriendRepository{
 		db: db,
 	}
 }
 
-func (r *friendRepository) WithTx(tx *gorm.DB) *friendRepository {
-	return &friendRepository{db: tx}
+func (r *FriendRepository) WithTx(tx *gorm.DB) friend_repository_interface.FriendRepositoryInterface {
+	return &FriendRepository{db: tx}
 }
 
-func (fr *friendRepository) Create(domains []friend_entity.Friend) error {
+func (fr *FriendRepository) Create(domains []friend_entity.Friend) error {
 	return fr.db.Transaction(func(tx *gorm.DB) error {
 		for _, d := range domains {
 			model := toModel(d)
@@ -39,7 +40,7 @@ func (fr *friendRepository) Create(domains []friend_entity.Friend) error {
 	})
 }
 
-func (fr *friendRepository) GetUserFriendList(userId string, status int) ([]friend_entity.Friend, error) {
+func (fr *FriendRepository) GetUserFriendList(userId string, status int) ([]friend_entity.Friend, error) {
 	var m []model.Friend
 
 	if err := fr.db.
@@ -58,7 +59,7 @@ func (fr *friendRepository) GetUserFriendList(userId string, status int) ([]frie
 	return domains, nil
 }
 
-func (fr *friendRepository) FindRelation(userId, friendId string) (*friend_entity.Friend, error) {
+func (fr *FriendRepository) FindRelation(userId, friendId string) (*friend_entity.Friend, error) {
 	var m model.Friend
 
 	if err := fr.db.

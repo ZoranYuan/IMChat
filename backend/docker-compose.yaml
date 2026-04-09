@@ -39,7 +39,7 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
 
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-
+  
     networks:
       - IMChat-net
 

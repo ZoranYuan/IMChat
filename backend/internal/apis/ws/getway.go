@@ -1,7 +1,6 @@
 package ws
 
 import (
-	"encoding/json"
 	"log"
 	"sync"
 	"time"
@@ -108,28 +107,22 @@ func (g *GetWay) getClients(recvId string) []*Client {
 }
 
 // 针对接收者进行发送
-func (g *GetWay) SendMessage(op string, data []byte) {
+func (g *GetWay) SendToClient(op string, targetId string, payload []byte) error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Println("panic :", r)
 		}
 	}()
 
-	var msg MessageResData
-
-	if err := json.Unmarshal(data, &msg); err != nil {
-		log.Println("failed to parse the data :", err)
-	}
-
-	clients := g.getClients(msg.RecvId)
+	clients := g.getClients(targetId)
 
 	if len(clients) == 0 {
-		return
+		return nil
 	}
 
 	m := WsMessage{
 		Op:   op,
-		Data: data,
+		Data: payload,
 	}
 
 	for _, client := range clients {
@@ -139,4 +132,6 @@ func (g *GetWay) SendMessage(op string, data []byte) {
 			// 防止阻塞（可以选择丢弃或断开）
 		}
 	}
+
+	return nil
 }

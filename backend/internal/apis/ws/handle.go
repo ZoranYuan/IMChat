@@ -86,6 +86,8 @@ func (wh *WsHandler) readLoop(ctx context.Context, client *Client) {
 			return
 		}
 
+		log.Println("read message , time is :", time.Now().Local())
+
 		data, err := json.Marshal(msg.Data)
 		if err != nil {
 			log.Println("failed to read message, ", err)
@@ -112,6 +114,8 @@ func (wh *WsHandler) writeLoop(client *Client) {
 			if err := client.Write(websocket.TextMessage, m, wh.confg.WebSocket.WriteWaitSeconds); err != nil {
 				return
 			}
+
+			log.Println("send message , time is :", time.Now().Local())
 		case <-ticker.C:
 			if err := client.Write(websocket.PingMessage, nil, wh.confg.WebSocket.WriteWaitSeconds); err != nil {
 				return

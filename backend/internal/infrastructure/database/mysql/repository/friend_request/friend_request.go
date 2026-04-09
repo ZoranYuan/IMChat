@@ -2,27 +2,28 @@ package friend_request_repository
 
 import (
 	friend_request_entity "IM_backend/internal/domain/frient_request/entity"
+	friend_request_repository_interface "IM_backend/internal/domain/frient_request/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 	"errors"
 
 	"gorm.io/gorm"
 )
 
-type friendRequestRepo struct {
+type FriendRequestRepo struct {
 	db *gorm.DB
 }
 
-func NewFriendRequestRepository(db *gorm.DB) *friendRequestRepo {
-	return &friendRequestRepo{
+func NewFriendRequestRepository(db *gorm.DB) *FriendRequestRepo {
+	return &FriendRequestRepo{
 		db: db,
 	}
 }
 
-func (r *friendRequestRepo) WithTx(tx *gorm.DB) *friendRequestRepo {
-	return &friendRequestRepo{db: tx}
+func (r *FriendRequestRepo) WithTx(tx *gorm.DB) friend_request_repository_interface.FriendRequestInterface {
+	return &FriendRequestRepo{db: tx}
 }
 
-func (fr *friendRequestRepo) FindLatestRequest(userId, toUserId string) (*friend_request_entity.FriendRequest, error) {
+func (fr *FriendRequestRepo) FindLatestRequest(userId, toUserId string) (*friend_request_entity.FriendRequest, error) {
 	var friendRequestModel model.FriendRequest
 	err := fr.db.
 		Where("from_user_id = ? AND to_user_id = ?", userId, toUserId).
@@ -39,7 +40,7 @@ func (fr *friendRequestRepo) FindLatestRequest(userId, toUserId string) (*friend
 	return toDomain(friendRequestModel), nil
 }
 
-func (fr *friendRequestRepo) Create(domain *friend_request_entity.FriendRequest) (*friend_request_entity.FriendRequest, error) {
+func (fr *FriendRequestRepo) Create(domain *friend_request_entity.FriendRequest) (*friend_request_entity.FriendRequest, error) {
 	m := toModel(domain)
 
 	if err := fr.db.Create(&m).Error; err != nil {
@@ -49,7 +50,7 @@ func (fr *friendRequestRepo) Create(domain *friend_request_entity.FriendRequest)
 	return toDomain(m), nil
 }
 
-func (fr *friendRequestRepo) ReRequest(domain *friend_request_entity.FriendRequest) error {
+func (fr *FriendRequestRepo) ReRequest(domain *friend_request_entity.FriendRequest) error {
 	m := toModel(domain)
 
 	result := fr.db.Model(&model.FriendRequest{}).
@@ -73,7 +74,7 @@ func (fr *friendRequestRepo) ReRequest(domain *friend_request_entity.FriendReque
 	return nil
 }
 
-func (fr *friendRequestRepo) OperateRequest(requestId string, expectStatus, newStatus int) error {
+func (fr *FriendRequestRepo) OperateRequest(requestId string, expectStatus, newStatus int) error {
 	result := fr.db.Model(&model.FriendRequest{}).
 		Where(
 			"request_id = ? AND status = ?",
@@ -95,7 +96,7 @@ func (fr *friendRequestRepo) OperateRequest(requestId string, expectStatus, newS
 	return nil
 }
 
-func (fr *friendRequestRepo) ListByUserId(userId string) ([]*friend_request_entity.FriendRequest, error) {
+func (fr *FriendRequestRepo) ListByUserId(userId string) ([]*friend_request_entity.FriendRequest, error) {
 	var m []model.FriendRequest
 	if err := fr.db.Where("to_user_id = ?", userId).
 		Order("updated_at DESC").
@@ -112,7 +113,7 @@ func (fr *friendRequestRepo) ListByUserId(userId string) ([]*friend_request_enti
 	return domainList, nil
 }
 
-func (fr *friendRequestRepo) FindByRequestId(requestId string) (*friend_request_entity.FriendRequest, error) {
+func (fr *FriendRequestRepo) FindByRequestId(requestId string) (*friend_request_entity.FriendRequest, error) {
 	var m model.FriendRequest
 
 	if err := fr.db.Where("request_id = ?", requestId).First(&m).Error; err != nil {

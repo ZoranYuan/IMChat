@@ -22,3 +22,26 @@ ws:
   timer_interval_seconds: 30
   max_message_size: 5120
   max_message_send_buffer_size: 256
+kafka:
+  brokers:
+    - "kafka:9092"
+
+  topics:
+    chat: "chat"
+    video: "video"
+    ack: "ack"
+
+  consumer:
+    group_id: "im-chat-consumer-group"
+    version: "2.6.0"
+    assignor: "range"   # range / roundrobin / sticky
+
+  producer:
+    acks: "all"         # all / 1 / 0
+    retries: 3
+    batch_size: 16384
+    linger_ms: 10
+    compression: "snappy"
+
+  partition:
+    strategy: "conversation_hash"   # room_hash / user_hash / random

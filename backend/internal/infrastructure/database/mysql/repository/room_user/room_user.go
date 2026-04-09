@@ -2,6 +2,7 @@ package room_user_repository
 
 import (
 	room_entity "IM_backend/internal/domain/room/entity"
+	room_repository_interface "IM_backend/internal/domain/room/repository"
 	"IM_backend/internal/infrastructure/database/mysql/model"
 	"errors"
 
@@ -19,7 +20,7 @@ func NewRoomUserRepository(db *gorm.DB) *RoomUserRepository {
 	}
 }
 
-func (rur *RoomUserRepository) WithTx(tx *gorm.DB) *RoomUserRepository {
+func (rur *RoomUserRepository) WithTx(tx *gorm.DB) room_repository_interface.RoomUserRepositoryInterface {
 	return &RoomUserRepository{
 		db: tx,
 	}

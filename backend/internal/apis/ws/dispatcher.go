@@ -21,13 +21,14 @@ func (d *Dispatcher) RegisterHandler(op string, dh DispatchHandle) {
 	d.handlers[op] = dh
 }
 
-func (r *Dispatcher) Dispatch(ctx context.Context, client *Client, msgType string, data []byte) {
-	handler, ok := r.handlers[msgType]
+func (r *Dispatcher) Dispatch(ctx context.Context, client *Client, op string, data []byte) {
+	handler, ok := r.handlers[op]
 	if !ok {
 		// 未知类型，可以打印日志或忽略
 		return
 	}
 
+	ctx = context.WithValue(ctx, "op", op)
 	err := handler(ctx, client, data)
 
 	if err != nil {

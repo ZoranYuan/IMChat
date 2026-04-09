@@ -26,9 +26,11 @@ import (
 	message_cache "IM_backend/internal/infrastructure/database/redis/cache/message"
 	room_cache "IM_backend/internal/infrastructure/database/redis/cache/room"
 	"IM_backend/internal/infrastructure/mq"
+	"IM_backend/internal/infrastructure/mq/client/kafka"
 	"IM_backend/internal/infrastructure/persistence"
 	service_auth "IM_backend/internal/service/auth"
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -42,8 +44,9 @@ import (
 func main() {
 	r := gin.Default()
 
+	ctx := context.TODO()
+
 	cfg := configs.LoadConfig("/workspace/IM/backend/configs/config.yaml")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
 	if cfg.App.Env == "development" {
 		gin.SetMode(gin.DebugMode)
@@ -55,7 +58,6 @@ func main() {
 	db := mysql.InitMysql(cfg.Database.MySQL.DSN)
 	defer func() {
 		db = nil
-		cancel()
 	}()
 
 	txManager := persistence.NewGormTxManager(db)
@@ -67,15 +69,30 @@ func main() {
 	roomCache := room_cache.NewRoomCache(redis)
 	messageCache := message_cache.NewMessageCache(redis)
 
+	kafkaClient, err := kafka.NewClient(cfg.Kafka)
+
+	if err != nil {
+		log.Fatalln("failed to connect kafka, ", err)
+	}
+
+	messageConsumer := kafka.NewConsumer(kafkaClient, []string{"chat", "video"},
+		fmt.Sprintf("machine-%d-group", cfg.App.MachineID),
+		getWay,
+	)
+
+	go messageConsumer.Start(ctx)
+
+	messageProducer := kafka.NewProducer(kafkaClient, "chat")
+
 	dispatcher := ws.NewDispatcher()
-	producer := mq.NewProducer(getWay, roomCache)
+	taskManager := mq.NewTaskManager(messageProducer, roomCache)
 
 	authService := service_auth.NewAuthService(cfg)
 
 	// 构造依赖
 	messageRepository := message_repository.NewMessageRepository(db)
 	conversationRepository := message_repository.NewConversationRepository(db)
-	userConversitory := message_repository.NewUserConversationRepository(db)
+	userConversationRepository := message_repository.NewUserConversationRepository(db)
 
 	userRepository := user_repository.NewUserRepository(db)
 	userApp := application_user.NewUserApplication(userRepository, cfg, authCache, authService)
@@ -100,8 +117,8 @@ func main() {
 		cfg,
 		messageCache,
 		txManager,
-		producer,
-		userConversitory,
+		taskManager,
+		userConversationRepository,
 		conversationRepository,
 		messageRepository,
 	)
@@ -118,13 +135,11 @@ func main() {
 
 	// 注册路由
 	apiGroup := r.Group("/api/v1")
-
-	apiGroupWithAuth := apiGroup.Use(authMiddle.JWTAuthMiddleware())
-	apis.RegisterUserRouter(apiGroup, userHandle)
 	apis.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
+	apis.RegisterUserRouter(apiGroup, userHandle, authMiddle)
 	apis.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	apis.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
-	ws.RegisterWsRouter(apiGroupWithAuth, wsHandle)
+	ws.RegisterWsRouter(apiGroup, wsHandle, authMiddle)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Port,
