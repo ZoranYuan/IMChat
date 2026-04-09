@@ -1,0 +1,29 @@
+package kafka
+
+import (
+	"github.com/IBM/sarama"
+)
+
+type Producer struct {
+	client *Client
+	topic  string
+}
+
+func NewProducer(c *Client, topic string) *Producer {
+	return &Producer{
+		client: c,
+		topic:  topic,
+	}
+}
+
+func (p *Producer) SendMessage(topic string, key string, payload []byte) error {
+	_, _, err := p.client.Producer.SendMessage(&sarama.ProducerMessage{
+		Topic: p.topic,
+
+		Key: sarama.StringEncoder(key),
+
+		Value: sarama.ByteEncoder(payload),
+	})
+
+	return err
+}
