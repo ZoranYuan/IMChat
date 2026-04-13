@@ -81,6 +81,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		userId,
 		conversationId,
 		0,
+		0,
 	)
 
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(3)*time.Second)
@@ -106,7 +107,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 			return err
 		}
 
-		if err := userConversationRepository.Save(ctx, userConversation); err != nil {
+		if err := userConversationRepository.CreateUserConversation(ctx, userConversation); err != nil {
 			return err
 		}
 

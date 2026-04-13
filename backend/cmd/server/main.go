@@ -5,6 +5,7 @@ import (
 	apis "IM_backend/internal/apis/https"
 	https_friend "IM_backend/internal/apis/https/friend"
 	https_friend_request "IM_backend/internal/apis/https/friend_request"
+	https_message "IM_backend/internal/apis/https/message"
 	"IM_backend/internal/apis/https/middleware"
 	https_room "IM_backend/internal/apis/https/room"
 	https_user "IM_backend/internal/apis/https/user"
@@ -125,7 +126,8 @@ func main() {
 	)
 	roomHandle := https_room.NewRoomHandle(roomApp)
 
-	wsApp := application_message.NewMessageApplication(
+	// TODO: messagesHandle 的依赖注入
+	messageApplication := application_message.NewMessageApplication(
 		cfg,
 		messageCache,
 		txManager,
@@ -134,9 +136,10 @@ func main() {
 		conversationRepository,
 		messageRepository,
 	)
+	messageHandle := https_message.NewMessageHandle(messageApplication)
 
 	wsHandle := ws.NewWshandler(
-		wsApp,
+		messageApplication,
 		cfg,
 		dispatcher,
 		getWay,
@@ -151,6 +154,8 @@ func main() {
 	apis.RegisterUserRouter(apiGroup, userHandle, authMiddle)
 	apis.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	apis.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
+	apis.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)
+
 	ws.RegisterWsRouter(apiGroup, wsHandle, authMiddle)
 
 	srv := &http.Server{

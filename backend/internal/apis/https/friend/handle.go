@@ -32,5 +32,5 @@ func (fh *FriendHandle) GetFriendList(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(toRes(friendListApp)))
+	c.JSON(http.StatusOK, response.Success(toFriendListRes(friendListApp)))
 }

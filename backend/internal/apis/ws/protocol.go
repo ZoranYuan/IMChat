@@ -8,11 +8,10 @@ type WsMessage struct {
 }
 
 type MessageReqData struct {
-	ClientMsgId    string `json:"clientMsgId"`
-	ConversationId string `json:"conversationId"`
-	RecvId         string `json:"recvId"`
-	ConvType       int    `json:"convType"`
-	CType          int    `json:"cType"`
-	Content        string `json:"content"`
-	VideoTime      int64  `json:"videoTime"`
+	ClientMsgId string `json:"clientMsgId"`
+	RecvId      string `json:"recvId"`
+	ConvType    int    `json:"convType"`
+	CType       int    `json:"cType"`
+	Content     string `json:"content"`
+	VideoTime   *int64 `json:"videoTime"`
 }

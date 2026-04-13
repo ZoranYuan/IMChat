@@ -69,3 +69,30 @@ func (r *ConversationRepository) Upsert(
 		}).
 		Create(m).Error
 }
+
+func (r *ConversationRepository) ListByIds(
+	ctx context.Context,
+	ids []string,
+) ([]*message_entity.Conversation, error) {
+
+	if len(ids) == 0 {
+		return []*message_entity.Conversation{}, nil
+	}
+
+	var models []model.Conversation
+
+	err := r.db.WithContext(ctx).
+		Where("conversation_id IN ?", ids).
+		Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为 domain
+	result := make([]*message_entity.Conversation, 0, len(models))
+	for _, m := range models {
+		result = append(result, toConversationDomain(&m))
+	}
+
+	return result, nil
+}

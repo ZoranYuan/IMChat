@@ -8,22 +8,16 @@ import (
 type Message struct {
 	MessageId      string
 	ConversationId string
-
-	SendId string
-
-	// 当前消息的自增序列值
-	Seq int64
-	// 消息状态
-	Type    message_valueobject.CType
-	Content string
-	// 消息状态
-	VideoTime int64
-	Status    message_valueobject.Status
-
-	SendTime int64
+	SendId         string
+	Seq            int64
+	Type           message_valueobject.CType
+	Content        string
+	VideoTime      *int64
+	Status         message_valueobject.Status
+	SendTime       int64
 }
 
-func BuildMessage(messageId, conversationId, sendId string, seq int64, content string, videoTime int64,
+func BuildMessage(messageId, conversationId, sendId string, seq int64, content string, videoTime *int64,
 	cType message_valueobject.CType,
 ) *Message {
 	return &Message{

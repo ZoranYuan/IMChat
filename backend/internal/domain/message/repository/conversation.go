@@ -19,5 +19,10 @@ type ConversationRepositoryInterface interface {
 		domain *message_entity.Conversation,
 	) error
 
+	ListByIds(
+		ctx context.Context,
+		ids []string,
+	) ([]*message_entity.Conversation, error)
+
 	WithTx(tx any) ConversationRepositoryInterface
 }

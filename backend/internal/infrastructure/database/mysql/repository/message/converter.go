@@ -50,7 +50,8 @@ func toUserConversationDomain(u *model.UserConversation) *message_entity.UserCon
 	return &message_entity.UserConversation{
 		UserId:         u.UserId,
 		ConversationId: u.ConversationId,
-		LasetReadSeq:   u.LatestReadSeq,
+		LastReadSeq:    u.LastReadSeq,
+		LatestSyncSeq:  u.LatestSyncReq,
 		IsMuted:        u.IsMuted,
 	}
 }
@@ -63,7 +64,8 @@ func toUserConversationModel(d *message_entity.UserConversation) *model.UserConv
 	return &model.UserConversation{
 		UserId:         d.UserId,
 		ConversationId: d.ConversationId,
-		LatestReadSeq:  d.LasetReadSeq,
+		LastReadSeq:    d.LastReadSeq,
+		LatestSyncReq:  d.LatestSyncSeq,
 		IsMuted:        d.IsMuted,
 	}
 }
@@ -79,7 +81,7 @@ func toConversationDomain(c *model.Conversation) *message_entity.Conversation {
 		UserId1:        c.UserId1,
 		UserId2:        c.UserId2,
 		RoomId:         c.RoomId,
-		LastSeq:        c.LastSeq,
+		LastSeq:        c.LatestSeq,
 	}
 }
 
@@ -94,6 +96,6 @@ func toConversationModel(d *message_entity.Conversation) *model.Conversation {
 		UserId1:        d.UserId1,
 		UserId2:        d.UserId2,
 		RoomId:         d.RoomId,
-		LastSeq:        d.LastSeq,
+		LatestSeq:      d.LastSeq,
 	}
 }

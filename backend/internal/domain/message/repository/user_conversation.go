@@ -8,7 +8,7 @@ import (
 type UserConversationRepositoryInterface interface {
 
 	// 创建用户会话关系
-	Save(ctx context.Context, uc *message_entity.UserConversation) error
+	CreateUserConversation(ctx context.Context, uc *message_entity.UserConversation) error
 
 	// 获取单个用户会话
 	Get(
@@ -17,13 +17,16 @@ type UserConversationRepositoryInterface interface {
 		conversationId string,
 	) (*message_entity.UserConversation, error)
 
-	// 更新已读位置
-	Upsert(
+	UpdateSyncSeq(
 		ctx context.Context,
-		domain *message_entity.UserConversation,
+		uc *message_entity.UserConversation,
 	) error
 
-	// 获取用户所有会话（会话列表）
+	UpdateReadSeq(
+		ctx context.Context,
+		uc *message_entity.UserConversation,
+	) error
+
 	ListByUser(
 		ctx context.Context,
 		userId string,

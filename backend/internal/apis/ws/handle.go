@@ -51,10 +51,9 @@ func (wh *WsHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 	ackEvent, err := wh.app.HandleMessage(ctx, application_message.MessageAppeDTO{
 		SendId:      c.userId,
 		ClientMsgId: req.ClientMsgId,
-		SessionId:   c.sessionId,
 		RecvId:      req.RecvId,
 		ConvType:    req.ConvType,
-		Ctype:       req.CType,
+		CType:       req.CType,
 		Content:     req.Content,
 		VideoTime:   req.VideoTime,
 	})

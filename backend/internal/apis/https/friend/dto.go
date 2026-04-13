@@ -4,7 +4,7 @@ import (
 	application_friend "IM_backend/internal/applications/friend"
 )
 
-type FriendListRes struct {
+type FriendItemRes struct {
 	FriendUserId string
 	FriendAvatar string
 	// LastMessage    string
@@ -13,8 +13,8 @@ type FriendListRes struct {
 	DsipalyName string
 }
 
-func toRes(f []application_friend.FriendAppDTO) []FriendListRes {
-	var res = make([]FriendListRes, 0, len(f))
+func toFriendListRes(f []application_friend.FriendAppDTO) []FriendItemRes {
+	var res = make([]FriendItemRes, 0, len(f))
 
 	for _, i := range f {
 		var displayName string
@@ -26,7 +26,7 @@ func toRes(f []application_friend.FriendAppDTO) []FriendListRes {
 			displayName = i.FriendUserName
 		}
 
-		res = append(res, FriendListRes{
+		res = append(res, FriendItemRes{
 			FriendUserId: i.FriendUserId,
 			FriendAvatar: i.FriendAvatar,
 			DsipalyName:  displayName,

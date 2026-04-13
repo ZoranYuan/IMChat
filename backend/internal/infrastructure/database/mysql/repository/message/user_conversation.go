@@ -19,18 +19,43 @@ func NewUserConversationRepository(db *gorm.DB) *UserConversationRepository {
 	return &UserConversationRepository{db: db}
 }
 
-// 创建用户会话关系
-func (r *UserConversationRepository) Save(ctx context.Context, uc *message_entity.UserConversation) error {
-	return r.db.WithContext(ctx).Create(toUserConversationModel(uc)).Error
-}
-
-// 更新已读 seq
-func (r *UserConversationRepository) Upsert(
+func (r *UserConversationRepository) UpdateReadSeq(
 	ctx context.Context,
-	domain *message_entity.UserConversation,
+	uc *message_entity.UserConversation,
 ) error {
 
-	m := toUserConversationModel(domain)
+	return r.db.WithContext(ctx).
+		Model(&message_entity.UserConversation{}).
+		Where("user_id = ? AND conversation_id = ?", uc.UserId, uc.ConversationId).
+		Updates(map[string]interface{}{
+			"last_read_seq": gorm.Expr(
+				"GREATEST(last_read_seq, ?)",
+				uc.LastReadSeq,
+			),
+		}).Error
+}
+
+func (r *UserConversationRepository) UpdateSyncSeq(
+	ctx context.Context,
+	uc *message_entity.UserConversation,
+) error {
+
+	return r.db.WithContext(ctx).
+		Model(&message_entity.UserConversation{}).
+		Where("user_id = ? AND conversation_id = ?", uc.UserId, uc.ConversationId).
+		Updates(map[string]interface{}{
+			"latest_sync_seq": gorm.Expr(
+				"GREATEST(last_sync_seq, ?)",
+				uc.LatestSyncSeq,
+			),
+		}).Error
+}
+
+func (r *UserConversationRepository) CreateUserConversation(
+	ctx context.Context,
+	uc *message_entity.UserConversation,
+) error {
+	m := toUserConversationModel(uc)
 
 	return r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
@@ -38,11 +63,12 @@ func (r *UserConversationRepository) Upsert(
 				{Name: "user_id"},
 				{Name: "conversation_id"},
 			},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"latest_read_seq": m.LatestReadSeq,
-			}),
+			DoNothing: true,
 		}).
-		Create(m).Error
+		Create(&model.UserConversation{
+			UserId:         m.UserId,
+			ConversationId: m.ConversationId,
+		}).Error
 }
 
 func (r *UserConversationRepository) WithTx(tx any) message_repository_interface.UserConversationRepositoryInterface {

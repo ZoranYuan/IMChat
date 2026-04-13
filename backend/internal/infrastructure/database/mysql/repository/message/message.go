@@ -30,19 +30,18 @@ func (r *MessageRepository) Save(ctx context.Context, msg *message_entity.Messag
 	return r.db.WithContext(ctx).Create(m).Error
 }
 
-// 根据会话查询消息（分页）
-func (r *MessageRepository) ListByConversation(
+func (r *MessageRepository) GetHistoryMessage(
 	ctx context.Context,
 	conversationId string,
-	minSeq int64,
+	maxSeq int64,
 	limit int,
 ) ([]*message_entity.Message, error) {
 
 	var models []*model.Message
 
 	err := r.db.WithContext(ctx).
-		Where("conversation_id = ? AND seq > ?", conversationId, minSeq).
-		Order("seq ASC").
+		Where("conversation_id = ? AND seq < ?", conversationId, maxSeq).
+		Order("seq DESC").
 		Limit(limit).
 		Find(&models).Error
 
@@ -56,4 +55,30 @@ func (r *MessageRepository) ListByConversation(
 	}
 
 	return result, nil
+}
+
+func (r *MessageRepository) ListLatestByConversations(
+	ctx context.Context,
+	convIDs []string,
+) ([]*message_entity.Message, error) {
+
+	var msgs []*model.Message
+
+	err := r.db.WithContext(ctx).
+		Raw(`
+            SELECT *
+			FROM messages
+			WHERE conversation_id IN ?
+			ORDER BY seq ASC
+			LIMIT 1;
+        `, convIDs).
+		Scan(&msgs).Error
+
+	var domains []*message_entity.Message
+
+	for _, m := range msgs {
+		domains = append(domains, toMessageDomain(m))
+	}
+
+	return domains, err
 }
