@@ -46,17 +46,21 @@ func NewMessageApplication(
 	}
 }
 
-func (w *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) error {
+func (w *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*protocol.AckEvent, error) {
 	conversationId := message_entity.GetConversation(dto.SendId, dto.RecvId, dto.ConvType)
-
-	seq, err := w.messageCache.GetConvLatestSeq(ctx, conversationId)
-	if err != nil {
-		return ErrConversationNotFound
-	}
 
 	messageId, err := snow.GenerateSnowId(int(w.config.App.MachineID))
 	if err != nil {
-		return ErrUnknown
+		return nil, ErrUnknown
+	}
+
+	seq, err := w.messageCache.GetConvLatestSeq(ctx, conversationId)
+	if err != nil {
+		return &protocol.AckEvent{
+			ClientMsgId: dto.ClientMsgId,
+			Status:      protocol.AckStatusFailed,
+			ErrorMsg:    ErrConversationNotFound.Error(),
+		}, nil
 	}
 
 	message := message_entity.BuildMessage(
@@ -115,7 +119,11 @@ func (w *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeD
 	})
 
 	if err != nil {
-		return err
+		return &protocol.AckEvent{
+			ClientMsgId: dto.ClientMsgId,
+			Status:      protocol.AckStatusFailed,
+			ErrorMsg:    ErrConversationNotFound.Error(),
+		}, nil
 	}
 
 	_, err = w.messageCache.IncrConvSeq(ctx, conversationId)
@@ -124,34 +132,38 @@ func (w *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeD
 	}
 
 	value := ctx.Value("op")
-
 	op, ok := value.(string)
-
 	if !ok || op == "" {
-		return ErrUnknown
+		return nil, ErrUnknown
 	}
 
-	event := protocol.MessageEvent{
+	messageEvent := protocol.MessageEvent{
 		MessageId:      messageId,
 		ConversationId: conversationId,
 		SendId:         dto.SendId,
 		RecvId:         dto.RecvId,
+		Seq:            seq,
 		ConvType:       dto.ConvType,
 		CType:          dto.Ctype,
 		Content:        dto.Content,
 		SendTime:       message.SendTime,
 	}
 
-	// 7. 发送 MQ
-	if err := w.taskManager.SendMessage(
-		ctx,
-		"chat",
-		conversationId,
-		event,
-	); err != nil {
-		log.Printf("mq send failed: %v", err)
-		return ErrUnknown
-	}
+	go func() {
+		if err := w.taskManager.SendMessage(
+			context.Background(),
+			"chat",
+			conversationId,
+			messageEvent,
+		); err != nil {
+			log.Printf("mq send failed: %v", err)
+			// TODO: 后续做补偿（Outbox）
+		}
+	}()
 
-	return nil
+	return &protocol.AckEvent{
+		ClientMsgId: dto.ClientMsgId,
+		MessageId:   messageId,
+		Status:      protocol.AckStatusSent,
+	}, nil
 }

@@ -27,23 +27,33 @@ func NewGetWay() *GetWay {
 // 监听协程
 func (g *GetWay) KeepAlive(interval int, pongWait int) {
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
+	defer ticker.Stop()
 
 	for range ticker.C {
 		now := time.Now()
-
 		g.mu.RLock()
-		defer g.mu.RUnlock()
-		for _, client := range g.sessions {
+		clients := make([]*Client, 0, len(g.sessions))
+		for _, c := range g.sessions {
+			clients = append(clients, c)
+		}
+		g.mu.RUnlock()
 
+		var toRemove []*Client
+		for _, client := range clients {
 			client.mu.RLock()
-			idleTime := time.Unix(client.idle, 0)
-			duration := now.Sub(idleTime)
+			idle := client.idle
 			client.mu.RUnlock()
-			if duration > time.Duration(pongWait)*time.Second {
-				// 超时，踢掉
-				client.Close()
-				g.RemoveClient(client)
+
+			if now.Sub(time.Unix(idle, 0)) > time.Duration(pongWait)*time.Second {
+				toRemove = append(toRemove, client)
 			}
+		}
+
+		for _, client := range toRemove {
+			log.Println("超时，准备踢出", client.userId)
+
+			client.Close()
+			g.RemoveClient(client)
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"IM_backend/configs"
 	"IM_backend/internal/apis/response"
 	application_message "IM_backend/internal/applications/message"
+	"IM_backend/internal/protocol"
 	"context"
 	"encoding/json"
 	"log"
@@ -20,14 +21,14 @@ type WsHandler struct {
 	app        *application_message.MessageApplication
 	confg      configs.Config
 	dispacther *Dispatcher
-	getway     *GetWay
+	gateway    *GetWay
 }
 
 func NewWshandler(app *application_message.MessageApplication, confg configs.Config, dispacther *Dispatcher, getway *GetWay) *WsHandler {
 	wh := &WsHandler{
 		app:        app,
 		confg:      confg,
-		getway:     getway,
+		gateway:    getway,
 		dispacther: dispacther,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -42,30 +43,47 @@ func NewWshandler(app *application_message.MessageApplication, confg configs.Con
 }
 
 func (wh *WsHandler) handleSendMessage(ctx context.Context, c *Client, data []byte) error {
-	// 对数据进行统一管理，然后调用 application 服务
 	var req MessageReqData
-
-	// TODO 后期优化为 decode 校验字段
 	if err := json.Unmarshal(data, &req); err != nil {
-		log.Println("failed to unmarsha, ", err)
 		return err
 	}
 
-	return wh.app.HandleMessage(ctx, application_message.MessageAppeDTO{
-		SendId:    c.userId,
-		SessionId: c.sessionId,
-		RecvId:    req.RecvId,
-		ConvType:  req.ConvType,
-		Ctype:     req.CType,
-		Content:   req.Content,
-		VideoTime: req.VideoTime,
+	ackEvent, err := wh.app.HandleMessage(ctx, application_message.MessageAppeDTO{
+		SendId:      c.userId,
+		ClientMsgId: req.ClientMsgId,
+		SessionId:   c.sessionId,
+		RecvId:      req.RecvId,
+		ConvType:    req.ConvType,
+		Ctype:       req.CType,
+		Content:     req.Content,
+		VideoTime:   req.VideoTime,
 	})
+
+	if err != nil {
+		// 服务端错误
+		ackEvent = &protocol.AckEvent{
+			ClientMsgId: req.ClientMsgId,
+			Status:      protocol.AckStatusFailed,
+			ErrorMsg:    "internal error",
+		}
+
+		log.Println("failed to handle message, ", err)
+	}
+
+	data, err = json.Marshal(ackEvent)
+
+	if err != nil {
+		log.Println("marshal ack failed ", err)
+		return err
+	}
+
+	return wh.gateway.SendToClient("ack", c.userId, data)
 }
 
 func (wh *WsHandler) readLoop(ctx context.Context, client *Client) {
 	defer func() {
 		client.Close()
-		wh.getway.RemoveClient(client)
+		wh.gateway.RemoveClient(client)
 	}()
 
 	client.conn.SetReadDeadline(time.Now().Add(time.Duration(wh.confg.WebSocket.PongWaitSeconds) * time.Second))
@@ -85,8 +103,6 @@ func (wh *WsHandler) readLoop(ctx context.Context, client *Client) {
 			log.Println("failed to read message, ", err)
 			return
 		}
-
-		log.Println("read message , time is :", time.Now().Local())
 
 		data, err := json.Marshal(msg.Data)
 		if err != nil {
@@ -114,8 +130,6 @@ func (wh *WsHandler) writeLoop(client *Client) {
 			if err := client.Write(websocket.TextMessage, m, wh.confg.WebSocket.WriteWaitSeconds); err != nil {
 				return
 			}
-
-			log.Println("send message , time is :", time.Now().Local())
 		case <-ticker.C:
 			if err := client.Write(websocket.PingMessage, nil, wh.confg.WebSocket.WriteWaitSeconds); err != nil {
 				return
@@ -143,7 +157,7 @@ func (wh *WsHandler) Handler(c *gin.Context) {
 
 	sessionId := uuid.NewString()
 	client := NewClient(ctx, cancel, conn, userId, sessionId, wh.confg.WebSocket.MaxMessageSendBufferSize)
-	wh.getway.AddClient(client)
+	wh.gateway.AddClient(client)
 
 	go wh.readLoop(client.ctx, client)
 	go wh.writeLoop(client)

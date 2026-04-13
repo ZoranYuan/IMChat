@@ -34,6 +34,8 @@ func (h *groupHandler) ConsumeClaim(
 			return err
 		}
 
+		log.Println("read message")
+
 		to := envelope.To
 		if err := h.dispacth.SendToClient(msg.Topic, to, envelope.Payload); err != nil {
 			// 让消息重试

@@ -8,13 +8,11 @@ type WsMessage struct {
 }
 
 type MessageReqData struct {
-	ConversationId string
+	ClientMsgId    string `json:"clientMsgId"`
+	ConversationId string `json:"conversationId"`
 	RecvId         string `json:"recvId"`
-
-	ConvType int `json:"convType"` // 1 表示私聊，2 表示群聊
-
-	CType   int    `json:"cType"`   // text, image, file...
-	Content string `json:"content"` // 消息内容
-
-	VideoTime int64 `json:"videoTime,omitempty"` // 如果不传递就是普通的聊天
+	ConvType       int    `json:"convType"`
+	CType          int    `json:"cType"`
+	Content        string `json:"content"`
+	VideoTime      int64  `json:"videoTime"`
 }
