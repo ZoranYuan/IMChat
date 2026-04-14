@@ -1,6 +1,7 @@
 package message_cache
 
 import (
+	message_entity "IM_backend/internal/domain/message/entity"
 	"context"
 	"errors"
 
@@ -17,51 +18,38 @@ func NewMessageCache(rb *redis.Client) *MessageCache {
 	}
 }
 
-func (mc *MessageCache) GetConvLatestSeq(ctx context.Context, convId string) (int64, error) {
+func (mc *MessageCache) IncrMessageLatestSeq(ctx context.Context, convId string) (int64, error) {
 	key := ConversationSeqKeys(convId)
 
-	seq, err := mc.rb.Get(ctx, key).Int64()
+	r, err := mc.rb.Incr(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			// 当前会话不存在, 创建会话
-			initSeq := int64(0)
-
-			ok, err := mc.rb.SetArgs(ctx, key, initSeq, redis.SetArgs{
-				Mode: "NX",
-			}).Result()
-
-			if err != nil {
-				return 0, err
-			}
-
-			if ok == "OK" {
-				return initSeq, nil
-			}
-
-			// double read，key 已经被创建了
-			seq, err := mc.rb.Get(ctx, key).Int64()
-
-			if err != nil {
-				return 0, err
-			}
-
-			return seq, nil
+			return r, message_entity.ErrConversationNotCreated
 		}
 
-		return 0, err
+		return r, err
 	}
 
-	return seq, nil
+	return r, nil
 }
 
-func (mc *MessageCache) SetConvSeq(ctx context.Context, convId string, seq int64) error {
+func (mc *MessageCache) GetMessageLatestSeq(ctx context.Context, convId string) (int64, error) {
 	key := ConversationSeqKeys(convId)
+	r, err := mc.rb.Get(ctx, key).Int64()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return r, message_entity.ErrConversationNotCreated
+		}
 
-	return mc.rb.Set(ctx, key, seq, 0).Err() // 永不过期
+		return r, err
+	}
+
+	return r, nil
 }
 
-func (mc *MessageCache) IncrConvSeq(ctx context.Context, convId string) (int64, error) {
+func (mc *MessageCache) SetMessageSeq(ctx context.Context, convId string, seq int64) error {
 	key := ConversationSeqKeys(convId)
-
-	return mc.rb.Incr(ctx, key).Result()
+	return mc.rb.SetArgs(ctx, key, seq, redis.SetArgs{
+		Mode: "NX",
+	}).Err()
 }

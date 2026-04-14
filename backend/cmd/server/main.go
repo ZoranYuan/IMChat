@@ -126,6 +126,7 @@ func main() {
 		conversationRepository,
 		cfg,
 		roomCache,
+		messageCache,
 		conversationCache,
 		txManager,
 	)
@@ -135,6 +136,7 @@ func main() {
 	messageApplication := application_message.NewMessageApplication(
 		cfg,
 		messageCache,
+		conversationCache,
 		txManager,
 		taskManager,
 		userConversationRepository,

@@ -6,14 +6,12 @@ import (
 )
 
 type ConversationRepositoryInterface interface {
+	CreateConversation(ctx context.Context, conv *message_entity.Conversation) error
 
-	// 创建会话
-	Save(ctx context.Context, conv *message_entity.Conversation) error
+	GetConvSeq(ctx context.Context, convId string) (int64, error)
 
-	// 根据 ID 获取会话
 	GetById(ctx context.Context, conversationId string) (*message_entity.Conversation, error)
 
-	// 更新会话的最新 seq
 	Upsert(
 		ctx context.Context,
 		domain *message_entity.Conversation,

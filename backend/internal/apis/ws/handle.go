@@ -69,14 +69,14 @@ func (wh *WsHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 		VideoTime:   req.VideoTime,
 	})
 
+	if err != nil {
+		log.Println("failed to handle message, ", err)
+	}
+
 	var ackEvent *protocol.MessageAckEvent = &protocol.MessageAckEvent{
-		ClientMsgId: req.ClientMsgId,
+		ClientMsgId: messageApp.ClientMsgId,
 		MessageId:   messageApp.MessageId,
 		Status:      protocol.AckStatus(messageApp.Status),
-	}
-	if err != nil {
-		// 服务端错误
-		log.Println("failed to handle message, ", err)
 	}
 
 	data, err = json.Marshal(ackEvent)

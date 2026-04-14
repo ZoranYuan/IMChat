@@ -9,7 +9,6 @@ type Conversation struct {
 	UserId2        string    `json:"userId2" gorm:"size:32;not null;index"`
 	RoomId         string    `json:"roomId" gorm:"size:32;not null;index"`
 	LatestSeq      int64     `json:"latestSeq" gorm:"not null;default:0"`
-	LastMessageId  string    `json:"lastMessageId" gorm:"size:32;uniqueIndex"`
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 }

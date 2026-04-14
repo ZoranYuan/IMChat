@@ -64,49 +64,21 @@ func (rur *RoomUserRepository) Create(domain *room_entity.RoomUser) (*room_entit
 
 func (rur *RoomUserRepository) JoinRoom(domain *room_entity.RoomUser) error {
 	var m = ToModel(domain)
-	sql := `
-		INSERT INTO room_user(
-			room_id,
-			user_id,
-			role,
-			status,
-			mute_util,
-			join_time,
-			leave_time,
-			version
-		)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			status = IF(version = ?, VALUES(status), status),
-			join_time = IF(version = ?, VALUES(join_time), join_time),
-			leave_time = IF(version = ?, VALUES(leave_time), leave_time),
-			mute_util = IF(version = ?, VALUES(mute_util), mute_util),
-    		version = IF(version = ?, version + 1, version)
-	`
 
-	res := rur.db.Exec(sql,
-		m.RoomId,
-		m.UserId,
-		m.Role,
-		m.Status,
-		m.MuteUtil,
-		m.JoinTime,
-		m.LeaveTime,
-		m.Version,
+	result := rur.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "room_id"},
+			{Name: "user_id"},
+		},
+		DoNothing: true,
+	}).Create(&m)
 
-		m.Version,
-		m.Version,
-		m.Version,
-		m.Version,
-		m.Version,
-	)
-
-	if res.Error != nil {
-		return res.Error
+	if result.Error != nil {
+		return result.Error
 	}
 
-	if res.RowsAffected == 0 {
-		return room_entity.ErrVersionConflict
+	if result.RowsAffected == 0 {
+		return room_entity.ErrDuplicateJoin
 	}
 
 	return nil

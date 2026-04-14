@@ -16,21 +16,25 @@ func NewConversationCache(rb *redis.Client) *ConversationCache {
 	}
 }
 
-func (c *ConversationCache) AddMember(ctx context.Context, convID, userID string) error {
-	key := ConversationMembersKey(convID)
-	return c.rb.SAdd(ctx, key, userID).Err()
+func (c *ConversationCache) IsMember(ctx context.Context, convId, userId string) (bool, error) {
+	key := ConversationMembersKey(convId)
+	return c.rb.SIsMember(ctx, key, userId).Result()
 }
 
-// 设置会话，用于重建缓存
-func (c *ConversationCache) SetMembers(ctx context.Context, convID string, userIDs []string) error {
-	key := ConversationMembersKey(convID)
+func (c *ConversationCache) AddMember(ctx context.Context, convId, userId string) error {
+	key := ConversationMembersKey(convId)
+	return c.rb.SAdd(ctx, key, userId).Err()
+}
 
-	if len(userIDs) == 0 {
+func (c *ConversationCache) SetMembers(ctx context.Context, convId string, userIds []string) error {
+	key := ConversationMembersKey(convId)
+
+	if len(userIds) == 0 {
 		return nil
 	}
 
-	values := make([]interface{}, 0, len(userIDs))
-	for _, uid := range userIDs {
+	values := make([]interface{}, 0, len(userIds))
+	for _, uid := range userIds {
 		values = append(values, uid)
 	}
 
@@ -47,8 +51,7 @@ func (rc *ConversationCache) GetMembers(ctx context.Context, conversationId stri
 	return rc.rb.SMembers(ctx, key).Result()
 }
 
-// 删除会话
-func (c *ConversationCache) Delete(ctx context.Context, convID string) error {
-	key := ConversationMembersKey(convID)
+func (c *ConversationCache) DeleteConversation(ctx context.Context, convId string) error {
+	key := ConversationMembersKey(convId)
 	return c.rb.Del(ctx, key).Err()
 }

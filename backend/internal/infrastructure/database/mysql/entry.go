@@ -29,6 +29,15 @@ func InitMysql(dns string) *gorm.DB {
 		log.Fatal("filed to init mysql", err)
 	}
 
+	sqlDB, err := db.DB()
+	if err != nil {
+		panic(err)
+	}
+
+	sqlDB.SetMaxOpenConns(50)                 // 最大连接数（关键）
+	sqlDB.SetMaxIdleConns(20)                 // 空闲连接
+	sqlDB.SetConnMaxLifetime(time.Minute * 4) // 连接复用时间
+
 	db.AutoMigrate(
 		&model.User{},
 		&model.FriendRequest{},

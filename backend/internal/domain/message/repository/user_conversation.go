@@ -10,8 +10,10 @@ type UserConversationRepositoryInterface interface {
 	// 创建用户会话关系
 	CreateUserConversation(ctx context.Context, uc *message_entity.UserConversation) error
 
+	GetUsersByConvId(ctx context.Context, convId string) ([]string, error)
+
 	// 获取单个用户会话
-	Get(
+	GetUserConversation(
 		ctx context.Context,
 		userId string,
 		conversationId string,

@@ -19,20 +19,34 @@ func NewUserConversationRepository(db *gorm.DB) *UserConversationRepository {
 	return &UserConversationRepository{db: db}
 }
 
+func (r *UserConversationRepository) upsert(
+	ctx context.Context,
+	m *model.UserConversation,
+	assignments map[string]interface{},
+) error {
+	return r.db.WithContext(ctx).
+		Model(&model.UserConversation{}).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "user_id"},
+				{Name: "conversation_id"},
+			},
+			DoUpdates: clause.Assignments(assignments),
+		}).
+		Create(m).Error
+}
+
 func (r *UserConversationRepository) UpdateReadSeq(
 	ctx context.Context,
 	uc *message_entity.UserConversation,
 ) error {
+	m := toUserConversationModel(uc)
 
-	return r.db.WithContext(ctx).
-		Model(&message_entity.UserConversation{}).
-		Where("user_id = ? AND conversation_id = ?", uc.UserId, uc.ConversationId).
-		Updates(map[string]interface{}{
-			"last_read_seq": gorm.Expr(
-				"GREATEST(last_read_seq, ?)",
-				uc.LastReadSeq,
-			),
-		}).Error
+	return r.upsert(ctx, m, map[string]interface{}{
+		"last_read_seq": gorm.Expr(
+			"GREATEST(last_read_seq, VALUES(last_read_seq))",
+		),
+	})
 }
 
 func (r *UserConversationRepository) UpdateSyncSeq(
@@ -40,15 +54,13 @@ func (r *UserConversationRepository) UpdateSyncSeq(
 	uc *message_entity.UserConversation,
 ) error {
 
-	return r.db.WithContext(ctx).
-		Model(&message_entity.UserConversation{}).
-		Where("user_id = ? AND conversation_id = ?", uc.UserId, uc.ConversationId).
-		Updates(map[string]interface{}{
-			"latest_sync_seq": gorm.Expr(
-				"GREATEST(latest_sync_seq, ?)",
-				uc.LatestSyncSeq,
-			),
-		}).Error
+	m := toUserConversationModel(uc)
+
+	return r.upsert(ctx, m, map[string]interface{}{
+		"latest_sync_seq": gorm.Expr(
+			"GREATEST(latest_sync_seq, VALUES(latest_sync_seq))",
+		),
+	})
 }
 
 func (r *UserConversationRepository) CreateUserConversation(
@@ -57,18 +69,22 @@ func (r *UserConversationRepository) CreateUserConversation(
 ) error {
 	m := toUserConversationModel(uc)
 
-	return r.db.WithContext(ctx).
+	result := r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "user_id"},
-				{Name: "conversation_id"},
-			},
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "conversation_id"}},
 			DoNothing: true,
 		}).
-		Create(&model.UserConversation{
-			UserId:         m.UserId,
-			ConversationId: m.ConversationId,
-		}).Error
+		Create(&m)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return message_entity.ErrDuplicateCreate
+	}
+
+	return nil
 }
 
 func (r *UserConversationRepository) WithTx(tx any) message_repository_interface.UserConversationRepositoryInterface {
@@ -77,8 +93,19 @@ func (r *UserConversationRepository) WithTx(tx any) message_repository_interface
 	}
 }
 
-// 获取用户会话
-func (r *UserConversationRepository) Get(
+func (r *UserConversationRepository) GetUsersByConvId(ctx context.Context, convId string) ([]string, error) {
+	var userIds []string
+
+	err := r.db.
+		WithContext(ctx).
+		Model(&model.UserConversation{}).
+		Where("conversation_id = ?", convId).
+		Pluck("user_id", &userIds).Error
+
+	return userIds, err
+}
+
+func (r *UserConversationRepository) GetUserConversation(
 	ctx context.Context,
 	userId string,
 	conversationId string,
@@ -97,7 +124,6 @@ func (r *UserConversationRepository) Get(
 	return toUserConversationDomain(&m), nil
 }
 
-// 获取用户所有会话（用于会话列表）
 func (r *UserConversationRepository) ListByUser(
 	ctx context.Context,
 	userId string,

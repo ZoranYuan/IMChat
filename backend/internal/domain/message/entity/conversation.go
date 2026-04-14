@@ -6,19 +6,16 @@ import (
 
 type Conversation struct {
 	ConversationId string
-
-	Convtype message_valueobject.ConvType
-
-	UserId1 string
-	UserId2 string
-
-	RoomId string
-
-	// 当前会话的最大 seq
-	LastSeq int64
+	Convtype       message_valueobject.ConvType
+	UserId1        string
+	UserId2        string
+	RoomId         string
+	LatestSeq      int64
 }
 
-func BuildConversation(conversationId, sendId, recvId string, convTye int) *Conversation {
+func BuildConversation(
+	conversationId, sendId, recvId string, convTye int, seq int64,
+) *Conversation {
 	var (
 		user2Id string
 		roomId  string
@@ -36,11 +33,11 @@ func BuildConversation(conversationId, sendId, recvId string, convTye int) *Conv
 		UserId1:        sendId,
 		UserId2:        user2Id, // 单聊需要
 		RoomId:         roomId,
-		LastSeq:        0,
+		LatestSeq:      seq,
 	}
 }
 
-func GetConversation(sendId, targetId string, convType int) string {
+func GetConversationId(sendId, targetId string, convType int) string {
 	if convType == int(message_valueobject.PrivateChat) {
 		return max(targetId, sendId) + "_" + min(targetId, sendId)
 	}

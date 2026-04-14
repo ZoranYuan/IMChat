@@ -4,6 +4,6 @@ type Role int
 
 var (
 	RegularUser   Role = 1
-	HomeOwner     Role = 2
-	Administrator Role = 3
+	Administrator Role = 2
+	HomeOwner     Role = 3
 )

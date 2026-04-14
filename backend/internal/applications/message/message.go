@@ -2,6 +2,7 @@ package application_message
 
 import (
 	"IM_backend/configs"
+	conversation_cache_interface "IM_backend/internal/applications/interface/cache/conversation"
 	message_cache_interface "IM_backend/internal/applications/interface/cache/message"
 	mq_interface "IM_backend/internal/applications/interface/mq"
 	tx_repository_interface "IM_backend/internal/applications/interface/repository/tx_manager"
@@ -11,6 +12,7 @@ import (
 	"IM_backend/internal/infrastructure/pkg/snow"
 	"IM_backend/internal/protocol"
 	"context"
+	"errors"
 	"log"
 	"math"
 	"sort"
@@ -21,6 +23,7 @@ import (
 type MessageApplication struct {
 	config                     configs.Config
 	messageCache               message_cache_interface.MessageCacheInterface
+	conversationCache          conversation_cache_interface.ConversationCacheInterface
 	messageRepository          message_repository_interface.MessageRepositoryInterface
 	txManager                  tx_repository_interface.TxRepositoryInterface
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface
@@ -31,6 +34,7 @@ type MessageApplication struct {
 func NewMessageApplication(
 	config configs.Config,
 	messageCache message_cache_interface.MessageCacheInterface,
+	conversationCache conversation_cache_interface.ConversationCacheInterface,
 	txManager tx_repository_interface.TxRepositoryInterface,
 	taskManager mq_interface.TaskManager,
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface,
@@ -40,6 +44,7 @@ func NewMessageApplication(
 	return &MessageApplication{
 		config:                     config,
 		messageCache:               messageCache,
+		conversationCache:          conversationCache,
 		txManager:                  txManager,
 		taskManager:                taskManager,
 		messageRepository:          messageRepository,
@@ -48,14 +53,41 @@ func NewMessageApplication(
 	}
 }
 
-func (wa *MessageApplication) HandleHistoryMessageReadAck(
+func (ma *MessageApplication) checkMember(
+	ctx context.Context,
+	userId string,
+	convId string,
+) error {
+
+	isMember, err := ma.conversationCache.IsMember(ctx, convId, userId)
+
+	if err == nil && isMember {
+		return nil
+	}
+
+	// // cache miss / error → DB fallback
+	// isMember, err = ma.conversationCache.IsMember(ctx, convId, userId)
+	// if err != nil {
+	// 	return ErrUnknown
+	// }
+
+	// if !isMember {
+	// 	return ErrForbidden
+	// }
+
+	// // 回填 cache
+	// _ = ma.conversationCache.AddMember(ctx, convId, userId)
+
+	return nil
+}
+
+func (ma *MessageApplication) HandleHistoryMessageReadAck(
 	ctx context.Context,
 	userId string,
 	conversationId string,
 	lastReadSeq int64,
 ) error {
-
-	uconv, err := wa.userConversationRepository.Get(ctx, userId, conversationId)
+	uconv, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
 
 	if err != nil {
 		return ErrConversationNotFound
@@ -63,7 +95,7 @@ func (wa *MessageApplication) HandleHistoryMessageReadAck(
 
 	uconv.UpdateReadSeq(lastReadSeq)
 
-	err = wa.userConversationRepository.UpdateReadSeq(
+	err = ma.userConversationRepository.UpdateReadSeq(
 		ctx,
 		uconv,
 	)
@@ -77,7 +109,7 @@ func (wa *MessageApplication) HandleHistoryMessageReadAck(
 		To:             userId,
 	}
 
-	wa.taskManager.SendHistoryMessageAck(
+	ma.taskManager.SendHistoryMessageAck(
 		ctx,
 		protocol.EventTypeHistoryMessageReadAck,
 		userId+":"+conversationId,
@@ -87,21 +119,59 @@ func (wa *MessageApplication) HandleHistoryMessageReadAck(
 	return nil
 }
 
-func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
-	conversationId := message_entity.GetConversation(dto.SendId, dto.RecvId, dto.ConvType)
-	messageId, err := snow.GenerateSnowId(int(wa.config.App.MachineID))
+func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
+	conversationId := message_entity.GetConversationId(dto.SendId, dto.RecvId, dto.ConvType)
+
+	err := ma.checkMember(ctx, dto.SendId, conversationId)
+
+	if err != nil {
+		return nil, err
+	}
+
+	messageId, err := snow.GenerateSnowId(int(ma.config.App.MachineID))
 	if err != nil {
 		return nil, ErrUnknown
 	}
 
-	// TODO: 这里如果没有，需要及时去查询数据库，而不是简单的初始化
-	seq, err := wa.messageCache.GetConvLatestSeq(ctx, conversationId)
+	// TODO: 后期可以优化为 lua 脚本
+	seq, err := ma.messageCache.GetMessageLatestSeq(ctx, conversationId)
+
+	if err != nil {
+		if !errors.Is(err, message_entity.ErrConversationNotCreated) {
+			return &MessageAppeDTO{
+				ClientMsgId: dto.ClientMsgId,
+				MessageId:   messageId,
+				Status:      string(protocol.AckStatusFailed),
+			}, err
+		} else {
+			curSeq, err := ma.conversationRepository.GetConvSeq(ctx, conversationId)
+			if err != nil {
+				return &MessageAppeDTO{
+					ClientMsgId: dto.ClientMsgId,
+					MessageId:   messageId,
+					Status:      string(protocol.AckStatusFailed),
+				}, nil
+			}
+
+			err = ma.messageCache.SetMessageSeq(ctx, conversationId, curSeq)
+			if err != nil {
+				// 设置缓存失败，缓存已经被创建，防止消息乱序，直接报错
+				return &MessageAppeDTO{
+					ClientMsgId: dto.ClientMsgId,
+					MessageId:   messageId,
+					Status:      string(protocol.AckStatusFailed),
+				}, nil
+			}
+		}
+	}
+
+	seq, err = ma.messageCache.IncrMessageLatestSeq(ctx, conversationId)
 	if err != nil {
 		return &MessageAppeDTO{
 			ClientMsgId: dto.ClientMsgId,
 			MessageId:   messageId,
 			Status:      string(protocol.AckStatusFailed),
-		}, nil
+		}, err
 	}
 
 	message := message_entity.BuildMessage(
@@ -114,34 +184,26 @@ func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		message_valueobject.CType(dto.CType),
 	)
 
-	err = wa.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
-		msgRepo := wa.messageRepository.WithTx(tx)
-		convRepo := wa.conversationRepository.WithTx(tx)
-		userConvRepo := wa.userConversationRepository.WithTx(tx)
+	conv := message_entity.BuildConversation(
+		conversationId,
+		dto.SendId,
+		dto.RecvId,
+		dto.ConvType,
+		seq,
+	)
 
-		message := message_entity.BuildMessage(
-			messageId,
-			conversationId,
-			dto.SendId,
-			seq,
-			dto.Content,
-			dto.VideoTime,
-			message_valueobject.CType(dto.CType),
-		)
+	userConv := message_entity.BuildUserConversation(
+		dto.SendId,
+		conversationId,
+		messageId,
+		seq,
+		seq,
+	)
 
-		conv := message_entity.BuildConversation(
-			conversationId,
-			dto.SendId,
-			dto.RecvId,
-			dto.ConvType,
-		)
-
-		userConv := message_entity.BuildUserConversation(
-			dto.SendId,
-			conversationId,
-			seq,
-			seq,
-		)
+	err = ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+		msgRepo := ma.messageRepository.WithTx(tx)
+		convRepo := ma.conversationRepository.WithTx(tx)
+		userConvRepo := ma.userConversationRepository.WithTx(tx)
 
 		if err := msgRepo.Save(ctx, message); err != nil {
 			// TODO 异步补偿机制
@@ -170,12 +232,7 @@ func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 			ClientMsgId: dto.ClientMsgId,
 			MessageId:   messageId,
 			Status:      string(protocol.AckStatusFailed),
-		}, nil
-	}
-
-	_, err = wa.messageCache.IncrConvSeq(ctx, conversationId)
-	if err != nil {
-		// TODO 异步补偿机制
+		}, err
 	}
 
 	value := ctx.Value("op")
@@ -197,7 +254,7 @@ func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	}
 
 	go func() {
-		if err := wa.taskManager.SendMessage(
+		if err := ma.taskManager.SendMessage(
 			context.Background(),
 			protocol.EventTypeMessage,
 			conversationId,
@@ -215,7 +272,7 @@ func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	}, nil
 }
 
-func (wa *MessageApplication) GetHistoryMessages(
+func (ma *MessageApplication) GetHistoryMessages(
 	ctx context.Context,
 	conversationId string,
 	userId string,
@@ -232,7 +289,7 @@ func (wa *MessageApplication) GetHistoryMessages(
 	switch cursor {
 	case 0:
 		// 首次查询
-		uc, err := wa.userConversationRepository.Get(ctx, userId, conversationId)
+		uc, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
 		if err != nil || uc == nil {
 			// TODO: 当前会话找不到，解决办法是什么？
 			return nil, -1, false, ErrConversationNotFound
@@ -252,7 +309,7 @@ func (wa *MessageApplication) GetHistoryMessages(
 		maxSeq = cursor
 	}
 
-	msgs, err := wa.messageRepository.GetHistoryMessage(
+	msgs, err := ma.messageRepository.GetHistoryMessage(
 		ctx,
 		conversationId,
 		maxSeq,
@@ -282,11 +339,11 @@ func (wa *MessageApplication) GetHistoryMessages(
 	return msgsApp, nextCursor, hasMore, nil
 }
 
-func (wa *MessageApplication) GetOfflineMessages(
+func (ma *MessageApplication) GetOfflineMessages(
 	ctx context.Context,
 	userId string,
 ) ([]MessageAppeDTO, error) {
-	uconvs, err := wa.userConversationRepository.ListByUser(ctx, userId)
+	uconvs, err := ma.userConversationRepository.ListByUser(ctx, userId)
 	if err != nil {
 		return nil, ErrConversationNotFound
 	}
@@ -295,14 +352,14 @@ func (wa *MessageApplication) GetOfflineMessages(
 	for _, uc := range uconvs {
 		convIds = append(convIds, uc.ConversationId)
 	}
-	convs, err := wa.conversationRepository.ListByIds(ctx, convIds)
+	convs, err := ma.conversationRepository.ListByIds(ctx, convIds)
 	syncMap := make(map[string]int64)
 
 	for _, c := range convs {
-		syncMap[c.ConversationId] = c.LastSeq
+		syncMap[c.ConversationId] = c.LatestSeq
 	}
 
-	msgs, _ := wa.messageRepository.ListLatestByConversations(
+	msgs, _ := ma.messageRepository.ListLatestByConversations(
 		ctx,
 		convIds,
 	)
@@ -329,11 +386,11 @@ func (wa *MessageApplication) GetOfflineMessages(
 		go func(jobs []syncJob) {
 			for _, job := range jobs {
 				job.userConv.SyncReadSeq(job.lastSeq)
-				if err := wa.userConversationRepository.UpdateSyncSeq(
+				if err := ma.userConversationRepository.UpdateSyncSeq(
 					context.Background(),
 					job.userConv,
 				); err != nil {
-					log.Printf("warn: async update sync seq failed: %v", err)
+					log.Printf("marn: async update sync seq failed: %v", err)
 				}
 			}
 		}(jobs)

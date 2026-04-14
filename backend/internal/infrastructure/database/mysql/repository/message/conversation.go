@@ -27,7 +27,7 @@ func (r *ConversationRepository) WithTx(tx any) message_repository_interface.Con
 }
 
 // 创建会话
-func (r *ConversationRepository) Save(ctx context.Context, conv *message_entity.Conversation) error {
+func (r *ConversationRepository) CreateConversation(ctx context.Context, conv *message_entity.Conversation) error {
 	return r.db.WithContext(ctx).Create(toConversationModel(conv)).Error
 }
 
@@ -50,7 +50,6 @@ func (r *ConversationRepository) GetById(ctx context.Context, id string) (*messa
 	return toConversationDomain(&m), nil
 }
 
-// 更新 LastSeq（发消息核心操作）
 func (r *ConversationRepository) Upsert(
 	ctx context.Context,
 	domain *message_entity.Conversation,
@@ -63,11 +62,25 @@ func (r *ConversationRepository) Upsert(
 				{Name: "conversation_id"},
 			},
 			DoUpdates: clause.Assignments(map[string]interface{}{
-				// 防止乱序回退
-				"last_seq": gorm.Expr("GREATEST(last_seq, ?)", domain.LastSeq),
+				"latest_seq": gorm.Expr("GREATEST(latest_seq, ?)", m.LatestSeq),
 			}),
 		}).
 		Create(m).Error
+}
+
+func (r *ConversationRepository) GetConvSeq(ctx context.Context, convId string) (int64, error) {
+	var seq int64
+
+	err := r.db.WithContext(ctx).
+		Model(&model.Conversation{}).
+		Where("conversation_id = ?", convId).
+		Pluck("latest_seq", &seq).Error
+
+	if err != nil {
+		return 0, err
+	}
+
+	return seq, nil
 }
 
 func (r *ConversationRepository) ListByIds(
