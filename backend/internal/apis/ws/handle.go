@@ -37,18 +37,29 @@ func NewWshandler(app *application_message.MessageApplication, confg configs.Con
 		},
 	}
 
-	dispacther.RegisterHandler("chat", wh.handleSendMessage)
+	dispacther.RegisterHandler(protocol.EventTypeMessage, wh.handleSendMessage)
+	dispacther.RegisterHandler(protocol.EventTypeHistoryMessageReadAck, wh.handleHistoryMessageRead)
 
 	return wh
 }
 
-func (wh *WsHandler) handleSendMessage(ctx context.Context, c *Client, data []byte) error {
-	var req MessageReqData
+func (wh *WsHandler) handleHistoryMessageRead(ctx context.Context, c *Client, data []byte) error {
+	var req protocol.HistoryMessageReadAckEvent
+
 	if err := json.Unmarshal(data, &req); err != nil {
 		return err
 	}
 
-	ackEvent, err := wh.app.HandleMessage(ctx, application_message.MessageAppeDTO{
+	return wh.app.HandleHistoryMessageReadAck(ctx, c.userId, req.ConversationId, req.LastReadSeq)
+}
+
+func (wh *WsHandler) handleSendMessage(ctx context.Context, c *Client, data []byte) error {
+	var req MessageReq
+	if err := json.Unmarshal(data, &req); err != nil {
+		return err
+	}
+
+	messageApp, err := wh.app.HandleMessage(ctx, application_message.MessageAppeDTO{
 		SendId:      c.userId,
 		ClientMsgId: req.ClientMsgId,
 		RecvId:      req.RecvId,
@@ -58,14 +69,13 @@ func (wh *WsHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 		VideoTime:   req.VideoTime,
 	})
 
+	var ackEvent *protocol.MessageAckEvent = &protocol.MessageAckEvent{
+		ClientMsgId: req.ClientMsgId,
+		MessageId:   messageApp.MessageId,
+		Status:      protocol.AckStatus(messageApp.Status),
+	}
 	if err != nil {
 		// 服务端错误
-		ackEvent = &protocol.AckEvent{
-			ClientMsgId: req.ClientMsgId,
-			Status:      protocol.AckStatusFailed,
-			ErrorMsg:    "internal error",
-		}
-
 		log.Println("failed to handle message, ", err)
 	}
 
@@ -76,7 +86,7 @@ func (wh *WsHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 		return err
 	}
 
-	return wh.gateway.SendToClient("ack", c.userId, data)
+	return wh.gateway.SendToClient(protocol.EventTypeMsgAck, c.userId, data)
 }
 
 func (wh *WsHandler) readLoop(ctx context.Context, client *Client) {
@@ -89,7 +99,7 @@ func (wh *WsHandler) readLoop(ctx context.Context, client *Client) {
 	client.conn.SetPongHandler(func(string) error {
 		// TODO 实际业务可以自行实现 heart 来优化
 		client.mu.Lock()
-		client.idle = time.Now().Unix()
+		client.idle = time.Now().UnixMilli()
 		client.mu.Unlock()
 
 		client.conn.SetReadDeadline(time.Now().Add(time.Duration(wh.confg.WebSocket.PongWaitSeconds) * time.Second))

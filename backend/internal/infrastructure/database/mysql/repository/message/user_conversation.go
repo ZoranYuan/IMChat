@@ -45,7 +45,7 @@ func (r *UserConversationRepository) UpdateSyncSeq(
 		Where("user_id = ? AND conversation_id = ?", uc.UserId, uc.ConversationId).
 		Updates(map[string]interface{}{
 			"latest_sync_seq": gorm.Expr(
-				"GREATEST(last_sync_seq, ?)",
+				"GREATEST(latest_sync_seq, ?)",
 				uc.LatestSyncSeq,
 			),
 		}).Error

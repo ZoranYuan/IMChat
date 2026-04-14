@@ -44,7 +44,6 @@ func (t *TaskManager) handleChat(topic string, key string, event protocol.Messag
 }
 
 func (t *TaskManager) handleRoomChat(ctx context.Context, topic string, key string, event protocol.MessageEvent) error {
-	// 通过 conversationId 作为 key ，让同一个会话消息尽量落在同一个分区上，对于群聊，roomId 就是 conversationId
 	memberIds, err := t.conversationCache.GetMembers(ctx, key)
 
 	if err != nil {
@@ -78,23 +77,71 @@ func (t *TaskManager) handleRoomChat(ctx context.Context, topic string, key stri
 	return nil
 }
 
-func (t *TaskManager) dispatch(ctx context.Context, topic string, key string, event protocol.MessageEvent) error {
-	switch topic {
+func (t *TaskManager) handleHistoryRead(ctx context.Context, topic string, key string, event protocol.HistoryMessageReadAckEvent) error {
+	var payload []byte
 
-	case "chat":
-		var err error
-		if event.ConvType == 1 {
-			err = t.handleChat(topic, key, event)
-		} else {
-			err = t.handleRoomChat(ctx, topic, key, event)
-		}
-		return err
-
-	default:
-		return nil
+	payload, err := json.Marshal(event)
+	if err != nil {
+		// 补偿措施
 	}
+
+	var envelope = protocol.Envelope{
+		To:      event.To,
+		Payload: payload,
+	}
+
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		// 补偿措施
+	}
+
+	return t.client.SendMessage(topic, key, data)
+}
+
+func (t *TaskManager) dispatch(ctx context.Context, topic string, key string, event protocol.Event) error {
+	switch event.Type {
+	case protocol.EventTypeMessage:
+		var message protocol.MessageEvent
+
+		var err error
+		if err := json.Unmarshal(event.Data, &message); err != nil {
+			return err
+		}
+
+		if message.ConvType == protocol.PrivateChat {
+			err = t.handleChat(topic, key, message)
+		} else {
+			err = t.handleRoomChat(ctx, topic, key, message)
+		}
+
+		return err
+	case protocol.EventTypeHistoryMessageReadAck:
+
+	}
+
+	return nil
 }
 
 func (t *TaskManager) SendMessage(ctx context.Context, todic string, key string, event protocol.MessageEvent) error {
-	return t.dispatch(ctx, todic, key, event)
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	return t.dispatch(ctx, todic, key, protocol.Event{
+		Type: protocol.EventType(todic),
+		Data: data,
+	})
+}
+
+func (t *TaskManager) SendHistoryMessageAck(ctx context.Context, todic string, key string, event protocol.HistoryMessageReadAckEvent) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	return t.dispatch(ctx, todic, key, protocol.Event{
+		Type: protocol.EventTypeHistoryMessageReadAck,
+		Data: data,
+	})
 }

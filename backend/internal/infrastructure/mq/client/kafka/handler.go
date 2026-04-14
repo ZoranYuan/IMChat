@@ -34,12 +34,19 @@ func (h *groupHandler) ConsumeClaim(
 			return err
 		}
 
-		log.Println("read message")
-
 		to := envelope.To
-		if err := h.dispacth.SendToClient(msg.Topic, to, envelope.Payload); err != nil {
-			// 让消息重试
-			log.Println("failed to send message, ", err)
+
+		switch msg.Topic {
+		case protocol.EventTypeMessage:
+			if err := h.dispacth.SendToClient(msg.Topic, to, envelope.Payload); err != nil {
+				// 让消息重试
+				log.Println("failed to send message, ", err)
+			}
+		case protocol.EventTypeHistoryMessageReadAck:
+			if err := h.dispacth.SendToClient(msg.Topic, to, envelope.Payload); err != nil {
+				// 让消息重试
+				log.Println("failed to send message, ", err)
+			}
 		}
 
 		session.MarkMessage(msg, "")

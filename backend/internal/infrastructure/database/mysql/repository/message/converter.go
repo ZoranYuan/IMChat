@@ -51,7 +51,7 @@ func toUserConversationDomain(u *model.UserConversation) *message_entity.UserCon
 		UserId:         u.UserId,
 		ConversationId: u.ConversationId,
 		LastReadSeq:    u.LastReadSeq,
-		LatestSyncSeq:  u.LatestSyncReq,
+		LatestSyncSeq:  u.LatestSyncSeq,
 		IsMuted:        u.IsMuted,
 	}
 }
@@ -65,7 +65,7 @@ func toUserConversationModel(d *message_entity.UserConversation) *model.UserConv
 		UserId:         d.UserId,
 		ConversationId: d.ConversationId,
 		LastReadSeq:    d.LastReadSeq,
-		LatestSyncReq:  d.LatestSyncSeq,
+		LatestSyncSeq:  d.LatestSyncSeq,
 		IsMuted:        d.IsMuted,
 	}
 }

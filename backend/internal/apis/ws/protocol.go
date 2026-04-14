@@ -7,7 +7,7 @@ type WsMessage struct {
 	Data json.RawMessage `json:"data"`
 }
 
-type MessageReqData struct {
+type MessageReq struct {
 	ClientMsgId string `json:"clientMsgId"`
 	RecvId      string `json:"recvId"`
 	ConvType    int    `json:"convType"`

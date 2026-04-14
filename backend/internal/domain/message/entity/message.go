@@ -29,6 +29,6 @@ func BuildMessage(messageId, conversationId, sendId string, seq int64, content s
 		VideoTime:      videoTime,
 		Status:         message_valueobject.Normal,
 		SendId:         sendId,
-		SendTime:       time.Now().Unix(),
+		SendTime:       time.Now().UnixMilli(),
 	}
 }

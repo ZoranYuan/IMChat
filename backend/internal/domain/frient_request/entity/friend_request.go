@@ -26,7 +26,7 @@ func NewFriendRequest(reqId, fromUserId, toUserId, message string) (*FriendReque
 		ToUserId:   toUserId,
 		Message:    message,
 		Status:     friend_request_valueobject.Pending,
-		ApplyTime:  time.Now().Unix(),
+		ApplyTime:  time.Now().UnixMilli(),
 	}
 
 	return newFriendRequest, nil
@@ -37,7 +37,7 @@ func (fq *FriendRequest) ReRequest(message string) error {
 		return ErrRequestSelf
 	}
 
-	if time.Duration(time.Now().Unix()-fq.ApplyTime)*time.Second < 10*time.Minute {
+	if time.Duration(time.Now().UnixMilli()-fq.ApplyTime)*time.Second < 10*time.Minute {
 		return ErrApplyingTooFrequently
 	}
 
@@ -47,7 +47,7 @@ func (fq *FriendRequest) ReRequest(message string) error {
 
 	fq.Message = message
 	fq.Status = friend_request_valueobject.Pending
-	fq.ApplyTime = time.Now().Unix()
+	fq.ApplyTime = time.Now().UnixMilli()
 
 	return nil
 }

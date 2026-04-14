@@ -48,7 +48,46 @@ func NewMessageApplication(
 	}
 }
 
-func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*protocol.AckEvent, error) {
+func (wa *MessageApplication) HandleHistoryMessageReadAck(
+	ctx context.Context,
+	userId string,
+	conversationId string,
+	lastReadSeq int64,
+) error {
+
+	uconv, err := wa.userConversationRepository.Get(ctx, userId, conversationId)
+
+	if err != nil {
+		return ErrConversationNotFound
+	}
+
+	uconv.UpdateReadSeq(lastReadSeq)
+
+	err = wa.userConversationRepository.UpdateReadSeq(
+		ctx,
+		uconv,
+	)
+	if err != nil {
+		return err
+	}
+
+	event := protocol.HistoryMessageReadAckEvent{
+		ConversationId: conversationId,
+		LastReadSeq:    lastReadSeq,
+		To:             userId,
+	}
+
+	wa.taskManager.SendHistoryMessageAck(
+		ctx,
+		protocol.EventTypeHistoryMessageReadAck,
+		userId+":"+conversationId,
+		event,
+	)
+
+	return nil
+}
+
+func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
 	conversationId := message_entity.GetConversation(dto.SendId, dto.RecvId, dto.ConvType)
 	messageId, err := snow.GenerateSnowId(int(wa.config.App.MachineID))
 	if err != nil {
@@ -58,10 +97,10 @@ func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	// TODO: 这里如果没有，需要及时去查询数据库，而不是简单的初始化
 	seq, err := wa.messageCache.GetConvLatestSeq(ctx, conversationId)
 	if err != nil {
-		return &protocol.AckEvent{
+		return &MessageAppeDTO{
 			ClientMsgId: dto.ClientMsgId,
-			Status:      protocol.AckStatusFailed,
-			ErrorMsg:    ErrConversationNotFound.Error(),
+			MessageId:   messageId,
+			Status:      string(protocol.AckStatusFailed),
 		}, nil
 	}
 
@@ -127,10 +166,10 @@ func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	})
 
 	if err != nil {
-		return &protocol.AckEvent{
+		return &MessageAppeDTO{
 			ClientMsgId: dto.ClientMsgId,
-			Status:      protocol.AckStatusFailed,
-			ErrorMsg:    ErrConversationNotFound.Error(),
+			MessageId:   messageId,
+			Status:      string(protocol.AckStatusFailed),
 		}, nil
 	}
 
@@ -151,7 +190,7 @@ func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		SendId:         dto.SendId,
 		RecvId:         dto.RecvId,
 		Seq:            seq,
-		ConvType:       dto.ConvType,
+		ConvType:       protocol.ConvType(dto.ConvType),
 		CType:          dto.CType,
 		Content:        dto.Content,
 		SendTime:       message.SendTime,
@@ -160,7 +199,7 @@ func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	go func() {
 		if err := wa.taskManager.SendMessage(
 			context.Background(),
-			"chat",
+			protocol.EventTypeMessage,
 			conversationId,
 			messageEvent,
 		); err != nil {
@@ -169,10 +208,10 @@ func (wa *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		}
 	}()
 
-	return &protocol.AckEvent{
+	return &MessageAppeDTO{
 		ClientMsgId: dto.ClientMsgId,
 		MessageId:   messageId,
-		Status:      protocol.AckStatusSent,
+		Status:      string(protocol.AckStatusSent),
 	}, nil
 }
 
@@ -268,18 +307,36 @@ func (wa *MessageApplication) GetOfflineMessages(
 		convIds,
 	)
 
-	// TODO: 后期改为异步修改数据库状态
+	type syncJob struct {
+		userConv *message_entity.UserConversation
+		lastSeq  int64
+	}
+	jobs := make([]syncJob, 0, len(uconvs))
+
 	for _, uconv := range uconvs {
 		lastSeq := syncMap[uconv.ConversationId]
 		if lastSeq < uconv.LatestSyncSeq {
 			// 当前会话的最大值不需要再更新了
 			continue
 		}
-		uconv.SyncReadSeq(lastSeq)
-		wa.userConversationRepository.UpdateSyncSeq(
-			ctx,
-			uconv,
-		)
+		jobs = append(jobs, syncJob{
+			userConv: uconv,
+			lastSeq:  lastSeq,
+		})
+	}
+
+	if len(jobs) > 0 {
+		go func(jobs []syncJob) {
+			for _, job := range jobs {
+				job.userConv.SyncReadSeq(job.lastSeq)
+				if err := wa.userConversationRepository.UpdateSyncSeq(
+					context.Background(),
+					job.userConv,
+				); err != nil {
+					log.Printf("warn: async update sync seq failed: %v", err)
+				}
+			}
+		}(jobs)
 	}
 
 	return toMessagesAppDTO(msgs), nil

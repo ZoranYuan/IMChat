@@ -118,7 +118,6 @@ func (g *GetWay) getClients(recvId string) []*Client {
 	return clients
 }
 
-// 针对接收者进行发送
 func (g *GetWay) SendToClient(op string, targetId string, payload []byte) error {
 	defer func() {
 		if r := recover(); r != nil {

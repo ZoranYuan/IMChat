@@ -1,5 +1,7 @@
 package protocol
 
+import "encoding/json"
+
 type Envelope struct {
 	From    string
 	To      string
@@ -9,29 +11,53 @@ type Envelope struct {
 type AckStatus string
 
 const (
-	AckStatusSending   AckStatus = "sending"
 	AckStatusSent      AckStatus = "sent"
 	AckStatusDelivered AckStatus = "delivered"
 	AckStatusRead      AckStatus = "read"
 	AckStatusFailed    AckStatus = "failed"
 )
 
-type AckEvent struct {
+type EventType string
+
+type ConvType int
+
+const (
+	PrivateChat ConvType = 1
+	RoomChat    ConvType = 2
+)
+
+const (
+	EventTypeHistoryMessageReadAck = "history_msg_read_ack"
+	EventTypeMsgAck                = "msg_ack"
+	EventTypeMessage               = "msg"
+)
+
+type Event struct {
+	Type EventType       `json:"type"`
+	Data json.RawMessage `json:"data"`
+}
+
+type HistoryMessageReadAckEvent struct {
+	To             string `json:"to"`
+	ConversationId string `json:"conversationId"`
+	LastReadSeq    int64  `json:"lastReadSeq"`
+}
+
+type MessageAckEvent struct {
 	ClientMsgId string    `json:"clientMsgId"`
 	MessageId   string    `json:"messageId"`
 	Status      AckStatus `json:"status"`
 	SendTime    int64     `json:"sendTime"`
-	ErrorMsg    string    `json:"errorMsg"`
 }
 
 type MessageEvent struct {
-	MessageId      string `json:"messageId"`
-	ConversationId string `json:"conversationId"`
-	SendId         string `json:"sendId"`
-	RecvId         string `json:"recvId"`
-	Seq            int64  `json:"seq"`
-	ConvType       int    `json:"convType"`
-	CType          int    `json:"cType"`
-	Content        string `json:"content"`
-	SendTime       int64  `json:"sendTime"`
+	MessageId      string   `json:"messageId"`
+	ConversationId string   `json:"conversationId"`
+	SendId         string   `json:"sendId"`
+	RecvId         string   `json:"recvId"`
+	Seq            int64    `json:"seq"`
+	ConvType       ConvType `json:"convType"`
+	CType          int      `json:"cType"`
+	Content        string   `json:"content"`
+	SendTime       int64    `json:"sendTime"`
 }

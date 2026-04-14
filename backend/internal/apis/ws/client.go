@@ -34,7 +34,7 @@ func NewClient(ctx context.Context, cancel context.CancelFunc, conn *websocket.C
 		conn:   conn,
 		ctx:    ctx,
 		cancel: cancel,
-		idle:   time.Now().Unix(),
+		idle:   time.Now().UnixMilli(),
 
 		userId:    userId,
 		sessionId: sessionId,
@@ -88,7 +88,7 @@ func (c *Client) Read(pongWaitSeconds int) (*WsMessage, error) {
 	}
 
 	c.mu.Lock()
-	c.idle = time.Now().Unix()
+	c.idle = time.Now().UnixMilli()
 	c.mu.Unlock()
 
 	c.conn.SetReadDeadline(time.Now().Add(time.Duration(pongWaitSeconds) * time.Second))

@@ -23,7 +23,7 @@ func NewRoomUser(userId, roomId string, role room_valueobject.Role) *RoomUser {
 		Role:     role,
 		Status:   room_valueobject.Activate,
 		MuteUtil: nil,
-		JoinTime: time.Now().Unix(),
+		JoinTime: time.Now().UnixMilli(),
 		Version:  1,
 	}
 }
@@ -38,7 +38,7 @@ func (ru *RoomUser) Invite() error {
 
 func (ru *RoomUser) Join() {
 	ru.Status = room_valueobject.Activate
-	ru.JoinTime = time.Now().Unix()
+	ru.JoinTime = time.Now().UnixMilli()
 	ru.MuteUtil = nil
 	ru.LeaveTime = nil
 }
@@ -49,7 +49,7 @@ func (ru *RoomUser) ReJoin() error {
 	}
 
 	ru.Status = room_valueobject.Activate
-	ru.JoinTime = time.Now().Unix()
+	ru.JoinTime = time.Now().UnixMilli()
 	ru.MuteUtil = nil
 	ru.LeaveTime = nil
 	return nil
@@ -60,7 +60,7 @@ func (ru *RoomUser) Leave() error {
 		return ErrDuplicateLeft
 	}
 	ru.Status = room_valueobject.Left
-	now := time.Now().Unix()
+	now := time.Now().UnixMilli()
 	ru.LeaveTime = &now
 
 	return nil
