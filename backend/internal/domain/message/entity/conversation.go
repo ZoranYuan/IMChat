@@ -5,12 +5,13 @@ import (
 )
 
 type Conversation struct {
-	ConversationId string
-	Convtype       message_valueobject.ConvType
-	UserId1        string
-	UserId2        string
-	RoomId         string
-	LatestSeq      int64
+	ConversationId  string
+	Convtype        message_valueobject.ConvType
+	UserId1         string
+	UserId2         string
+	RoomId          string
+	LatestMessageId string
+	LatestSeq       int64
 }
 
 func BuildConversation(

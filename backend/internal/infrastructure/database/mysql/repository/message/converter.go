@@ -67,7 +67,6 @@ func toUserConversationModel(d *message_entity.UserConversation) *model.UserConv
 		LastReadSeq:    d.LastReadSeq,
 		LatestSyncSeq:  d.LatestSyncSeq,
 		IsMuted:        d.IsMuted,
-		LastMessageId:  d.LastMessageId,
 	}
 }
 
@@ -77,12 +76,13 @@ func toConversationDomain(c *model.Conversation) *message_entity.Conversation {
 	}
 
 	return &message_entity.Conversation{
-		ConversationId: c.ConversationId,
-		Convtype:       message_valueobject.ConvType(c.Convtype),
-		UserId1:        c.UserId1,
-		UserId2:        c.UserId2,
-		RoomId:         c.RoomId,
-		LatestSeq:      c.LatestSeq,
+		ConversationId:  c.ConversationId,
+		Convtype:        message_valueobject.ConvType(c.Convtype),
+		UserId1:         c.UserId1,
+		UserId2:         c.UserId2,
+		RoomId:          c.RoomId,
+		LatestSeq:       c.LatestSeq,
+		LatestMessageId: c.LatestMessageId,
 	}
 }
 
@@ -92,11 +92,12 @@ func toConversationModel(d *message_entity.Conversation) *model.Conversation {
 	}
 
 	return &model.Conversation{
-		ConversationId: d.ConversationId,
-		Convtype:       int8(d.Convtype),
-		UserId1:        d.UserId1,
-		UserId2:        d.UserId2,
-		RoomId:         d.RoomId,
-		LatestSeq:      d.LatestSeq,
+		ConversationId:  d.ConversationId,
+		Convtype:        int8(d.Convtype),
+		UserId1:         d.UserId1,
+		UserId2:         d.UserId2,
+		RoomId:          d.RoomId,
+		LatestSeq:       d.LatestSeq,
+		LatestMessageId: d.LatestMessageId,
 	}
 }

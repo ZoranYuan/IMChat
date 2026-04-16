@@ -2,7 +2,6 @@ package application_message
 
 import (
 	"IM_backend/configs"
-	conversation_cache_interface "IM_backend/internal/applications/interface/cache/conversation"
 	message_cache_interface "IM_backend/internal/applications/interface/cache/message"
 	mq_interface "IM_backend/internal/applications/interface/mq"
 	tx_repository_interface "IM_backend/internal/applications/interface/repository/tx_manager"
@@ -10,6 +9,7 @@ import (
 	message_repository_interface "IM_backend/internal/domain/message/repository"
 	message_valueobject "IM_backend/internal/domain/message/value_object"
 	"IM_backend/internal/infrastructure/pkg/snow"
+	conversation_port "IM_backend/internal/port/conversation"
 	"IM_backend/internal/protocol"
 	"context"
 	"errors"
@@ -23,7 +23,7 @@ import (
 type MessageApplication struct {
 	config                     configs.Config
 	messageCache               message_cache_interface.MessageCacheInterface
-	conversationCache          conversation_cache_interface.ConversationCacheInterface
+	conversationCache          conversation_port.ConversationCacheInterface
 	messageRepository          message_repository_interface.MessageRepositoryInterface
 	txManager                  tx_repository_interface.TxRepositoryInterface
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface
@@ -34,7 +34,7 @@ type MessageApplication struct {
 func NewMessageApplication(
 	config configs.Config,
 	messageCache message_cache_interface.MessageCacheInterface,
-	conversationCache conversation_cache_interface.ConversationCacheInterface,
+	conversationCache conversation_port.ConversationCacheInterface,
 	txManager tx_repository_interface.TxRepositoryInterface,
 	taskManager mq_interface.TaskManager,
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface,
@@ -133,7 +133,6 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		return nil, ErrUnknown
 	}
 
-	// TODO: 后期可以优化为 lua 脚本
 	seq, err := ma.messageCache.GetMessageLatestSeq(ctx, conversationId)
 
 	if err != nil {
@@ -342,51 +341,67 @@ func (ma *MessageApplication) GetHistoryMessages(
 func (ma *MessageApplication) GetOfflineMessages(
 	ctx context.Context,
 	userId string,
-) ([]MessageAppeDTO, error) {
+) ([]MessageAppeDTO, map[string]int64, error) {
 	uconvs, err := ma.userConversationRepository.ListByUser(ctx, userId)
 	if err != nil {
-		return nil, ErrConversationNotFound
+		return nil, nil, ErrConversationNotFound
 	}
 
+	readMap := make(map[string]int64)
 	convIds := make([]string, 0, len(uconvs))
 	for _, uc := range uconvs {
+		readMap[uc.ConversationId] = uc.LastReadSeq
 		convIds = append(convIds, uc.ConversationId)
 	}
+
 	convs, err := ma.conversationRepository.ListByIds(ctx, convIds)
+	if err != nil {
+		return nil, nil, ErrConversationNotFound
+	}
+
 	syncMap := make(map[string]int64)
+	unreadMap := make(map[string]int64)
 
 	for _, c := range convs {
+		unreadMap[c.ConversationId] = c.LatestSeq - readMap[c.ConversationId]
 		syncMap[c.ConversationId] = c.LatestSeq
 	}
 
-	msgs, _ := ma.messageRepository.ListLatestByConversations(
+	msgs, err := ma.messageRepository.GetLatestMessageByConv(
 		ctx,
 		convIds,
 	)
 
-	type syncJob struct {
-		userConv *message_entity.UserConversation
-		lastSeq  int64
+	if err != nil {
+		return nil, nil, err
 	}
+
+	type syncJob struct {
+		userConv  *message_entity.UserConversation
+		latestSeq int64
+	}
+
 	jobs := make([]syncJob, 0, len(uconvs))
 
 	for _, uconv := range uconvs {
-		lastSeq := syncMap[uconv.ConversationId]
-		if lastSeq < uconv.LatestSyncSeq {
+		latestSeq := syncMap[uconv.ConversationId]
+		if latestSeq == uconv.LatestSyncSeq {
 			// 当前会话的最大值不需要再更新了
 			continue
 		}
+
 		jobs = append(jobs, syncJob{
-			userConv: uconv,
-			lastSeq:  lastSeq,
+			userConv:  uconv,
+			latestSeq: latestSeq,
 		})
 	}
 
 	if len(jobs) > 0 {
 		go func(jobs []syncJob) {
 			for _, job := range jobs {
-				job.userConv.SyncReadSeq(job.lastSeq)
+				job.userConv.UpdateSyncSeq(job.latestSeq)
 				if err := ma.userConversationRepository.UpdateSyncSeq(
+					// 这里必须要额外一个 ctx
 					context.Background(),
 					job.userConv,
 				); err != nil {
@@ -396,5 +411,5 @@ func (ma *MessageApplication) GetOfflineMessages(
 		}(jobs)
 	}
 
-	return toMessagesAppDTO(msgs), nil
+	return toMessagesAppDTO(msgs), unreadMap, nil
 }

@@ -57,7 +57,7 @@ func (r *MessageRepository) GetHistoryMessage(
 	return result, nil
 }
 
-func (r *MessageRepository) ListLatestByConversations(
+func (r *MessageRepository) GetLatestMessageByConv(
 	ctx context.Context,
 	convIDs []string,
 ) ([]*message_entity.Message, error) {
@@ -66,13 +66,13 @@ func (r *MessageRepository) ListLatestByConversations(
 
 	err := r.db.WithContext(ctx).
 		Raw(`
-            SELECT *
-			FROM messages
-			WHERE conversation_id IN ?
-			ORDER BY seq ASC
-			LIMIT 1;
+			select m.* 
+			from messages m
+			join conversations c
+			on m.message_id = c.latest_message_id
+			where c.conversation_id in (?)
         `, convIDs).
-		Scan(&msgs).Error
+		Find(&msgs).Error
 
 	var domains []*message_entity.Message
 

@@ -1,6 +1,8 @@
 package kafka
 
 import (
+	message_entity "IM_backend/internal/domain/message/entity"
+	message_repository_interface "IM_backend/internal/domain/message/repository"
 	"IM_backend/internal/protocol"
 	"encoding/json"
 	"log"
@@ -8,25 +10,32 @@ import (
 	"github.com/IBM/sarama"
 )
 
-type groupHandler struct {
-	dispacth Dispatch
+type GroupHandler struct {
+	dispacth                   Dispatch
+	userConversationRepository message_repository_interface.UserConversationRepositoryInterface
 }
 
-func (h *groupHandler) Setup(sarama.ConsumerGroupSession) error {
+func NewGroupHandler(dispacth Dispatch, userConversationRepository message_repository_interface.UserConversationRepositoryInterface) *GroupHandler {
+	return &GroupHandler{
+		dispacth:                   dispacth,
+		userConversationRepository: userConversationRepository,
+	}
+}
+
+func (h *GroupHandler) Setup(sarama.ConsumerGroupSession) error {
 	return nil
 }
 
-func (h *groupHandler) Cleanup(sarama.ConsumerGroupSession) error {
+func (h *GroupHandler) Cleanup(sarama.ConsumerGroupSession) error {
 	return nil
 }
 
-func (h *groupHandler) ConsumeClaim(
+func (h *GroupHandler) ConsumeClaim(
 	session sarama.ConsumerGroupSession,
 	claim sarama.ConsumerGroupClaim,
 ) error {
 
 	for msg := range claim.Messages() {
-		// 将数据进行拆分 msg.Value
 		var envelope protocol.Envelope
 
 		if err := json.Unmarshal(msg.Value, &envelope); err != nil {
@@ -39,13 +48,28 @@ func (h *groupHandler) ConsumeClaim(
 		switch msg.Topic {
 		case protocol.EventTypeMessage:
 			if err := h.dispacth.SendToClient(msg.Topic, to, envelope.Payload); err != nil {
-				// 让消息重试
 				log.Println("failed to send message, ", err)
 			}
+
+			var message protocol.MessageEvent
+
+			if err := json.Unmarshal(envelope.Payload, &message); err != nil {
+				log.Println("failed to parse payload")
+				return err
+			}
+
+			uc := message_entity.BuildUserConversation(
+				to,
+				message.ConversationId,
+				message.MessageId,
+				0,
+				message.Seq,
+			)
+
+			h.userConversationRepository.UpdateSyncSeq(session.Context(), uc)
 		case protocol.EventTypeHistoryMessageReadAck:
 			if err := h.dispacth.SendToClient(msg.Topic, to, envelope.Payload); err != nil {
-				// 让消息重试
-				log.Println("failed to send message, ", err)
+				log.Println("failed to ack history message, ", err)
 			}
 		}
 

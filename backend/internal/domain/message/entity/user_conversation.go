@@ -26,7 +26,7 @@ func BuildUserConversation(
 	}
 }
 
-func (uc *UserConversation) SyncReadSeq(
+func (uc *UserConversation) UpdateSyncSeq(
 	latestSyncSeq int64,
 ) {
 	uc.LatestSyncSeq = latestSyncSeq

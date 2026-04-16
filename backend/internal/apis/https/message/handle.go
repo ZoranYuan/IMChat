@@ -34,11 +34,7 @@ func (mh *MessageHandle) GetHistoryMessages(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取消息失败，请稍后再试"))
 		return
 	}
-	c.JSON(http.StatusOK, response.Success(MessageHistoryRes{
-		MessageHistoryList: toMessageHistoryRes(messagesApp),
-		NextCursor:         nextCorsor,
-		HasMore:            hasMore,
-	}))
+	c.JSON(http.StatusOK, response.Success(toHistoryMessageRes(messagesApp, nextCorsor, hasMore)))
 }
 
 func (mh *MessageHandle) GetOfflineMessages(c *gin.Context) {
@@ -48,10 +44,11 @@ func (mh *MessageHandle) GetOfflineMessages(c *gin.Context) {
 		return
 	}
 
-	messagesApp, err := mh.app.GetOfflineMessages(c.Request.Context(), userId)
+	messagesApp, unreadMap, err := mh.app.GetOfflineMessages(c.Request.Context(), userId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取消息失败，请稍后再试"))
 		return
 	}
-	c.JSON(http.StatusOK, response.Success(toMessageHistoryRes(messagesApp)))
+
+	c.JSON(http.StatusOK, response.Success(toOfflineMessageRes(messagesApp, unreadMap)))
 }

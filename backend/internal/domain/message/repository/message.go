@@ -17,7 +17,7 @@ type MessageRepositoryInterface interface {
 		limit int,
 	) ([]*message_entity.Message, error)
 
-	ListLatestByConversations(
+	GetLatestMessageByConv(
 		ctx context.Context,
 		convIDs []string,
 	) ([]*message_entity.Message, error)

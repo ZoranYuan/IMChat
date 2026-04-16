@@ -10,31 +10,27 @@ type Dispatch interface {
 }
 
 type Consumer struct {
-	client   *Client
-	topic    []string
-	groupId  string
-	dispacth Dispatch
+	client       *Client
+	topic        []string
+	groupId      string
+	groupHandler *GroupHandler
 }
 
-func NewConsumer(c *Client, topic []string, groupId string, dispacth Dispatch) *Consumer {
+func NewConsumer(c *Client, topic []string, groupId string, groupHandler *GroupHandler) *Consumer {
 	return &Consumer{
-		client:   c,
-		topic:    topic,
-		groupId:  groupId,
-		dispacth: dispacth,
+		client:       c,
+		topic:        topic,
+		groupId:      groupId,
+		groupHandler: groupHandler,
 	}
 }
 
 func (c *Consumer) Start(ctx context.Context) error {
 	for {
-		h := &groupHandler{
-			dispacth: c.dispacth,
-		}
-
 		err := c.client.Consumer.Consume(
 			ctx,
 			c.topic,
-			h,
+			c.groupHandler,
 		)
 
 		if err != nil {

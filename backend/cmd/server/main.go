@@ -80,22 +80,6 @@ func main() {
 		log.Fatalln("failed to connect kafka, ", err)
 	}
 
-	messageConsumer := kafka.NewConsumer(kafkaClient, []string{
-		string(protocol.EventTypeHistoryMessageReadAck),
-		string(protocol.EventTypeMessage),
-		string(protocol.EventTypeMsgAck),
-	},
-		fmt.Sprintf("machine-%d-group", cfg.App.MachineID),
-		getWay,
-	)
-
-	go messageConsumer.Start(ctx)
-
-	messageProducer := kafka.NewProducer(kafkaClient, "msg")
-
-	dispatcher := ws.NewDispatcher()
-	taskManager := mq.NewTaskManager(messageProducer, conversationCache)
-
 	authService := service_auth.NewAuthService(cfg)
 
 	// 构造依赖
@@ -132,7 +116,24 @@ func main() {
 	)
 	roomHandle := https_room.NewRoomHandle(roomApp)
 
-	// TODO: messagesHandle 的依赖注入
+	groupHandler := kafka.NewGroupHandler(getWay, userConversationRepository)
+
+	messageConsumer := kafka.NewConsumer(kafkaClient, []string{
+		string(protocol.EventTypeHistoryMessageReadAck),
+		string(protocol.EventTypeMessage),
+		string(protocol.EventTypeMsgAck),
+	},
+		fmt.Sprintf("machine-%d-group", cfg.App.MachineID),
+		groupHandler,
+	)
+
+	go messageConsumer.Start(ctx)
+
+	messageProducer := kafka.NewProducer(kafkaClient, "msg")
+
+	dispatcher := ws.NewDispatcher()
+	taskManager := mq.NewTaskManager(messageProducer, conversationCache)
+
 	messageApplication := application_message.NewMessageApplication(
 		cfg,
 		messageCache,
