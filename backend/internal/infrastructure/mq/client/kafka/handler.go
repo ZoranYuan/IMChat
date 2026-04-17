@@ -67,7 +67,8 @@ func (h *GroupHandler) ConsumeClaim(
 			)
 
 			h.userConversationRepository.UpdateSyncSeq(session.Context(), uc)
-		case protocol.EventTypeHistoryMessageReadAck:
+		case protocol.EventMessageReadAck:
+			// 通知所有端去更新当前已读
 			if err := h.dispacth.SendToClient(msg.Topic, to, envelope.Payload); err != nil {
 				log.Println("failed to ack history message, ", err)
 			}

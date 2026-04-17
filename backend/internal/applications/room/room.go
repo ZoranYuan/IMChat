@@ -2,7 +2,6 @@ package application_room
 
 import (
 	"IM_backend/configs"
-	message_cache_interface "IM_backend/internal/applications/interface/cache/message"
 	room_cache_interface "IM_backend/internal/applications/interface/cache/room"
 	tx_repository_interface "IM_backend/internal/applications/interface/repository/tx_manager"
 	message_entity "IM_backend/internal/domain/message/entity"
@@ -28,7 +27,6 @@ type RoomApplication struct {
 	config                     configs.Config
 	conversationCache          conversation_port.ConversationCacheInterface
 	roomCache                  room_cache_interface.RoomCacheInterface
-	messageConversation        message_cache_interface.MessageCacheInterface
 	txManager                  tx_repository_interface.TxRepositoryInterface
 }
 
@@ -38,7 +36,6 @@ func NewRoomApplication(roomRepository room_repository_interface.RoomRepositoryI
 	conversationRepository message_repository_interface.ConversationRepositoryInterface,
 	config configs.Config,
 	roomCache room_cache_interface.RoomCacheInterface,
-	messageConversation message_cache_interface.MessageCacheInterface,
 	conversationCache conversation_port.ConversationCacheInterface,
 	txManager tx_repository_interface.TxRepositoryInterface,
 ) *RoomApplication {
@@ -49,7 +46,6 @@ func NewRoomApplication(roomRepository room_repository_interface.RoomRepositoryI
 		userConversationRepository: userConversationRepository,
 		config:                     config,
 		roomCache:                  roomCache,
-		messageConversation:        messageConversation,
 		conversationCache:          conversationCache,
 		txManager:                  txManager,
 	}
@@ -57,7 +53,7 @@ func NewRoomApplication(roomRepository room_repository_interface.RoomRepositoryI
 
 func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar, description string) (*RoomAppDTO, error) {
 	roomId, err := snow.GenerateSnowId(int(ra.config.App.MachineID))
-	conversationId := roomId
+	conversationId := message_entity.GetConversationId(userId, roomId, int(message_valueobject.RoomChat))
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +75,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		roomId,
 		int(message_valueobject.RoomChat),
 		0,
+		"",
 	)
 
 	userConversation := message_entity.BuildUserConversation(
@@ -122,7 +119,8 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 	inviteCode, inviteErr := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
 
 	if err := ra.conversationCache.AddMember(ctx, conversationId, userId); err != nil {
-		log.Println("add member cache failed:", err)
+		// TODO: 异步补偿
+		log.Println("failed to create join room cache ", err)
 	}
 
 	if inviteErr != nil {
@@ -144,7 +142,6 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 		return "", ErrUnknownError
 	}
 
-	// 查看当前用户是否在房间内
 	roomUser, err := ra.roomUserRepository.GetRelationByIds(userId, roomId)
 	if err != nil {
 		if errors.Is(err, room_entity.ErrRecordNotFound) {
@@ -231,9 +228,8 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 	}
 
 	if err := ra.conversationCache.AddMember(ctx, conversationId, userId); err != nil {
-		log.Println("add member cache failed:", err)
-
-		// TODO: 交给 mq 去重新加入
+		// TODO: 异步补偿
+		log.Println("failed to update join room cache ", err)
 	}
 
 	return toRoomUserDTO(roomUser), toRoomAppDTO(room, ""), nil
@@ -262,7 +258,8 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 	}
 
 	if err := ra.conversationCache.RemoveMember(ctx, conversationId, userId); err != nil {
-		return ErrConnectRoom
+		// TODO: 异步补偿
+		log.Println("failed to update remove room cache ", err)
 	}
 
 	return nil

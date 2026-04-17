@@ -27,9 +27,9 @@ const (
 )
 
 const (
-	EventTypeHistoryMessageReadAck = "history_msg_read_ack"
-	EventTypeMsgAck                = "msg_ack"
-	EventTypeMessage               = "msg"
+	EventMessageReadAck = "msg_read_ack"
+	EventTypeMsgAck     = "msg_ack"
+	EventTypeMessage    = "msg"
 )
 
 type Event struct {
@@ -37,8 +37,8 @@ type Event struct {
 	Data json.RawMessage `json:"data"`
 }
 
-type HistoryMessageReadAckEvent struct {
-	To             string `json:"to"`
+type MessageReadAckEvent struct {
+	UserId         string `json:"userId"`
 	ConversationId string `json:"conversationId"`
 	LastReadSeq    int64  `json:"lastReadSeq"`
 }
@@ -47,6 +47,7 @@ type MessageAckEvent struct {
 	ClientMsgId string    `json:"clientMsgId"`
 	MessageId   string    `json:"messageId"`
 	Status      AckStatus `json:"status"`
+	Extra       string    `json:"extra"`
 	SendTime    int64     `json:"sendTime"`
 }
 

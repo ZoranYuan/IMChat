@@ -25,7 +25,6 @@ import (
 	"IM_backend/internal/infrastructure/database/redis"
 	auth_cache "IM_backend/internal/infrastructure/database/redis/cache/auth"
 	conversation_cache "IM_backend/internal/infrastructure/database/redis/cache/conversation"
-	message_cache "IM_backend/internal/infrastructure/database/redis/cache/message"
 	room_cache "IM_backend/internal/infrastructure/database/redis/cache/room"
 	"IM_backend/internal/infrastructure/mq"
 	"IM_backend/internal/infrastructure/mq/client/kafka"
@@ -72,7 +71,6 @@ func main() {
 	roomCache := room_cache.NewRoomCache(redis)
 
 	conversationCache := conversation_cache.NewConversationCache(redis)
-	messageCache := message_cache.NewMessageCache(redis)
 
 	kafkaClient, err := kafka.NewClient(cfg.Kafka)
 
@@ -91,13 +89,18 @@ func main() {
 	userApp := application_user.NewUserApplication(userRepository, cfg, authCache, authService)
 	userHandle := https_user.NewUserHandle(userApp)
 
-	friendRequestRepository := friend_repository.NewFriendRepository(db)
-
+	friendRepository := friend_repository.NewFriendRepository(db)
 	friendRequestRepositoy := friend_request_repository.NewFriendRequestRepository(db)
-	friendRequestApp := application_friend_request.NewFriendApplication(friendRequestRepositoy, userRepository, cfg, friendRequestRepository, txManager)
+	friendRequestApp := application_friend_request.NewFriendApplication(
+		friendRequestRepositoy,
+		userRepository,
+		cfg,
+		friendRepository,
+		conversationCache,
+		txManager,
+	)
 	friendRequestHandle := https_friend_request.NewFriendRequestHandle(friendRequestApp)
 
-	friendRepository := friend_repository.NewFriendRepository(db)
 	friendApp := application_friend.NewFriendApplication(friendRepository, userRepository)
 	friendHandle := https_friend.NewFriendHandle(friendApp)
 
@@ -110,7 +113,6 @@ func main() {
 		conversationRepository,
 		cfg,
 		roomCache,
-		messageCache,
 		conversationCache,
 		txManager,
 	)
@@ -119,7 +121,7 @@ func main() {
 	groupHandler := kafka.NewGroupHandler(getWay, userConversationRepository)
 
 	messageConsumer := kafka.NewConsumer(kafkaClient, []string{
-		string(protocol.EventTypeHistoryMessageReadAck),
+		string(protocol.EventMessageReadAck),
 		string(protocol.EventTypeMessage),
 		string(protocol.EventTypeMsgAck),
 	},
@@ -136,7 +138,6 @@ func main() {
 
 	messageApplication := application_message.NewMessageApplication(
 		cfg,
-		messageCache,
 		conversationCache,
 		txManager,
 		taskManager,

@@ -10,8 +10,11 @@ import (
 	friend_request_entity "IM_backend/internal/domain/frient_request/entity"
 	friend_request_repository_interface "IM_backend/internal/domain/frient_request/repository"
 	friend_request_valueobject "IM_backend/internal/domain/frient_request/value_object"
+	message_entity "IM_backend/internal/domain/message/entity"
+	message_valueobject "IM_backend/internal/domain/message/value_object"
 	user_repository_interface "IM_backend/internal/domain/user/repository"
 	"IM_backend/internal/infrastructure/pkg/snow"
+	conversation_port "IM_backend/internal/port/conversation"
 	"context"
 	"errors"
 	"fmt"
@@ -25,6 +28,7 @@ type FriendApplication struct {
 	friendRequestRepository friend_request_repository_interface.FriendRequestInterface
 	userRepository          user_repository_interface.UserRepoInterface
 	friendRepository        friend_repository_interface.FriendRepositoryInterface
+	conversationCache       conversation_port.ConversationCacheInterface
 	config                  configs.Config
 	txManager               tx_repository_interface.TxRepositoryInterface
 }
@@ -34,6 +38,7 @@ func NewFriendApplication(
 	userRepository user_repository_interface.UserRepoInterface,
 	config configs.Config,
 	friendRepository friend_repository_interface.FriendRepositoryInterface,
+	conversationCache conversation_port.ConversationCacheInterface,
 	txManager tx_repository_interface.TxRepositoryInterface,
 ) *FriendApplication {
 	return &FriendApplication{
@@ -41,6 +46,7 @@ func NewFriendApplication(
 		userRepository:          userRepository,
 		config:                  config,
 		friendRepository:        friendRepository,
+		conversationCache:       conversationCache,
 		txManager:               txManager,
 	}
 }
@@ -179,7 +185,6 @@ func (fa *FriendApplication) Accept(requestId string, userId string) error {
 			return ErrOperateFailed
 		}
 
-		// 创建好友
 		if err := friendRepository.Create([]friend_entity.Friend{
 			{
 				UserId:       record.FromUserId,
@@ -198,6 +203,12 @@ func (fa *FriendApplication) Accept(requestId string, userId string) error {
 		return nil
 	}); err != nil {
 		return ErrOperateFailed
+	}
+
+	conversationId := message_entity.GetConversationId(record.ToUserId, record.FromUserId, int(message_valueobject.PrivateChat))
+	if err := fa.conversationCache.SetMembers(ctx, conversationId, []string{record.FromUserId, record.ToUserId}); err != nil {
+		// TODO: 异步补偿
+		log.Println("failed to create conversation cache")
 	}
 
 	return nil

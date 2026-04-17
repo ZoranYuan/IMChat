@@ -2,7 +2,6 @@ package application_message
 
 import (
 	"IM_backend/configs"
-	message_cache_interface "IM_backend/internal/applications/interface/cache/message"
 	mq_interface "IM_backend/internal/applications/interface/mq"
 	tx_repository_interface "IM_backend/internal/applications/interface/repository/tx_manager"
 	message_entity "IM_backend/internal/domain/message/entity"
@@ -12,28 +11,27 @@ import (
 	conversation_port "IM_backend/internal/port/conversation"
 	"IM_backend/internal/protocol"
 	"context"
-	"errors"
 	"log"
 	"math"
 	"sort"
 
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 )
 
 type MessageApplication struct {
 	config                     configs.Config
-	messageCache               message_cache_interface.MessageCacheInterface
 	conversationCache          conversation_port.ConversationCacheInterface
 	messageRepository          message_repository_interface.MessageRepositoryInterface
 	txManager                  tx_repository_interface.TxRepositoryInterface
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface
 	conversationRepository     message_repository_interface.ConversationRepositoryInterface
 	taskManager                mq_interface.TaskManager
+	sf                         singleflight.Group
 }
 
 func NewMessageApplication(
 	config configs.Config,
-	messageCache message_cache_interface.MessageCacheInterface,
 	conversationCache conversation_port.ConversationCacheInterface,
 	txManager tx_repository_interface.TxRepositoryInterface,
 	taskManager mq_interface.TaskManager,
@@ -43,7 +41,6 @@ func NewMessageApplication(
 ) *MessageApplication {
 	return &MessageApplication{
 		config:                     config,
-		messageCache:               messageCache,
 		conversationCache:          conversationCache,
 		txManager:                  txManager,
 		taskManager:                taskManager,
@@ -53,35 +50,44 @@ func NewMessageApplication(
 	}
 }
 
-func (ma *MessageApplication) checkMember(
+func (ma *MessageApplication) checkConvMember(
 	ctx context.Context,
+	convType message_valueobject.ConvType,
+	conversationId string,
 	userId string,
-	convId string,
-) error {
+) (bool, error) {
 
-	isMember, err := ma.conversationCache.IsMember(ctx, convId, userId)
-
-	if err == nil && isMember {
-		return nil
+	isMember, err := ma.conversationCache.IsMember(ctx, conversationId, userId)
+	if err != nil {
+		return false, err
 	}
 
-	// // cache miss / error → DB fallback
-	// isMember, err = ma.conversationCache.IsMember(ctx, convId, userId)
-	// if err != nil {
-	// 	return ErrUnknown
-	// }
+	if isMember {
+		return true, nil
+	}
 
-	// if !isMember {
-	// 	return ErrForbidden
-	// }
+	v, err, _ := ma.sf.Do(conversationId, func() (any, error) {
+		ok, err := ma.conversationCache.IsMember(ctx, conversationId, userId)
+		if err != nil {
+			return false, err
+		}
 
-	// // 回填 cache
-	// _ = ma.conversationCache.AddMember(ctx, convId, userId)
+		if !ok {
+			if convType == message_valueobject.PrivateChat {
+				return false, ErrNotFriend
+			} else {
+				return false, ErrNotInRoom
+			}
+		}
 
-	return nil
+		err = ma.conversationCache.AddMember(ctx, conversationId, userId)
+		return true, err
+	})
+
+	return v.(bool), err
 }
 
-func (ma *MessageApplication) HandleHistoryMessageReadAck(
+func (ma *MessageApplication) HandleMessageReadAck(
 	ctx context.Context,
 	userId string,
 	conversationId string,
@@ -93,78 +99,65 @@ func (ma *MessageApplication) HandleHistoryMessageReadAck(
 		return ErrConversationNotFound
 	}
 
+	if lastReadSeq <= uconv.LastReadSeq {
+		// TODO: 如何处理之前的应答消息
+		return nil
+	}
+
 	uconv.UpdateReadSeq(lastReadSeq)
 
 	err = ma.userConversationRepository.UpdateReadSeq(
 		ctx,
 		uconv,
 	)
+
 	if err != nil {
 		return err
 	}
 
-	event := protocol.HistoryMessageReadAckEvent{
-		ConversationId: conversationId,
-		LastReadSeq:    lastReadSeq,
-		To:             userId,
-	}
+	go func() {
+		event := protocol.MessageReadAckEvent{
+			ConversationId: conversationId,
+			LastReadSeq:    lastReadSeq,
+			UserId:         userId,
+		}
 
-	ma.taskManager.SendHistoryMessageAck(
-		ctx,
-		protocol.EventTypeHistoryMessageReadAck,
-		userId+":"+conversationId,
-		event,
-	)
+		ma.taskManager.SendHistoryMessageAck(
+			ctx,
+			protocol.EventMessageReadAck,
+			userId+":"+conversationId,
+			event,
+		)
+	}()
 
 	return nil
 }
 
 func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
 	conversationId := message_entity.GetConversationId(dto.SendId, dto.RecvId, dto.ConvType)
-
-	err := ma.checkMember(ctx, dto.SendId, conversationId)
-
-	if err != nil {
-		return nil, err
-	}
-
 	messageId, err := snow.GenerateSnowId(int(ma.config.App.MachineID))
-	if err != nil {
-		return nil, ErrUnknown
+
+	ok, err := ma.checkConvMember(
+		ctx,
+		message_valueobject.ConvType(dto.ConvType),
+		conversationId,
+		dto.SendId,
+	)
+
+	if !ok {
+		return &MessageAppeDTO{
+			ClientMsgId: dto.ClientMsgId,
+			MessageId:   messageId,
+			Status:      string(protocol.AckStatusFailed),
+		}, err
 	}
 
-	seq, err := ma.messageCache.GetMessageLatestSeq(ctx, conversationId)
-
 	if err != nil {
-		if !errors.Is(err, message_entity.ErrConversationNotCreated) {
-			return &MessageAppeDTO{
-				ClientMsgId: dto.ClientMsgId,
-				MessageId:   messageId,
-				Status:      string(protocol.AckStatusFailed),
-			}, err
-		} else {
-			curSeq, err := ma.conversationRepository.GetConvSeq(ctx, conversationId)
-			if err != nil {
-				return &MessageAppeDTO{
-					ClientMsgId: dto.ClientMsgId,
-					MessageId:   messageId,
-					Status:      string(protocol.AckStatusFailed),
-				}, nil
-			}
-
-			err = ma.messageCache.SetMessageSeq(ctx, conversationId, curSeq)
-			if err != nil {
-				// 设置缓存失败，缓存已经被创建，防止消息乱序，直接报错
-				return &MessageAppeDTO{
-					ClientMsgId: dto.ClientMsgId,
-					MessageId:   messageId,
-					Status:      string(protocol.AckStatusFailed),
-				}, nil
-			}
-		}
+		log.Println("failed to add member in conv cache ", err)
 	}
 
-	seq, err = ma.messageCache.IncrMessageLatestSeq(ctx, conversationId)
+	seq, err := ma.conversationCache.IncrConvLatestSeq(ctx, conversationId)
+
 	if err != nil {
 		return &MessageAppeDTO{
 			ClientMsgId: dto.ClientMsgId,
@@ -189,6 +182,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		dto.RecvId,
 		dto.ConvType,
 		seq,
+		messageId,
 	)
 
 	userConv := message_entity.BuildUserConversation(
@@ -214,12 +208,10 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		}
 
 		if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
-			// 不影响主流程
 			log.Printf("warn: update sender uc failed: %v", err)
 		}
 
 		if err := userConvRepo.UpdateSyncSeq(ctx, userConv); err != nil {
-			// 不影响主流程
 			log.Printf("warn: update sender uc failed: %v", err)
 		}
 

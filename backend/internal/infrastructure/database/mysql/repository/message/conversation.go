@@ -62,7 +62,8 @@ func (r *ConversationRepository) Upsert(
 				{Name: "conversation_id"},
 			},
 			DoUpdates: clause.Assignments(map[string]interface{}{
-				"latest_seq": gorm.Expr("GREATEST(latest_seq, ?)", m.LatestSeq),
+				"latest_message_id": m.LatestMessageId,
+				"latest_seq":        gorm.Expr("GREATEST(latest_seq, ?)", m.LatestSeq),
 			}),
 		}).
 		Create(m).Error

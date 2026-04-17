@@ -15,6 +15,10 @@ var (
 
 	ErrConversationNotFound = errors.New("conversation not found")
 
+	ErrNotFriend = errors.New("not friend")
+
+	ErrNotInRoom = errors.New("not in the room")
+
 	ErrConversationUpdateSeq = errors.New("conversation update last seq failed")
 
 	ErrUserConversationCreate = errors.New("user conversation create failed")

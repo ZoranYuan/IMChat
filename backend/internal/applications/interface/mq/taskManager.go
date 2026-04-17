@@ -7,5 +7,5 @@ import (
 
 type TaskManager interface {
 	SendMessage(ctx context.Context, todic string, key string, event protocol.MessageEvent) error
-	SendHistoryMessageAck(ctx context.Context, todic string, key string, event protocol.HistoryMessageReadAckEvent) error
+	SendHistoryMessageAck(ctx context.Context, todic string, key string, event protocol.MessageReadAckEvent) error
 }

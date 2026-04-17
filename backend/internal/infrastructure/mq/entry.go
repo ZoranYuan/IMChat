@@ -77,7 +77,7 @@ func (t *TaskManager) handleRoomChat(ctx context.Context, topic string, key stri
 	return nil
 }
 
-func (t *TaskManager) handleHistoryRead(ctx context.Context, topic string, key string, event protocol.HistoryMessageReadAckEvent) error {
+func (t *TaskManager) handleHistoryRead(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error {
 	var payload []byte
 
 	payload, err := json.Marshal(event)
@@ -86,7 +86,7 @@ func (t *TaskManager) handleHistoryRead(ctx context.Context, topic string, key s
 	}
 
 	var envelope = protocol.Envelope{
-		To:      event.To,
+		To:      event.UserId,
 		Payload: payload,
 	}
 
@@ -115,7 +115,7 @@ func (t *TaskManager) dispatch(ctx context.Context, topic string, key string, ev
 		}
 
 		return err
-	case protocol.EventTypeHistoryMessageReadAck:
+	case protocol.EventMessageReadAck:
 
 	}
 
@@ -134,14 +134,14 @@ func (t *TaskManager) SendMessage(ctx context.Context, todic string, key string,
 	})
 }
 
-func (t *TaskManager) SendHistoryMessageAck(ctx context.Context, todic string, key string, event protocol.HistoryMessageReadAckEvent) error {
+func (t *TaskManager) SendHistoryMessageAck(ctx context.Context, todic string, key string, event protocol.MessageReadAckEvent) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
 
 	return t.dispatch(ctx, todic, key, protocol.Event{
-		Type: protocol.EventTypeHistoryMessageReadAck,
+		Type: protocol.EventMessageReadAck,
 		Data: data,
 	})
 }

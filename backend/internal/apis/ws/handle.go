@@ -38,19 +38,19 @@ func NewWshandler(app *application_message.MessageApplication, confg configs.Con
 	}
 
 	dispacther.RegisterHandler(protocol.EventTypeMessage, wh.handleSendMessage)
-	dispacther.RegisterHandler(protocol.EventTypeHistoryMessageReadAck, wh.handleHistoryMessageRead)
+	dispacther.RegisterHandler(protocol.EventMessageReadAck, wh.handleHistoryMessageRead)
 
 	return wh
 }
 
 func (wh *WsHandler) handleHistoryMessageRead(ctx context.Context, c *Client, data []byte) error {
-	var req protocol.HistoryMessageReadAckEvent
+	var req MessageReadAckReq
 
 	if err := json.Unmarshal(data, &req); err != nil {
 		return err
 	}
 
-	return wh.app.HandleHistoryMessageReadAck(ctx, c.userId, req.ConversationId, req.LastReadSeq)
+	return wh.app.HandleMessageReadAck(ctx, c.userId, req.ConversationId, req.LastReadSeq)
 }
 
 func (wh *WsHandler) handleSendMessage(ctx context.Context, c *Client, data []byte) error {
@@ -69,14 +69,15 @@ func (wh *WsHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 		VideoTime:   req.VideoTime,
 	})
 
-	if err != nil {
-		log.Println("failed to handle message, ", err)
-	}
-
 	var ackEvent *protocol.MessageAckEvent = &protocol.MessageAckEvent{
 		ClientMsgId: messageApp.ClientMsgId,
 		MessageId:   messageApp.MessageId,
 		Status:      protocol.AckStatus(messageApp.Status),
+	}
+
+	if err != nil {
+		ackEvent.Extra = err.Error()
+		log.Println("failed to handle message, ", err)
 	}
 
 	data, err = json.Marshal(ackEvent)

@@ -7,6 +7,11 @@ type WsMessage struct {
 	Data json.RawMessage `json:"data"`
 }
 
+type MessageReadAckReq struct {
+	ConversationId string `json:"conversationId"`
+	LastReadSeq    int64  `json:"lastReadSeq"`
+}
+
 type MessageReq struct {
 	ClientMsgId string `json:"clientMsgId"`
 	RecvId      string `json:"recvId"`

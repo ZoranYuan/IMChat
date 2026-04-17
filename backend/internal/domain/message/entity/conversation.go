@@ -15,7 +15,7 @@ type Conversation struct {
 }
 
 func BuildConversation(
-	conversationId, sendId, recvId string, convTye int, seq int64,
+	conversationId, sendId, recvId string, convTye int, seq int64, latestMessageId string,
 ) *Conversation {
 	var (
 		user2Id string
@@ -29,12 +29,13 @@ func BuildConversation(
 	}
 
 	return &Conversation{
-		ConversationId: conversationId,
-		Convtype:       message_valueobject.ConvType(convTye), // 或根据业务
-		UserId1:        sendId,
-		UserId2:        user2Id, // 单聊需要
-		RoomId:         roomId,
-		LatestSeq:      seq,
+		ConversationId:  conversationId,
+		Convtype:        message_valueobject.ConvType(convTye), // 或根据业务
+		UserId1:         sendId,
+		UserId2:         user2Id, // 单聊需要
+		RoomId:          roomId,
+		LatestMessageId: latestMessageId,
+		LatestSeq:       seq,
 	}
 }
 
