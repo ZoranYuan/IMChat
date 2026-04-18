@@ -4,9 +4,11 @@ import (
 	"IM_backend/configs"
 	mq_interface "IM_backend/internal/applications/interface/mq"
 	tx_repository_interface "IM_backend/internal/applications/interface/repository/tx_manager"
+	friend_repository_interface "IM_backend/internal/domain/friend/repository"
 	message_entity "IM_backend/internal/domain/message/entity"
 	message_repository_interface "IM_backend/internal/domain/message/repository"
 	message_valueobject "IM_backend/internal/domain/message/value_object"
+	room_repository_interface "IM_backend/internal/domain/room/repository"
 	"IM_backend/internal/infrastructure/pkg/snow"
 	conversation_port "IM_backend/internal/port/conversation"
 	"IM_backend/internal/protocol"
@@ -26,8 +28,11 @@ type MessageApplication struct {
 	txManager                  tx_repository_interface.TxRepositoryInterface
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface
 	conversationRepository     message_repository_interface.ConversationRepositoryInterface
-	taskManager                mq_interface.TaskManager
-	sf                         singleflight.Group
+	friendRespository          friend_repository_interface.FriendRepositoryInterface
+	roomUserRepository         room_repository_interface.RoomUserRepositoryInterface
+
+	taskManager mq_interface.TaskManager
+	sf          singleflight.Group
 }
 
 func NewMessageApplication(
@@ -37,7 +42,9 @@ func NewMessageApplication(
 	taskManager mq_interface.TaskManager,
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface,
 	conversationRepository message_repository_interface.ConversationRepositoryInterface,
+	friendRespository friend_repository_interface.FriendRepositoryInterface,
 	messageRepository message_repository_interface.MessageRepositoryInterface,
+	roomUserRepository room_repository_interface.RoomUserRepositoryInterface,
 ) *MessageApplication {
 	return &MessageApplication{
 		config:                     config,
@@ -47,6 +54,8 @@ func NewMessageApplication(
 		messageRepository:          messageRepository,
 		conversationRepository:     conversationRepository,
 		userConversationRepository: userConversationRepository,
+		roomUserRepository:         roomUserRepository,
+		friendRespository:          friendRespository,
 	}
 }
 
@@ -55,6 +64,7 @@ func (ma *MessageApplication) checkConvMember(
 	convType message_valueobject.ConvType,
 	conversationId string,
 	userId string,
+	recvId string,
 ) (bool, error) {
 
 	isMember, err := ma.conversationCache.IsMember(ctx, conversationId, userId)
@@ -66,22 +76,39 @@ func (ma *MessageApplication) checkConvMember(
 		return true, nil
 	}
 
-	v, err, _ := ma.sf.Do(conversationId, func() (any, error) {
-		ok, err := ma.conversationCache.IsMember(ctx, conversationId, userId)
-		if err != nil {
-			return false, err
-		}
+	key := userId + ":" + conversationId
+	v, err, _ := ma.sf.Do(key, func() (any, error) {
 
-		if !ok {
-			if convType == message_valueobject.PrivateChat {
+		var cacheErr error
+
+		if convType == message_valueobject.PrivateChat {
+			friend, err := ma.friendRespository.FindRelation(userId, recvId)
+			if err != nil {
+				return false, err
+			}
+
+			if friend == nil {
 				return false, ErrNotFriend
-			} else {
+			}
+
+			// 私聊在解除好友关系时，直接删除整个 set
+			cacheErr = ma.conversationCache.SetMembers(ctx, conversationId, []string{userId, recvId})
+		} else {
+			roomUser, err := ma.roomUserRepository.GetRelationByIds(userId, recvId)
+
+			if err != nil {
+				return false, err
+			}
+
+			if roomUser == nil {
 				return false, ErrNotInRoom
 			}
+
+			// 群聊采取增量同步的方式
+			cacheErr = ma.conversationCache.AddMember(ctx, conversationId, userId)
 		}
 
-		err = ma.conversationCache.AddMember(ctx, conversationId, userId)
-		return true, err
+		return true, cacheErr
 	})
 
 	return v.(bool), err
@@ -137,11 +164,13 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	conversationId := message_entity.GetConversationId(dto.SendId, dto.RecvId, dto.ConvType)
 	messageId, err := snow.GenerateSnowId(int(ma.config.App.MachineID))
 
+	// TODO: 在删除好友时，如果缓存未及时更新，那么此时 checkConvMember 会命中
 	ok, err := ma.checkConvMember(
 		ctx,
 		message_valueobject.ConvType(dto.ConvType),
 		conversationId,
 		dto.SendId,
+		dto.RecvId,
 	)
 
 	if !ok {

@@ -143,7 +143,9 @@ func main() {
 		taskManager,
 		userConversationRepository,
 		conversationRepository,
+		friendRepository,
 		messageRepository,
+		roomUserRepository,
 	)
 	messageHandle := https_message.NewMessageHandle(messageApplication)
 
