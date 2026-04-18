@@ -1,5 +1,7 @@
 package mq_client
 
+import "context"
+
 type Client interface {
-	SendMessage(string, string, []byte) error
+	SendMessage(context.Context, string, string, []byte) error
 }

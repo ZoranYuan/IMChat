@@ -51,6 +51,12 @@ type MessageAckEvent struct {
 	SendTime    int64     `json:"sendTime"`
 }
 
+type MessageNotiryEvent struct {
+	ConversationId string `json:"conversationId"`
+	MessageId      string `json:"messageId"`
+	Seq            int64  `json:"seq"`
+}
+
 type MessageEvent struct {
 	MessageId      string   `json:"messageId"`
 	ConversationId string   `json:"conversationId"`

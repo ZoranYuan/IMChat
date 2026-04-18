@@ -164,7 +164,6 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	conversationId := message_entity.GetConversationId(dto.SendId, dto.RecvId, dto.ConvType)
 	messageId, err := snow.GenerateSnowId(int(ma.config.App.MachineID))
 
-	// TODO: 在删除好友时，如果缓存未及时更新，那么此时 checkConvMember 会命中
 	ok, err := ma.checkConvMember(
 		ctx,
 		message_valueobject.ConvType(dto.ConvType),
@@ -217,7 +216,6 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	userConv := message_entity.BuildUserConversation(
 		dto.SendId,
 		conversationId,
-		messageId,
 		seq,
 		seq,
 	)

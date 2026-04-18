@@ -27,7 +27,7 @@ func (fr *FriendRequestRepo) FindLatestRequest(userId, toUserId string) (*friend
 	var friendRequestModel model.FriendRequest
 	err := fr.db.
 		Where("from_user_id = ? AND to_user_id = ?", userId, toUserId).
-		Order("create_time DESC").
+		Order("created_at DESC").
 		First(&friendRequestModel).Error
 
 	if err != nil {

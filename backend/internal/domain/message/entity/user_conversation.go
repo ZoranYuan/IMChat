@@ -3,7 +3,6 @@ package message_entity
 type UserConversation struct {
 	UserId         string
 	ConversationId string
-	LastMessageId  string
 	LastReadSeq    int64
 	LatestSyncSeq  int64
 	IsMuted        bool
@@ -12,14 +11,12 @@ type UserConversation struct {
 func BuildUserConversation(
 	userId,
 	conversationId string,
-	messageId string,
 	lastReadSeq int64,
 	latestSyncSeq int64,
 ) *UserConversation {
 	return &UserConversation{
 		UserId:         userId,
 		ConversationId: conversationId,
-		LastMessageId:  messageId,
 		LastReadSeq:    lastReadSeq,
 		LatestSyncSeq:  latestSyncSeq,
 		IsMuted:        false,

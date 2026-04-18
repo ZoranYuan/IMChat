@@ -118,7 +118,7 @@ func main() {
 	)
 	roomHandle := https_room.NewRoomHandle(roomApp)
 
-	groupHandler := kafka.NewGroupHandler(getWay, userConversationRepository)
+	groupHandler := kafka.NewGroupHandler(getWay, userConversationRepository, conversationCache)
 
 	messageConsumer := kafka.NewConsumer(kafkaClient, []string{
 		string(protocol.EventMessageReadAck),
@@ -134,7 +134,7 @@ func main() {
 	messageProducer := kafka.NewProducer(kafkaClient, "msg")
 
 	dispatcher := ws.NewDispatcher()
-	taskManager := mq.NewTaskManager(messageProducer, conversationCache)
+	taskManager := mq.NewTaskManager(messageProducer)
 
 	messageApplication := application_message.NewMessageApplication(
 		cfg,

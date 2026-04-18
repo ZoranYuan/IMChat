@@ -5,12 +5,10 @@ import (
 )
 
 type FriendItemRes struct {
-	FriendUserId string
-	FriendAvatar string
-	// LastMessage    string
-	// UnreadCount int
-	Status      int
-	DsipalyName string
+	FriendUserId string `json:"friendUserId"`
+	FriendAvatar string `json:"friendAvatar"`
+	Status       int    `json:"status"`
+	DsipalyName  string `json:"dsipalyName"`
 }
 
 func toFriendListRes(f []application_friend.FriendAppDTO) []FriendItemRes {

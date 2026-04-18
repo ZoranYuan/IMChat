@@ -18,8 +18,8 @@ type User struct {
 
 	// 用于可以利用微信、手机号、QQ 登录
 	LoginType user_valueobject.LoginType `json:"loginType"`
-	WxOpenID  string                     `json:"-" gorm:"type:varchar(64);index;comment:微信OpenID(预留)"`
-	WxUnionID string                     `json:"-" gorm:"type:varchar(64);index;comment:微信UnionID(预留)"`
+	WxOpenID  *string                    `json:"-" gorm:"type:varchar(64);index;comment:微信OpenID(预留)"`
+	WxUnionID *string                    `json:"-" gorm:"type:varchar(64);index;comment:微信UnionID(预留)"`
 }
 
 func RegisterWithPhone(phone user_valueobject.Phone, password user_valueobject.Password) (*User, error) {

@@ -12,6 +12,11 @@ type UserConversationRepositoryInterface interface {
 
 	GetUsersByConvId(ctx context.Context, convId string) ([]string, error)
 
+	BatchUpdateSyncSeq(
+		ctx context.Context,
+		ucs []*message_entity.UserConversation,
+	) error
+
 	// 获取单个用户会话
 	GetUserConversation(
 		ctx context.Context,

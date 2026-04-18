@@ -20,7 +20,7 @@ func toDomain(m model.User) user_entity.User {
 
 		// 用于可以利用微信、手机号、QQ 登录
 		LoginType: user_valueobject.LoginType(m.LoginType),
-		WxOpenID:  *m.WxOpenID,
-		WxUnionID: *m.WxUnionID,
+		WxOpenID:  m.WxOpenID,
+		WxUnionID: m.WxUnionID,
 	}
 }

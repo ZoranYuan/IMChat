@@ -81,7 +81,6 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 	userConversation := message_entity.BuildUserConversation(
 		userId,
 		conversationId,
-		"",
 		0,
 		0,
 	)
@@ -211,7 +210,6 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		userConversation := message_entity.BuildUserConversation(
 			userId,
 			conversationId,
-			"",
 			curMessageSeq,
 			curMessageSeq,
 		)

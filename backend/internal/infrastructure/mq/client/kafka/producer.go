@@ -1,6 +1,8 @@
 package kafka
 
 import (
+	"context"
+
 	"github.com/IBM/sarama"
 )
 
@@ -16,7 +18,7 @@ func NewProducer(c *Client, topic string) *Producer {
 	}
 }
 
-func (p *Producer) SendMessage(topic string, key string, payload []byte) error {
+func (p *Producer) SendMessage(ctx context.Context, topic string, key string, payload []byte) error {
 	_, _, err := p.client.Producer.SendMessage(&sarama.ProducerMessage{
 		Topic: p.topic,
 
