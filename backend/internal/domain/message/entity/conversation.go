@@ -15,7 +15,11 @@ type Conversation struct {
 }
 
 func BuildConversation(
-	conversationId, sendId, recvId string, convTye int, seq int64, latestMessageId string,
+	conversationId,
+	sendId, recvId string,
+	convTye int,
+	seq int64,
+	latestMessageId string,
 ) *Conversation {
 	var (
 		user2Id string

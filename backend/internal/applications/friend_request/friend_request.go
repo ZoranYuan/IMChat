@@ -206,7 +206,7 @@ func (fa *FriendApplication) Accept(requestId string, userId string) error {
 	}
 
 	conversationId := message_entity.GetConversationId(record.ToUserId, record.FromUserId, int(message_valueobject.PrivateChat))
-	if err := fa.conversationCache.SetMembers(ctx, conversationId, []string{record.FromUserId, record.ToUserId}); err != nil {
+	if err := fa.conversationCache.SetMembers(ctx, conversationId, []string{record.FromUserId, record.ToUserId}, 1); err != nil {
 		// TODO: 异步补偿
 		log.Println("failed to create conversation cache")
 	}

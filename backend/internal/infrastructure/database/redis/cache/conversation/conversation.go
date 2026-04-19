@@ -23,29 +23,90 @@ func (c *ConversationCache) IsMember(ctx context.Context, convId, userId string)
 	return c.rb.SIsMember(ctx, key, userId).Result()
 }
 
-func (c *ConversationCache) SetMembers(ctx context.Context, convId string, userIds []string) error {
-	key := ConversationMembersKey(convId)
-
+func (c *ConversationCache) SetMembers(ctx context.Context, convId string, userIds []string, version int64) error {
 	if len(userIds) == 0 {
 		return nil
 	}
 
-	values := make([]interface{}, 0, len(userIds))
+	membersKey := ConversationMembersKey(convId)
+	versionKey := ConversationMembersVerKey(convId)
+
+	script := `
+		for i = 1, #ARGV-1 do
+			redis.call('SADD', KEYS[1], ARGV[i])
+		end
+
+		redis.call('SET', KEYS[2], ARGV[#ARGV])
+		return 1
+	`
+
+	args := make([]interface{}, 0, len(userIds)+1)
 	for _, uid := range userIds {
-		values = append(values, uid)
+		args = append(args, uid)
 	}
+	args = append(args, version)
 
-	return c.rb.SAdd(ctx, key, values...).Err()
+	_, err := c.rb.Eval(
+		ctx,
+		script,
+		[]string{membersKey, versionKey},
+		args...,
+	).Result()
+
+	return err
 }
 
-func (c *ConversationCache) AddMember(ctx context.Context, convId, userId string) error {
-	key := ConversationMembersKey(convId)
-	return c.rb.SAdd(ctx, key, userId).Err()
+func (c *ConversationCache) updateMemberWithVersion(
+	ctx context.Context,
+	convId string,
+	userId string,
+	version int64,
+	op string,
+) error {
+
+	membersKey := ConversationMembersKey(convId)
+	versionKey := ConversationMembersVerKey(convId)
+
+	script := `
+		if ARGV[3] == "add" then
+			redis.call('SADD', KEYS[1], ARGV[1])
+		else
+			redis.call('SREM', KEYS[1], ARGV[1])
+		end
+		redis.call('SET', KEYS[2], ARGV[2])
+		return 1
+	`
+
+	_, err := c.rb.Eval(
+		ctx,
+		script,
+		[]string{membersKey, versionKey},
+		userId,
+		version,
+		op,
+	).Result()
+
+	return err
 }
 
-func (c *ConversationCache) RemoveMember(ctx context.Context, convId, userId string) error {
-	key := ConversationMembersKey(convId)
-	return c.rb.SRem(ctx, key, userId).Err()
+func (c *ConversationCache) AddMember(ctx context.Context, convId, userId string, version int64) error {
+	return c.updateMemberWithVersion(ctx, convId, userId, version, "add")
+}
+
+func (c *ConversationCache) RemoveMember(ctx context.Context, convId, userId string, version int64) error {
+	return c.updateMemberWithVersion(ctx, convId, userId, version, "remove")
+}
+
+func (c *ConversationCache) GetMembersVersion(ctx context.Context, convId string) (int64, error) {
+	key := ConversationMembersVerKey(convId)
+	r, err := c.rb.Get(ctx, key).Int64()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return r, nil
 }
 
 func (rc *ConversationCache) GetMembers(ctx context.Context, conversationId string) ([]string, error) {

@@ -11,6 +11,7 @@ type Room struct {
 	Avatar      string `json:"avatar" gorm:"size:255;comment:房间头像URL"`
 	MemberCount int    `json:"memberCount" gorm:"type:int;default:0;comment:房间人数"`
 	MaxMembers  int    `json:"maxUsers" gorm:"default:100;comment:房间最大人数"`
+	Version     int64  `json:"version" gorm:"not null; default:1"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

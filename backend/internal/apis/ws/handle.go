@@ -21,14 +21,14 @@ type WsHandler struct {
 	app        *application_message.MessageApplication
 	confg      configs.Config
 	dispacther *Dispatcher
-	gateway    *GetWay
+	gateway    *Gateway
 }
 
-func NewWshandler(app *application_message.MessageApplication, confg configs.Config, dispacther *Dispatcher, getway *GetWay) *WsHandler {
+func NewWshandler(app *application_message.MessageApplication, confg configs.Config, dispacther *Dispatcher, gateway *Gateway) *WsHandler {
 	wh := &WsHandler{
 		app:        app,
 		confg:      confg,
-		gateway:    getway,
+		gateway:    gateway,
 		dispacther: dispacther,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {

@@ -7,7 +7,8 @@ import (
 )
 
 type RoomRepositoryInterface interface {
-	Create(domain *room_entity.Room) (*room_entity.Room, error)
+	Create(domain *room_entity.Room) error
 	WithTx(tx *gorm.DB) RoomRepositoryInterface
+	UpdateRoomVersion(roomId string) (int64, error)
 	FindActiveRoom(roomId string, status int) (*room_entity.Room, error)
 }

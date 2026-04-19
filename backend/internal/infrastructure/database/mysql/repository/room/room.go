@@ -19,14 +19,39 @@ func NewRoomRepository(db *gorm.DB) *RoomRepository {
 	}
 }
 
-func (rr *RoomRepository) Create(domain *room_entity.Room) (*room_entity.Room, error) {
+func (rr *RoomRepository) Create(domain *room_entity.Room) error {
 	model := toModel(domain)
 
-	if err := rr.db.Create(&model).Error; err != nil {
-		return nil, err
+	return rr.db.Create(&model).Error
+}
+
+func (rr *RoomRepository) UpdateRoomVersion(roomId string) (int64, error) {
+	res := rr.db.
+		Model(&model.Room{}).
+		Where("room_id = ?", roomId).
+		Update("version", gorm.Expr("version + 1"))
+
+	if res.Error != nil {
+		return 0, res.Error
 	}
 
-	return toDomain(model), nil
+	if res.RowsAffected == 0 {
+		return 0, errors.New("room not found")
+	}
+
+	// Step 2: 查回 version（关键）
+	var version int64
+	err := rr.db.
+		Model(&model.Room{}).
+		Select("version").
+		Where("room_id = ?", roomId).
+		Scan(&version).Error
+
+	if err != nil {
+		return 0, err
+	}
+
+	return version, nil
 }
 
 func (rr *RoomRepository) FindActiveRoom(roomId string, status int) (*room_entity.Room, error) {

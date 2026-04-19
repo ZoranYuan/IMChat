@@ -7,7 +7,7 @@ import (
 )
 
 // 管理用户 和 session
-type GetWay struct {
+type Gateway struct {
 	// session 和 client 的映射
 	sessions map[string]*Client
 
@@ -17,48 +17,49 @@ type GetWay struct {
 	mu sync.RWMutex
 }
 
-func NewGetWay() *GetWay {
-	return &GetWay{
+func NewGateway() *Gateway {
+	return &Gateway{
 		sessions:     make(map[string]*Client),
 		userSessions: make(map[string]map[string]struct{}),
 	}
 }
 
 // 监听协程
-func (g *GetWay) KeepAlive(interval int, pongWait int) {
+func (g *Gateway) KeepAlive(interval int, pongWait int) {
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
-	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now()
-		g.mu.RLock()
-		clients := make([]*Client, 0, len(g.sessions))
-		for _, c := range g.sessions {
-			clients = append(clients, c)
-		}
-		g.mu.RUnlock()
+	go func() {
+		for range ticker.C {
+			now := time.Now()
+			g.mu.RLock()
+			clients := make([]*Client, 0, len(g.sessions))
+			for _, c := range g.sessions {
+				clients = append(clients, c)
+			}
+			g.mu.RUnlock()
 
-		var toRemove []*Client
-		for _, client := range clients {
-			client.mu.RLock()
-			idle := client.idle
-			client.mu.RUnlock()
+			var toRemove []*Client
+			for _, client := range clients {
+				client.mu.RLock()
+				idle := client.idle
+				client.mu.RUnlock()
 
-			if now.Sub(time.Unix(idle, 0)) > time.Duration(pongWait)*time.Second {
-				toRemove = append(toRemove, client)
+				if now.Sub(time.Unix(idle, 0)) > time.Duration(pongWait)*time.Second {
+					toRemove = append(toRemove, client)
+				}
+			}
+
+			for _, client := range toRemove {
+				log.Println("超时，准备踢出", client.userId)
+
+				client.Close()
+				g.RemoveClient(client)
 			}
 		}
-
-		for _, client := range toRemove {
-			log.Println("超时，准备踢出", client.userId)
-
-			client.Close()
-			g.RemoveClient(client)
-		}
-	}
+	}()
 }
 
-func (g *GetWay) AddClient(client *Client) {
+func (g *Gateway) AddClient(client *Client) {
 	g.mu.Lock()
 	defer func() {
 		g.mu.Unlock()
@@ -79,7 +80,7 @@ func (g *GetWay) AddClient(client *Client) {
 	value[client.sessionId] = struct{}{}
 }
 
-func (g *GetWay) RemoveClient(c *Client) {
+func (g *Gateway) RemoveClient(c *Client) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	delete(g.sessions, c.sessionId)
@@ -98,7 +99,7 @@ func (g *GetWay) RemoveClient(c *Client) {
 	}
 }
 
-func (g *GetWay) getClients(recvId string) []*Client {
+func (g *Gateway) getClients(recvId string) []*Client {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	sessions, ok := g.userSessions[recvId]
@@ -118,7 +119,7 @@ func (g *GetWay) getClients(recvId string) []*Client {
 	return clients
 }
 
-func (g *GetWay) SendToClient(op string, targetId string, payload []byte) error {
+func (g *Gateway) SendToClient(op string, targetId string, payload []byte) error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Println("panic :", r)

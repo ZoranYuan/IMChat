@@ -28,7 +28,8 @@ func (r *ConversationRepository) WithTx(tx any) message_repository_interface.Con
 
 // 创建会话
 func (r *ConversationRepository) CreateConversation(ctx context.Context, conv *message_entity.Conversation) error {
-	return r.db.WithContext(ctx).Create(toConversationModel(conv)).Error
+	m := toConversationModel(conv)
+	return r.db.WithContext(ctx).Create(&m).Error
 }
 
 // 根据 ID 查询
@@ -67,6 +68,7 @@ func (r *ConversationRepository) Upsert(
 			}),
 		}).
 		Create(m).Error
+
 }
 
 func (r *ConversationRepository) GetConvSeq(ctx context.Context, convId string) (int64, error) {

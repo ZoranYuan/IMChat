@@ -25,6 +25,7 @@ import (
 	"IM_backend/internal/infrastructure/database/redis"
 	auth_cache "IM_backend/internal/infrastructure/database/redis/cache/auth"
 	conversation_cache "IM_backend/internal/infrastructure/database/redis/cache/conversation"
+	"IM_backend/internal/infrastructure/database/redis/cache/local"
 	room_cache "IM_backend/internal/infrastructure/database/redis/cache/room"
 	"IM_backend/internal/infrastructure/mq"
 	"IM_backend/internal/infrastructure/mq/client/kafka"
@@ -64,8 +65,11 @@ func main() {
 
 	txManager := persistence.NewGormTxManager(db)
 
-	getWay := ws.NewGetWay()
-	go getWay.KeepAlive(cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
+	loaclConvVersionCache := local.NewConversationVersionTTLCache(60*time.Second, 1000, 30*time.Second)
+	loaclConvVersionCache.StartCleanup(ctx)
+
+	gateway := ws.NewGateway()
+	gateway.KeepAlive(cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
 
 	authCache := auth_cache.NewAuthCache(redis)
 	roomCache := room_cache.NewRoomCache(redis)
@@ -114,11 +118,12 @@ func main() {
 		cfg,
 		roomCache,
 		conversationCache,
+		loaclConvVersionCache,
 		txManager,
 	)
 	roomHandle := https_room.NewRoomHandle(roomApp)
 
-	groupHandler := kafka.NewGroupHandler(getWay, userConversationRepository, conversationCache)
+	groupHandler := kafka.NewGroupHandler(gateway, userConversationRepository, conversationCache)
 
 	messageConsumer := kafka.NewConsumer(kafkaClient, []string{
 		string(protocol.EventMessageReadAck),
@@ -146,6 +151,7 @@ func main() {
 		friendRepository,
 		messageRepository,
 		roomUserRepository,
+		loaclConvVersionCache,
 	)
 	messageHandle := https_message.NewMessageHandle(messageApplication)
 
@@ -153,7 +159,7 @@ func main() {
 		messageApplication,
 		cfg,
 		dispatcher,
-		getWay,
+		gateway,
 	)
 
 	// 注册中间件

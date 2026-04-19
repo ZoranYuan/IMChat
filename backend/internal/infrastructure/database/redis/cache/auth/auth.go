@@ -1,7 +1,6 @@
 package auth_cache
 
 import (
-	"IM_backend/internal/infrastructure/database/redis/cache/key"
 	"context"
 	"time"
 
@@ -57,14 +56,14 @@ func (ac *authCache) SetAccessToken(
 	userId string,
 	expire time.Duration,
 ) error {
-	return ac.set(ctx, key.AccessTokenKey(token), userId, expire)
+	return ac.set(ctx, AccessTokenKey(token), userId, expire)
 }
 
 func (ac *authCache) GetUserIdByAccessToken(
 	ctx context.Context,
 	token string,
 ) (string, error) {
-	return ac.get(ctx, key.AccessTokenKey(token))
+	return ac.get(ctx, AccessTokenKey(token))
 }
 
 func (ac *authCache) SetRefreshToken(
@@ -73,19 +72,19 @@ func (ac *authCache) SetRefreshToken(
 	userId string,
 	expire time.Duration,
 ) error {
-	return ac.set(ctx, key.RefreshTokenKey(token), userId, expire)
+	return ac.set(ctx, (token), userId, expire)
 }
 
 func (ac *authCache) GetUserIdByRefreshToken(
 	ctx context.Context,
 	token string,
 ) (string, error) {
-	return ac.get(ctx, key.AccessTokenKey(token))
+	return ac.get(ctx, AccessTokenKey(token))
 }
 
 func (ac *authCache) DeleteRefreshToken(
 	ctx context.Context,
 	token string,
 ) error {
-	return ac.del(ctx, key.RefreshTokenKey(token))
+	return ac.del(ctx, RefreshTokenKey(token))
 }

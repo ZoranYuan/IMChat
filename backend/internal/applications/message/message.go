@@ -9,6 +9,7 @@ import (
 	message_repository_interface "IM_backend/internal/domain/message/repository"
 	message_valueobject "IM_backend/internal/domain/message/value_object"
 	room_repository_interface "IM_backend/internal/domain/room/repository"
+	"IM_backend/internal/infrastructure/database/redis/cache/local"
 	"IM_backend/internal/infrastructure/pkg/snow"
 	conversation_port "IM_backend/internal/port/conversation"
 	"IM_backend/internal/protocol"
@@ -30,9 +31,9 @@ type MessageApplication struct {
 	conversationRepository     message_repository_interface.ConversationRepositoryInterface
 	friendRespository          friend_repository_interface.FriendRepositoryInterface
 	roomUserRepository         room_repository_interface.RoomUserRepositoryInterface
-
-	taskManager mq_interface.TaskManager
-	sf          singleflight.Group
+	taskManager                mq_interface.TaskManager
+	loaclConvVersionCache      *local.ConversationVersionCache
+	sf                         singleflight.Group
 }
 
 func NewMessageApplication(
@@ -45,6 +46,7 @@ func NewMessageApplication(
 	friendRespository friend_repository_interface.FriendRepositoryInterface,
 	messageRepository message_repository_interface.MessageRepositoryInterface,
 	roomUserRepository room_repository_interface.RoomUserRepositoryInterface,
+	loaclConvVersionCache *local.ConversationVersionCache,
 ) *MessageApplication {
 	return &MessageApplication{
 		config:                     config,
@@ -55,6 +57,7 @@ func NewMessageApplication(
 		conversationRepository:     conversationRepository,
 		userConversationRepository: userConversationRepository,
 		roomUserRepository:         roomUserRepository,
+		loaclConvVersionCache:      loaclConvVersionCache,
 		friendRespository:          friendRespository,
 	}
 }
@@ -66,47 +69,68 @@ func (ma *MessageApplication) checkConvMember(
 	userId string,
 	recvId string,
 ) (bool, error) {
+	localVer, ok := ma.loaclConvVersionCache.GetVersion(conversationId)
 
-	isMember, err := ma.conversationCache.IsMember(ctx, conversationId, userId)
+	redisVer, err := ma.conversationCache.GetMembersVersion(ctx, conversationId)
 	if err != nil {
 		return false, err
 	}
 
-	if isMember {
-		return true, nil
+	if ok && localVer == redisVer {
+		return ma.conversationCache.IsMember(ctx, conversationId, userId)
 	}
 
 	key := userId + ":" + conversationId
+
 	v, err, _ := ma.sf.Do(key, func() (any, error) {
+		isMember, err := ma.conversationCache.IsMember(ctx, conversationId, userId)
+		if err != nil {
+			return false, err
+		}
+
+		if isMember {
+			ma.loaclConvVersionCache.SetVersion(conversationId, redisVer)
+			return true, nil
+		}
 
 		var cacheErr error
 
 		if convType == message_valueobject.PrivateChat {
+
 			friend, err := ma.friendRespository.FindRelation(userId, recvId)
 			if err != nil {
 				return false, err
 			}
-
 			if friend == nil {
 				return false, ErrNotFriend
 			}
 
-			// 私聊在解除好友关系时，直接删除整个 set
-			cacheErr = ma.conversationCache.SetMembers(ctx, conversationId, []string{userId, recvId})
-		} else {
-			roomUser, err := ma.roomUserRepository.GetRelationByIds(userId, recvId)
+			cacheErr = ma.conversationCache.SetMembers(
+				ctx,
+				conversationId,
+				[]string{userId, recvId},
+				redisVer,
+			)
 
+		} else {
+
+			roomUser, err := ma.roomUserRepository.GetRelationByIds(userId, recvId)
 			if err != nil {
 				return false, err
 			}
-
 			if roomUser == nil {
 				return false, ErrNotInRoom
 			}
 
-			// 群聊采取增量同步的方式
-			cacheErr = ma.conversationCache.AddMember(ctx, conversationId, userId)
+			cacheErr = ma.conversationCache.AddMember(
+				ctx,
+				conversationId,
+				userId,
+				redisVer,
+			)
 		}
+
+		ma.loaclConvVersionCache.SetVersion(conversationId, redisVer)
 
 		return true, cacheErr
 	})
@@ -230,7 +254,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 			return ErrMessageSave
 		}
 
-		if err := convRepo.Upsert(ctx, conv); err != nil {
+		if err = convRepo.Upsert(ctx, conv); err != nil {
 			return ErrConversationUpdateSeq
 		}
 
