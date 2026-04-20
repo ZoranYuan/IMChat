@@ -9,11 +9,13 @@ import (
 	message_repository_interface "IM_backend/internal/domain/message/repository"
 	message_valueobject "IM_backend/internal/domain/message/value_object"
 	room_repository_interface "IM_backend/internal/domain/room/repository"
+	room_valueobject "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/database/redis/cache/local"
 	"IM_backend/internal/infrastructure/pkg/snow"
 	conversation_port "IM_backend/internal/port/conversation"
 	"IM_backend/internal/protocol"
 	"context"
+	"fmt"
 	"log"
 	"math"
 	"sort"
@@ -31,6 +33,7 @@ type MessageApplication struct {
 	conversationRepository     message_repository_interface.ConversationRepositoryInterface
 	friendRespository          friend_repository_interface.FriendRepositoryInterface
 	roomUserRepository         room_repository_interface.RoomUserRepositoryInterface
+	roomRepository             room_repository_interface.RoomRepositoryInterface
 	taskManager                mq_interface.TaskManager
 	loaclConvVersionCache      *local.ConversationVersionCache
 	sf                         singleflight.Group
@@ -46,6 +49,7 @@ func NewMessageApplication(
 	friendRespository friend_repository_interface.FriendRepositoryInterface,
 	messageRepository message_repository_interface.MessageRepositoryInterface,
 	roomUserRepository room_repository_interface.RoomUserRepositoryInterface,
+	roomRepository room_repository_interface.RoomRepositoryInterface,
 	loaclConvVersionCache *local.ConversationVersionCache,
 ) *MessageApplication {
 	return &MessageApplication{
@@ -56,6 +60,7 @@ func NewMessageApplication(
 		messageRepository:          messageRepository,
 		conversationRepository:     conversationRepository,
 		userConversationRepository: userConversationRepository,
+		roomRepository:             roomRepository,
 		roomUserRepository:         roomUserRepository,
 		loaclConvVersionCache:      loaclConvVersionCache,
 		friendRespository:          friendRespository,
@@ -71,32 +76,32 @@ func (ma *MessageApplication) checkConvMember(
 ) (bool, error) {
 	localVer, ok := ma.loaclConvVersionCache.GetVersion(conversationId)
 
-	redisVer, err := ma.conversationCache.GetMembersVersion(ctx, conversationId)
-	if err != nil {
-		return false, err
-	}
-
-	if ok && localVer == redisVer {
-		return ma.conversationCache.IsMember(ctx, conversationId, userId)
+	isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
+		ctx, conversationId, userId,
+	)
+	if err == nil {
+		if ok && localVer == cacheVersion {
+			return isMember, nil
+		}
 	}
 
 	key := userId + ":" + conversationId
 
 	v, err, _ := ma.sf.Do(key, func() (any, error) {
-		isMember, err := ma.conversationCache.IsMember(ctx, conversationId, userId)
-		if err != nil {
-			return false, err
-		}
+		localVer, ok := ma.loaclConvVersionCache.GetVersion(conversationId)
 
-		if isMember {
-			ma.loaclConvVersionCache.SetVersion(conversationId, redisVer)
-			return true, nil
+		isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
+			ctx, conversationId, userId,
+		)
+		if err == nil {
+			if ok && localVer == cacheVersion {
+				return isMember, nil
+			}
 		}
 
 		var cacheErr error
 
 		if convType == message_valueobject.PrivateChat {
-
 			friend, err := ma.friendRespository.FindRelation(userId, recvId)
 			if err != nil {
 				return false, err
@@ -104,16 +109,17 @@ func (ma *MessageApplication) checkConvMember(
 			if friend == nil {
 				return false, ErrNotFriend
 			}
-
 			cacheErr = ma.conversationCache.SetMembers(
 				ctx,
 				conversationId,
 				[]string{userId, recvId},
-				redisVer,
+				cacheVersion,
 			)
-
 		} else {
-
+			room, err := ma.roomRepository.FindActiveRoom(recvId, int(room_valueobject.Activate))
+			if err != nil {
+				return false, err
+			}
 			roomUser, err := ma.roomUserRepository.GetRelationByIds(userId, recvId)
 			if err != nil {
 				return false, err
@@ -126,16 +132,25 @@ func (ma *MessageApplication) checkConvMember(
 				ctx,
 				conversationId,
 				userId,
-				redisVer,
+				room.Version,
 			)
 		}
 
-		ma.loaclConvVersionCache.SetVersion(conversationId, redisVer)
+		ma.loaclConvVersionCache.SetVersion(conversationId, cacheVersion)
 
 		return true, cacheErr
 	})
 
-	return v.(bool), err
+	if err != nil {
+		return false, err
+	}
+
+	res, ok := v.(bool)
+	if !ok {
+		return false, fmt.Errorf("type assert failed")
+	}
+
+	return res, nil
 }
 
 func (ma *MessageApplication) HandleMessageReadAck(

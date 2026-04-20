@@ -123,7 +123,13 @@ func main() {
 	)
 	roomHandle := https_room.NewRoomHandle(roomApp)
 
-	groupHandler := kafka.NewGroupHandler(gateway, userConversationRepository, conversationCache)
+	groupHandler := kafka.NewGroupHandler(
+		gateway,
+		roomRepository,
+		userConversationRepository,
+		conversationCache,
+		loaclConvVersionCache,
+	)
 
 	messageConsumer := kafka.NewConsumer(kafkaClient, []string{
 		string(protocol.EventMessageReadAck),
@@ -151,6 +157,7 @@ func main() {
 		friendRepository,
 		messageRepository,
 		roomUserRepository,
+		roomRepository,
 		loaclConvVersionCache,
 	)
 	messageHandle := https_message.NewMessageHandle(messageApplication)

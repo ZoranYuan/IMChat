@@ -63,7 +63,7 @@ func (fr *FriendRepository) FindRelation(userId, friendId string) (*friend_entit
 	var m model.Friend
 
 	if err := fr.db.
-		Where("user_id = ? AND friend_id = ?", userId, friendId).
+		Where("user_id = ? AND friend_user_id = ?", userId, friendId).
 		Find(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil

@@ -3,6 +3,9 @@ package kafka
 import (
 	message_entity "IM_backend/internal/domain/message/entity"
 	message_repository_interface "IM_backend/internal/domain/message/repository"
+	room_repository_interface "IM_backend/internal/domain/room/repository"
+	room_valueobject "IM_backend/internal/domain/room/value_object"
+	"IM_backend/internal/infrastructure/database/redis/cache/local"
 	conversation_port "IM_backend/internal/port/conversation"
 	"IM_backend/internal/protocol"
 	"context"
@@ -11,22 +14,32 @@ import (
 	"log"
 
 	"github.com/IBM/sarama"
+	"golang.org/x/sync/singleflight"
 )
 
 type GroupHandler struct {
 	dispatch                   Dispatch
 	conversationCache          conversation_port.ConversationCacheInterface
+	loaclConversationCache     *local.ConversationVersionCache
+	workerPool                 *WorkerPool
+	sf                         singleflight.Group
+	roomRepository             room_repository_interface.RoomRepositoryInterface
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface
 }
 
 func NewGroupHandler(dispacth Dispatch,
+	roomRepository room_repository_interface.RoomRepositoryInterface,
 	userConversationRepository message_repository_interface.UserConversationRepositoryInterface,
 	conversationCache conversation_port.ConversationCacheInterface,
+	loaclConversationCache *local.ConversationVersionCache,
 ) *GroupHandler {
 	return &GroupHandler{
 		dispatch:                   dispacth,
 		conversationCache:          conversationCache,
 		userConversationRepository: userConversationRepository,
+		roomRepository:             roomRepository,
+		workerPool:                 newWorkerPool(100, 1000),
+		loaclConversationCache:     loaclConversationCache,
 	}
 }
 
@@ -36,6 +49,51 @@ func (h *GroupHandler) Setup(sarama.ConsumerGroupSession) error {
 
 func (h *GroupHandler) Cleanup(sarama.ConsumerGroupSession) error {
 	return nil
+}
+
+func (h *GroupHandler) getConvMembers(ctx context.Context, conversationId string, roomId string) ([]string, error) {
+	loaclVersion, ok := h.loaclConversationCache.GetVersion(conversationId)
+
+	members, cacheVersion, err := h.conversationCache.GetMembersWithVersion(ctx, conversationId)
+	if ok && loaclVersion == cacheVersion {
+		return members, nil
+	}
+
+	v, err, _ := h.sf.Do(conversationId, func() (any, error) {
+		// double check
+		localVersion, ok := h.loaclConversationCache.GetVersion(conversationId)
+
+		members, cacheVersion, err := h.conversationCache.GetMembersWithVersion(ctx, conversationId)
+		if err == nil {
+			if ok && localVersion == cacheVersion && len(members) > 0 {
+				return members, nil
+			}
+		}
+
+		members, err = h.userConversationRepository.GetUsersByConvId(ctx, conversationId)
+		if err != nil {
+			return nil, err
+		}
+		room, err := h.roomRepository.FindActiveRoom(roomId, int(room_valueobject.Activate))
+		if err != nil {
+			return nil, err
+		}
+
+		version := room.Version
+		if err := h.conversationCache.SetMembers(ctx, conversationId, members, version); err != nil {
+			// TODO: 异步补偿（MQ / retry）
+		}
+
+		// 7️⃣ 再写本地（L1）
+		h.loaclConversationCache.SetVersion(conversationId, version)
+		return members, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return v.([]string), nil
 }
 
 func (h *GroupHandler) handleMessage(
@@ -66,32 +124,32 @@ func (h *GroupHandler) handleMessage(
 		}
 
 	case protocol.RoomChat:
-		members, err := h.conversationCache.GetMembers(ctx, conversationId)
+		members, err := h.getConvMembers(ctx, conversationId, conversationId)
 		if err != nil {
-			return err
+			// TODO: 补偿
 		}
 
 		memberCount := len(members)
-
 		if memberCount <= 100 {
-			// 小群，采取推模式
 			payload := envelope.Payload
 
 			userConvs := make([]*message_entity.UserConversation, 0, memberCount)
 
 			for _, uid := range members {
-				if err = h.dispatch.SendToClient(
-					topic,
-					uid,
-					payload,
-				); err != nil {
-					// TODO:补偿
-				}
+				id := uid
+				h.workerPool.submit(func() {
+					if err = h.dispatch.SendToClient(
+						topic,
+						id,
+						payload,
+					); err != nil {
+						// TODO:补偿
+					}
+				})
 
-				// 表示系统已经将消息进行了同步
 				userConvs = append(userConvs,
 					message_entity.BuildUserConversation(
-						uid,
+						id,
 						conversationId,
 						0,
 						event.Seq,
@@ -99,11 +157,12 @@ func (h *GroupHandler) handleMessage(
 				)
 			}
 
-			// 批量更新 DB
 			if err := h.userConversationRepository.BatchUpdateSyncSeq(ctx, userConvs); err != nil {
 				// TODO:补偿
 
 			}
+		} else {
+			// TODO: 以某种方式通知前端群聊有新消息，让前端主动去拉取消息
 		}
 	default:
 		return errors.New("unknow convType")
