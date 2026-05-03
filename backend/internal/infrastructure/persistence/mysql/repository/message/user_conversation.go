@@ -1,10 +1,10 @@
-package message_repository
+package message
 
 import (
 	"context"
 
-	message_repository_interface "IM_backend/internal/application/ports/repository/message"
-	message_entity "IM_backend/internal/domain/message/entity"
+	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
+	messageentity "IM_backend/internal/domain/message/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
 	"gorm.io/gorm"
@@ -38,7 +38,7 @@ func (r *UserConversationRepository) upsert(
 
 func (r *UserConversationRepository) UpdateReadSeq(
 	ctx context.Context,
-	uc *message_entity.UserConversation,
+	uc *messageentity.UserConversation,
 ) error {
 	m := toUserConversationModel(uc)
 
@@ -51,7 +51,7 @@ func (r *UserConversationRepository) UpdateReadSeq(
 
 func (r *UserConversationRepository) BatchUpdateSyncSeq(
 	ctx context.Context,
-	ucs []*message_entity.UserConversation,
+	ucs []*messageentity.UserConversation,
 ) error {
 
 	if len(ucs) == 0 {
@@ -81,7 +81,7 @@ func (r *UserConversationRepository) BatchUpdateSyncSeq(
 
 func (r *UserConversationRepository) UpdateSyncSeq(
 	ctx context.Context,
-	uc *message_entity.UserConversation,
+	uc *messageentity.UserConversation,
 ) error {
 
 	m := toUserConversationModel(uc)
@@ -95,7 +95,7 @@ func (r *UserConversationRepository) UpdateSyncSeq(
 
 func (r *UserConversationRepository) CreateUserConversation(
 	ctx context.Context,
-	uc *message_entity.UserConversation,
+	uc *messageentity.UserConversation,
 ) error {
 	m := toUserConversationModel(uc)
 
@@ -111,13 +111,13 @@ func (r *UserConversationRepository) CreateUserConversation(
 	}
 
 	if result.RowsAffected == 0 {
-		return message_entity.ErrDuplicateCreation
+		return messageentity.ErrDuplicateCreation
 	}
 
 	return nil
 }
 
-func (r *UserConversationRepository) WithTx(tx any) message_repository_interface.UserConversationRepository {
+func (r *UserConversationRepository) WithTx(tx any) messagerepo.UserConversationRepository {
 	return &UserConversationRepository{
 		db: tx.(*gorm.DB),
 	}
@@ -139,7 +139,7 @@ func (r *UserConversationRepository) GetUserConversation(
 	ctx context.Context,
 	userId string,
 	conversationId string,
-) (*message_entity.UserConversation, error) {
+) (*messageentity.UserConversation, error) {
 
 	var m model.UserConversation
 
@@ -157,7 +157,7 @@ func (r *UserConversationRepository) GetUserConversation(
 func (r *UserConversationRepository) ListByUser(
 	ctx context.Context,
 	userId string,
-) ([]*message_entity.UserConversation, error) {
+) ([]*messageentity.UserConversation, error) {
 
 	var models []*model.UserConversation
 
@@ -169,7 +169,7 @@ func (r *UserConversationRepository) ListByUser(
 		return nil, err
 	}
 
-	result := make([]*message_entity.UserConversation, 0, len(models))
+	result := make([]*messageentity.UserConversation, 0, len(models))
 	for _, m := range models {
 		result = append(result, toUserConversationDomain(m))
 	}

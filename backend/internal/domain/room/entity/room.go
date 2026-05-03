@@ -1,7 +1,7 @@
-package room_entity
+package entity
 
 import (
-	room_valueobject "IM_backend/internal/domain/room/value_object"
+	roomvo "IM_backend/internal/domain/room/value_object"
 )
 
 var (
@@ -13,7 +13,7 @@ type Room struct {
 	OwnerUserId string
 	Description string
 	RoomName    string
-	Status      room_valueobject.RoomStatus
+	Status      roomvo.RoomStatus
 	Avatar      string
 	MemberCount int
 	MaxMembers  int
@@ -36,13 +36,13 @@ func NewRoom(
 		OwnerUserId: ownerUserId,
 		Description: description,
 		RoomName:    roomName,
-		Status:      room_valueobject.Normal,
+		Status:      roomvo.Normal,
 		Avatar:      avatar,
 	}, nil
 }
 
 func (r *Room) Invite() bool {
-	if r.Status != room_valueobject.Normal {
+	if r.Status != roomvo.Normal {
 		return false
 	}
 

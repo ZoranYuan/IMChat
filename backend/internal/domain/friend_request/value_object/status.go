@@ -1,4 +1,4 @@
-package friend_request_valueobject
+package valueobject
 
 type Status int
 

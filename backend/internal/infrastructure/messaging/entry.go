@@ -1,17 +1,17 @@
 package mq
 
 import (
-	mq_client "IM_backend/internal/infrastructure/messaging/client"
+	mqclient "IM_backend/internal/infrastructure/messaging/client"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
 )
 
 type TaskManager struct {
-	client mq_client.Client
+	client mqclient.Client
 }
 
-func NewTaskManager(c mq_client.Client) *TaskManager {
+func NewTaskManager(c mqclient.Client) *TaskManager {
 	return &TaskManager{
 		client: c,
 	}

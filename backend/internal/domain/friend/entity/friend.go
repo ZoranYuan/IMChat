@@ -1,12 +1,12 @@
-package friend_entity
+package entity
 
-import friend_valueobject "IM_backend/internal/domain/friend/value_object"
+import friendvo "IM_backend/internal/domain/friend/value_object"
 
 type Friend struct {
 	UserId       string
 	FriendUserId string
 	Remarks      string
-	Status       friend_valueobject.Status
+	Status       friendvo.Status
 }
 
 func NewFriendRelation(userId, friendUserId string, remarks [2]string) []Friend {
@@ -15,13 +15,13 @@ func NewFriendRelation(userId, friendUserId string, remarks [2]string) []Friend 
 			UserId:       userId,
 			FriendUserId: friendUserId,
 			Remarks:      remarks[0],
-			Status:       friend_valueobject.Friend,
+			Status:       friendvo.Friend,
 		},
 		{
 			UserId:       friendUserId,
 			FriendUserId: userId,
 			Remarks:      remarks[1],
-			Status:       friend_valueobject.Friend,
+			Status:       friendvo.Friend,
 		},
 	}
 }

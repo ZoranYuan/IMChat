@@ -1,4 +1,4 @@
-package room_valueobject
+package valueobject
 
 type RoomStatus int
 

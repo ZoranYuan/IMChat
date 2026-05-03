@@ -1,8 +1,8 @@
-package friend_repository
+package friend
 
 import (
-	friend_repository_interface "IM_backend/internal/application/ports/repository/friend"
-	friend_entity "IM_backend/internal/domain/friend/entity"
+	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
+	friendentity "IM_backend/internal/domain/friend/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 	"errors"
 
@@ -20,11 +20,11 @@ func NewFriendRepository(db *gorm.DB) *FriendRepository {
 	}
 }
 
-func (r *FriendRepository) WithTx(tx *gorm.DB) friend_repository_interface.FriendRepository {
+func (r *FriendRepository) WithTx(tx *gorm.DB) friendrepo.FriendRepository {
 	return &FriendRepository{db: tx}
 }
 
-func (fr *FriendRepository) Create(domains []friend_entity.Friend) error {
+func (fr *FriendRepository) Create(domains []friendentity.Friend) error {
 	return fr.db.Transaction(func(tx *gorm.DB) error {
 		for _, d := range domains {
 			model := toModel(d)
@@ -40,7 +40,7 @@ func (fr *FriendRepository) Create(domains []friend_entity.Friend) error {
 	})
 }
 
-func (fr *FriendRepository) GetUserFriendList(userId string, status int) ([]friend_entity.Friend, error) {
+func (fr *FriendRepository) GetUserFriendList(userId string, status int) ([]friendentity.Friend, error) {
 	var m []model.Friend
 
 	if err := fr.db.
@@ -50,7 +50,7 @@ func (fr *FriendRepository) GetUserFriendList(userId string, status int) ([]frie
 		return nil, err
 	}
 
-	domains := make([]friend_entity.Friend, 0, len(m))
+	domains := make([]friendentity.Friend, 0, len(m))
 
 	for _, r := range m {
 		domains = append(domains, toDomain(r))
@@ -59,7 +59,7 @@ func (fr *FriendRepository) GetUserFriendList(userId string, status int) ([]frie
 	return domains, nil
 }
 
-func (fr *FriendRepository) FindRelation(userId, friendId string) (*friend_entity.Friend, error) {
+func (fr *FriendRepository) FindRelation(userId, friendId string) (*friendentity.Friend, error) {
 	var m model.Friend
 
 	if err := fr.db.

@@ -1,7 +1,7 @@
-package message_entity
+package entity
 
 import (
-	message_valueobject "IM_backend/internal/domain/message/value_object"
+	messagevo "IM_backend/internal/domain/message/value_object"
 	"time"
 )
 
@@ -10,15 +10,15 @@ type Message struct {
 	ConversationId string
 	SendId         string
 	Seq            int64
-	Type           message_valueobject.CType
+	Type           messagevo.CType
 	Content        string
 	VideoTime      *int64
-	Status         message_valueobject.Status
+	Status         messagevo.Status
 	SendTime       int64
 }
 
 func BuildMessage(messageId, conversationId, sendId string, seq int64, content string, videoTime *int64,
-	cType message_valueobject.CType,
+	cType messagevo.CType,
 ) *Message {
 	return &Message{
 		MessageId:      messageId,
@@ -27,7 +27,7 @@ func BuildMessage(messageId, conversationId, sendId string, seq int64, content s
 		Type:           cType,
 		Content:        content,
 		VideoTime:      videoTime,
-		Status:         message_valueobject.Normal,
+		Status:         messagevo.Normal,
 		SendId:         sendId,
 		SendTime:       time.Now().UnixMilli(),
 	}

@@ -1,4 +1,4 @@
-package message_entity
+package entity
 
 type UserConversation struct {
 	UserId         string

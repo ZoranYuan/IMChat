@@ -1,8 +1,8 @@
-package room_repository
+package room
 
 import (
-	room_repository_interface "IM_backend/internal/application/ports/repository/room"
-	room_entity "IM_backend/internal/domain/room/entity"
+	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
+	roomentity "IM_backend/internal/domain/room/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 	"errors"
 
@@ -19,7 +19,7 @@ func NewRoomRepository(db *gorm.DB) *RoomRepository {
 	}
 }
 
-func (rr *RoomRepository) Create(domain *room_entity.Room) error {
+func (rr *RoomRepository) Create(domain *roomentity.Room) error {
 	model := toModel(domain)
 
 	return rr.db.Create(&model).Error
@@ -36,7 +36,7 @@ func (rr *RoomRepository) UpdateRoomVersion(roomId string) (int64, error) {
 	}
 
 	if res.RowsAffected == 0 {
-		return 0, room_entity.ErrRoomNotFound
+		return 0, roomentity.ErrRoomNotFound
 	}
 
 	// Step 2: 查回 version（关键）
@@ -54,12 +54,12 @@ func (rr *RoomRepository) UpdateRoomVersion(roomId string) (int64, error) {
 	return version, nil
 }
 
-func (rr *RoomRepository) FindActiveRoom(roomId string, status int) (*room_entity.Room, error) {
+func (rr *RoomRepository) FindActiveRoom(roomId string, status int) (*roomentity.Room, error) {
 	var m model.Room
 
 	if err := rr.db.Where("room_id = ? AND status = ?", roomId, status).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, room_entity.ErrRoomNotFound
+			return nil, roomentity.ErrRoomNotFound
 		}
 
 		return nil, err
@@ -68,7 +68,7 @@ func (rr *RoomRepository) FindActiveRoom(roomId string, status int) (*room_entit
 	return toDomain(m), nil
 }
 
-func (rr *RoomRepository) WithTx(tx *gorm.DB) room_repository_interface.RoomRepository {
+func (rr *RoomRepository) WithTx(tx *gorm.DB) roomrepo.RoomRepository {
 	return &RoomRepository{
 		db: tx,
 	}

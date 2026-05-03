@@ -1,30 +1,30 @@
-package message_repository
+package message
 
 import (
-	message_entity "IM_backend/internal/domain/message/entity"
-	message_valueobject "IM_backend/internal/domain/message/value_object"
+	messageentity "IM_backend/internal/domain/message/entity"
+	messagevo "IM_backend/internal/domain/message/value_object"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 )
 
-func toMessageDomain(m *model.Message) *message_entity.Message {
+func toMessageDomain(m *model.Message) *messageentity.Message {
 	if m == nil {
 		return nil
 	}
 
-	return &message_entity.Message{
+	return &messageentity.Message{
 		MessageId:      m.MessageId,
 		ConversationId: m.ConversationId,
 		SendId:         m.SendId,
 		Seq:            m.Seq,
-		Type:           message_valueobject.CType(m.Type),
+		Type:           messagevo.CType(m.Type),
 		Content:        m.Content,
 		VideoTime:      m.VideoTime,
-		Status:         message_valueobject.Status(m.Status),
+		Status:         messagevo.Status(m.Status),
 		SendTime:       m.SendTime,
 	}
 }
 
-func toMessageModel(d *message_entity.Message) *model.Message {
+func toMessageModel(d *messageentity.Message) *model.Message {
 	if d == nil {
 		return nil
 	}
@@ -42,12 +42,12 @@ func toMessageModel(d *message_entity.Message) *model.Message {
 	}
 }
 
-func toUserConversationDomain(u *model.UserConversation) *message_entity.UserConversation {
+func toUserConversationDomain(u *model.UserConversation) *messageentity.UserConversation {
 	if u == nil {
 		return nil
 	}
 
-	return &message_entity.UserConversation{
+	return &messageentity.UserConversation{
 		UserId:         u.UserId,
 		ConversationId: u.ConversationId,
 		LastReadSeq:    u.LastReadSeq,
@@ -56,7 +56,7 @@ func toUserConversationDomain(u *model.UserConversation) *message_entity.UserCon
 	}
 }
 
-func toUserConversationModel(d *message_entity.UserConversation) *model.UserConversation {
+func toUserConversationModel(d *messageentity.UserConversation) *model.UserConversation {
 	if d == nil {
 		return nil
 	}
@@ -70,14 +70,14 @@ func toUserConversationModel(d *message_entity.UserConversation) *model.UserConv
 	}
 }
 
-func toConversationDomain(c *model.Conversation) *message_entity.Conversation {
+func toConversationDomain(c *model.Conversation) *messageentity.Conversation {
 	if c == nil {
 		return nil
 	}
 
-	return &message_entity.Conversation{
+	return &messageentity.Conversation{
 		ConversationId:  c.ConversationId,
-		Convtype:        message_valueobject.ConvType(c.Convtype),
+		Convtype:        messagevo.ConvType(c.Convtype),
 		UserId1:         c.UserId1,
 		UserId2:         c.UserId2,
 		RoomId:          c.RoomId,
@@ -86,7 +86,7 @@ func toConversationDomain(c *model.Conversation) *message_entity.Conversation {
 	}
 }
 
-func toConversationModel(d *message_entity.Conversation) *model.Conversation {
+func toConversationModel(d *messageentity.Conversation) *model.Conversation {
 	if d == nil {
 		return nil
 	}

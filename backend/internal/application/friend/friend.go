@@ -1,19 +1,19 @@
-package application_friend
+package friend
 
 import (
-	friend_repository_interface "IM_backend/internal/application/ports/repository/friend"
-	user_repository_interface "IM_backend/internal/application/ports/repository/user"
-	friend_valueobject "IM_backend/internal/domain/friend/value_object"
+	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
+	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
+	friendvo "IM_backend/internal/domain/friend/value_object"
 )
 
 type FriendApplication struct {
-	friendRepository friend_repository_interface.FriendRepository
-	userRepository   user_repository_interface.UserRepository
+	friendRepository friendrepo.FriendRepository
+	userRepository   userrepo.UserRepository
 }
 
 func NewFriendApplication(
-	friendRepository friend_repository_interface.FriendRepository,
-	userRepository user_repository_interface.UserRepository,
+	friendRepository friendrepo.FriendRepository,
+	userRepository userrepo.UserRepository,
 ) *FriendApplication {
 	return &FriendApplication{
 		friendRepository: friendRepository,
@@ -25,7 +25,7 @@ func (fa *FriendApplication) GetUserFriendList(userId string) ([]FriendAppDTO, e
 	// TODO 权衡这里是否有必要加入 userId 的查询，判断当前用户是否存在
 	friends, err := fa.friendRepository.GetUserFriendList(
 		userId,
-		int(friend_valueobject.DeleteOther),
+		int(friendvo.DeleteOther),
 	)
 
 	userIds := make([]string, 0, len(friends))

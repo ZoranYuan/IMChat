@@ -1,16 +1,16 @@
-package application_room
+package room
 
 import (
 	"IM_backend/configs"
-	conversation_port "IM_backend/internal/application/ports/cache/conversation"
-	room_cache_interface "IM_backend/internal/application/ports/cache/room"
-	tx_repository_interface "IM_backend/internal/application/ports/persistence/tx_manager"
-	message_repository_interface "IM_backend/internal/application/ports/repository/message"
-	room_repository_interface "IM_backend/internal/application/ports/repository/room"
-	message_entity "IM_backend/internal/domain/message/entity"
-	message_valueobject "IM_backend/internal/domain/message/value_object"
-	room_entity "IM_backend/internal/domain/room/entity"
-	room_valueobject "IM_backend/internal/domain/room/value_object"
+	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
+	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
+	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
+	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
+	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
+	messageentity "IM_backend/internal/domain/message/entity"
+	messagevo "IM_backend/internal/domain/message/value_object"
+	roomentity "IM_backend/internal/domain/room/entity"
+	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
 	"context"
@@ -21,26 +21,26 @@ import (
 )
 
 type RoomApplication struct {
-	roomRepository             room_repository_interface.RoomRepository
-	roomUserRepository         room_repository_interface.RoomUserRepository
-	userConversationRepository message_repository_interface.UserConversationRepository
-	conversationRepository     message_repository_interface.ConversationRepository
+	roomRepository             roomrepo.RoomRepository
+	roomUserRepository         roomrepo.RoomUserRepository
+	userConversationRepository messagerepo.UserConversationRepository
+	conversationRepository     messagerepo.ConversationRepository
 	config                     configs.Config
-	conversationCache          conversation_port.ConversationCache
+	conversationCache          convcache.ConversationCache
 	localConvVersionCache      *local.ConversationVersionCache
-	roomCache                  room_cache_interface.RoomCache
-	txManager                  tx_repository_interface.TxManager
+	roomCache                  roomcache.RoomCache
+	txManager                  txmanager.TxManager
 }
 
-func NewRoomApplication(roomRepository room_repository_interface.RoomRepository,
-	roomUserRepository room_repository_interface.RoomUserRepository,
-	userConversationRepository message_repository_interface.UserConversationRepository,
-	conversationRepository message_repository_interface.ConversationRepository,
+func NewRoomApplication(roomRepository roomrepo.RoomRepository,
+	roomUserRepository roomrepo.RoomUserRepository,
+	userConversationRepository messagerepo.UserConversationRepository,
+	conversationRepository messagerepo.ConversationRepository,
 	config configs.Config,
-	roomCache room_cache_interface.RoomCache,
-	conversationCache conversation_port.ConversationCache,
+	roomCache roomcache.RoomCache,
+	conversationCache convcache.ConversationCache,
 	localConvVersionCache *local.ConversationVersionCache,
-	txManager tx_repository_interface.TxManager,
+	txManager txmanager.TxManager,
 ) *RoomApplication {
 	return &RoomApplication{
 		roomRepository:             roomRepository,
@@ -57,32 +57,32 @@ func NewRoomApplication(roomRepository room_repository_interface.RoomRepository,
 
 func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar, description string) (*RoomAppDTO, error) {
 	roomId, err := snow.GenerateSnowID(int(ra.config.App.MachineID))
-	conversationId := message_entity.GetConversationID(userId, roomId, int(message_valueobject.RoomChat))
+	conversationId := messageentity.GetConversationID(userId, roomId, int(messagevo.RoomChat))
 	if err != nil {
 		return nil, err
 	}
 
-	room, err := room_entity.NewRoom(roomId, userId, description, roomName, avatar)
+	room, err := roomentity.NewRoom(roomId, userId, description, roomName, avatar)
 	if err != nil {
-		if errors.Is(err, room_entity.ErrRoomNameRequired) {
+		if errors.Is(err, roomentity.ErrRoomNameRequired) {
 			return nil, ErrRoomNameRequired
 		} else {
 			return nil, ErrUnknown
 		}
 	}
-	roomUser := room_entity.NewRoomUser(userId, roomId, room_valueobject.HomeOwner)
+	roomUser := roomentity.NewRoomUser(userId, roomId, roomvo.HomeOwner)
 	roomUser.Join()
 
-	conversation := message_entity.BuildConversation(
+	conversation := messageentity.BuildConversation(
 		conversationId,
 		userId,
 		roomId,
-		int(message_valueobject.RoomChat),
+		int(messagevo.RoomChat),
 		0,
 		"",
 	)
 
-	userConversation := message_entity.BuildUserConversation(
+	userConversation := messageentity.BuildUserConversation(
 		userId,
 		conversationId,
 		0,
@@ -96,7 +96,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		userConversationRepository := ra.userConversationRepository.WithTx(tx)
 
 		if err := roomRepository.Create(room); err != nil {
-			if errors.Is(err, room_entity.ErrDuplicateCreation) {
+			if errors.Is(err, roomentity.ErrDuplicateCreation) {
 				return ErrConcurrentUpdate
 			}
 			return err
@@ -137,9 +137,9 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 }
 
 func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (string, error) {
-	room, err := ra.roomRepository.FindActiveRoom(roomId, int(room_valueobject.Activate))
+	room, err := ra.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
 	if err != nil {
-		if errors.Is(err, room_entity.ErrRoomNotFound) {
+		if errors.Is(err, roomentity.ErrRoomNotFound) {
 			return "", ErrRoomNotFound
 		}
 
@@ -149,7 +149,7 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 
 	roomUser, err := ra.roomUserRepository.GetRelationByIDs(userId, roomId)
 	if err != nil {
-		if errors.Is(err, room_entity.ErrMemberNotFound) {
+		if errors.Is(err, roomentity.ErrMemberNotFound) {
 			return "", ErrNotRoomMember
 		}
 		return "", ErrUnknown
@@ -177,7 +177,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 	roomId, err := ra.roomCache.GetRoomIDByCode(ctx, inviteCode)
 	conversationId := roomId
 	if err != nil {
-		if errors.Is(err, room_entity.ErrInviteCodeExpired) {
+		if errors.Is(err, roomentity.ErrInviteCodeExpired) {
 			return nil, nil, ErrInviteCodeExpired
 		}
 
@@ -185,16 +185,16 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		return nil, nil, ErrUnknown
 	}
 
-	room, err := ra.roomRepository.FindActiveRoom(roomId, int(room_valueobject.Normal))
+	room, err := ra.roomRepository.FindActiveRoom(roomId, int(roomvo.Normal))
 	if err != nil {
-		if errors.Is(err, room_entity.ErrRoomNotFound) {
+		if errors.Is(err, roomentity.ErrRoomNotFound) {
 			return nil, nil, ErrRoomNotFound
 		}
 
 		return nil, nil, ErrUnknown
 	}
 
-	roomUser := room_entity.NewRoomUser(userId, roomId, room_valueobject.RegularUser)
+	roomUser := roomentity.NewRoomUser(userId, roomId, roomvo.RegularUser)
 	roomUser.Join()
 
 	var version int64
@@ -204,7 +204,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		conversationRepository := ra.conversationRepository.WithTx(tx)
 
 		if err := roomUserRepository.JoinRoom(roomUser); err != nil {
-			if !errors.Is(err, room_entity.ErrDuplicateJoin) {
+			if !errors.Is(err, roomentity.ErrDuplicateJoin) {
 				return err
 			}
 		}
@@ -218,7 +218,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 			return err
 		}
 
-		userConversation := message_entity.BuildUserConversation(
+		userConversation := messageentity.BuildUserConversation(
 			userId,
 			conversationId,
 			conv.LatestSeq,
@@ -226,7 +226,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		)
 
 		if err := userConversationRepository.CreateUserConversation(ctx, userConversation); err != nil {
-			if errors.Is(err, room_entity.ErrVersionConflict) {
+			if errors.Is(err, roomentity.ErrVersionConflict) {
 				return ErrConcurrentUpdate
 			}
 			return ErrUnknown
@@ -265,7 +265,7 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 	if err := ra.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
 		roomUserRepository := ra.roomUserRepository.WithTx(tx)
 		if err := roomUserRepository.JoinRoom(roomUser); err != nil {
-			if !errors.Is(err, room_entity.ErrDuplicateJoin) {
+			if !errors.Is(err, roomentity.ErrDuplicateJoin) {
 				return err
 			}
 		}
@@ -274,8 +274,8 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 			return err
 		}
 
-		if err := ra.roomUserRepository.Leave(roomUser, []int{int(room_valueobject.Activate), int(room_valueobject.BeMuted)}); err != nil {
-			if errors.Is(err, room_entity.ErrVersionConflict) {
+		if err := ra.roomUserRepository.Leave(roomUser, []int{int(roomvo.Activate), int(roomvo.BeMuted)}); err != nil {
+			if errors.Is(err, roomentity.ErrVersionConflict) {
 				return ErrConcurrentUpdate
 			}
 			return ErrUnknown

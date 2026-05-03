@@ -1,0 +1,533 @@
+openapi: 3.0.3
+info:
+  title: IM Backend API
+  version: 1.0.0
+  description: Static OpenAPI document for the current HTTP and WebSocket contract.
+servers:
+  - url: /api/v1
+tags:
+  - name: Users
+  - name: Friends
+  - name: FriendRequests
+  - name: Rooms
+  - name: Messages
+  - name: WebSocket
+paths:
+  /users/register:
+    post:
+      tags: [Users]
+      summary: Register user with phone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAuthResponse'
+  /users/login:
+    post:
+      tags: [Users]
+      summary: Login user with phone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAuthResponse'
+  /users/logout:
+    post:
+      tags: [Users]
+      summary: Logout current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+  /users/{userId}:
+    get:
+      tags: [Users]
+      summary: Get user by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+  /friends:
+    get:
+      tags: [Friends]
+      summary: Get current user's friend list
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendListResponse'
+  /friend-requests:
+    post:
+      tags: [FriendRequests]
+      summary: Create friend request
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendRequestCreateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestCreateResponse'
+    get:
+      tags: [FriendRequests]
+      summary: List current user's friend requests
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestListResponse'
+  /friend-requests/actions:
+    post:
+      tags: [FriendRequests]
+      summary: Accept or reject friend request
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendRequestActionRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+  /rooms:
+    post:
+      tags: [Rooms]
+      summary: Create room
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomCreateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomCreateResponse'
+  /rooms/{roomId}/invite-code:
+    get:
+      tags: [Rooms]
+      summary: Get or refresh invite code
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: roomId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StringResponse'
+  /rooms/join:
+    post:
+      tags: [Rooms]
+      summary: Join room by invite code
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomJoinRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomJoinResponse'
+  /messages/history:
+    get:
+      tags: [Messages]
+      summary: Get message history
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: conversationId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: cursor
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageHistoryResponse'
+  /messages/offline:
+    get:
+      tags: [Messages]
+      summary: Get offline messages
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfflineMessageListResponse'
+  /ws:
+    get:
+      tags: [WebSocket]
+      summary: WebSocket endpoint
+      description: Connect with Authorization header `Bearer <token>`.
+      security:
+        - bearerAuth: []
+      responses:
+        '101':
+          description: Switching Protocols
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    BaseResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+    SuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              nullable: true
+    StringResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: string
+    UserRegisterRequest:
+      type: object
+      required: [phone, password, reconfirmPassword, loginType]
+      properties:
+        phone:
+          type: string
+        password:
+          type: string
+        reconfirmPassword:
+          type: string
+        loginType:
+          type: integer
+    UserLoginRequest:
+      type: object
+      required: [loginType]
+      properties:
+        loginType:
+          type: integer
+        phone:
+          type: string
+        password:
+          type: string
+        userName:
+          type: string
+    UserAuthData:
+      type: object
+      properties:
+        token:
+          type: string
+        userId:
+          type: string
+        username:
+          type: string
+        nickName:
+          type: string
+        phone:
+          type: string
+        avatar:
+          type: string
+    UserAuthResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserAuthData'
+    UserInfo:
+      type: object
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        nickName:
+          type: string
+        phone:
+          type: string
+        avatar:
+          type: string
+    UserInfoResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserInfo'
+    FriendItem:
+      type: object
+      properties:
+        friendUserId:
+          type: string
+        friendAvatar:
+          type: string
+        status:
+          type: integer
+        dsipalyName:
+          type: string
+    FriendListResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/FriendItem'
+    FriendRequestCreateRequest:
+      type: object
+      required: [toUserId, message]
+      properties:
+        toUserId:
+          type: string
+        message:
+          type: string
+    FriendRequestItem:
+      type: object
+      properties:
+        requestId:
+          type: string
+        toUserId:
+          type: string
+        message:
+          type: string
+        status:
+          type: integer
+        applyTime:
+          type: integer
+          format: int64
+    FriendRequestCreateResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/FriendRequestItem'
+    FriendRequestListResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/FriendRequestItem'
+    FriendRequestActionRequest:
+      type: object
+      required: [requestId, action]
+      properties:
+        requestId:
+          type: string
+        action:
+          type: integer
+          enum: [1, 2]
+    RoomCreateRequest:
+      type: object
+      required: [roomName]
+      properties:
+        roomName:
+          type: string
+        description:
+          type: string
+        avatar:
+          type: string
+    RoomCreateData:
+      type: object
+      properties:
+        roomId:
+          type: string
+        description:
+          type: string
+        roomName:
+          type: string
+        avatar:
+          type: string
+        memberCount:
+          type: integer
+        inviteCode:
+          type: string
+    RoomCreateResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/RoomCreateData'
+    RoomJoinRequest:
+      type: object
+      required: [inviteCode]
+      properties:
+        inviteCode:
+          type: string
+    RoomJoinData:
+      type: object
+      properties:
+        roomId:
+          type: string
+        description:
+          type: string
+        roomName:
+          type: string
+        avatar:
+          type: string
+        memberCount:
+          type: integer
+        role:
+          type: integer
+        joinTime:
+          type: integer
+          format: int64
+    RoomJoinResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/RoomJoinData'
+    MessageItem:
+      type: object
+      properties:
+        messageId:
+          type: string
+        senderId:
+          type: string
+        seq:
+          type: integer
+          format: int64
+        convType:
+          type: integer
+        cType:
+          type: integer
+        content:
+          type: string
+        sendTime:
+          type: integer
+          format: int64
+    MessageHistoryData:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageItem'
+        nextCursor:
+          type: integer
+          format: int64
+        hasMore:
+          type: boolean
+    MessageHistoryResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MessageHistoryData'
+    OfflineMessageItem:
+      type: object
+      properties:
+        conversationId:
+          type: string
+        unread:
+          type: integer
+          format: int64
+        latestMessage:
+          $ref: '#/components/schemas/MessageItem'
+    OfflineMessageListResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/OfflineMessageItem'

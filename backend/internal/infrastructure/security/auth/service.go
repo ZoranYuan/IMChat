@@ -1,4 +1,4 @@
-package service_auth
+package auth
 
 import (
 	"IM_backend/configs"

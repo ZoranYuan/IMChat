@@ -1,17 +1,17 @@
-package friend_request_entity
+package entity
 
 import (
-	friend_request_valueobject "IM_backend/internal/domain/friend_request/value_object"
+	friendrequestvo "IM_backend/internal/domain/friend_request/value_object"
 	"time"
 )
 
 type FriendRequest struct {
-	RequestId  string                            `json:"requestId"`
-	FromUserId string                            `json:"fromUserId"`
-	ToUserId   string                            `json:"toUserId"`
-	Status     friend_request_valueobject.Status `json:"status"`
-	Message    string                            `json:"message"` // 可选留言
-	ApplyTime  int64                             `json:"applyTime"`
+	RequestId  string                 `json:"requestId"`
+	FromUserId string                 `json:"fromUserId"`
+	ToUserId   string                 `json:"toUserId"`
+	Status     friendrequestvo.Status `json:"status"`
+	Message    string                 `json:"message"` // 可选留言
+	ApplyTime  int64                  `json:"applyTime"`
 }
 
 func NewFriendRequest(reqId, fromUserId, toUserId, message string) (*FriendRequest, error) {
@@ -25,7 +25,7 @@ func NewFriendRequest(reqId, fromUserId, toUserId, message string) (*FriendReque
 		RequestId:  reqId,
 		ToUserId:   toUserId,
 		Message:    message,
-		Status:     friend_request_valueobject.Pending,
+		Status:     friendrequestvo.Pending,
 		ApplyTime:  time.Now().UnixMilli(),
 	}
 
@@ -41,19 +41,19 @@ func (fq *FriendRequest) ReRequest(message string) error {
 		return ErrRequestSentTooFrequently
 	}
 
-	if fq.Status != friend_request_valueobject.Pending {
+	if fq.Status != friendrequestvo.Pending {
 		return ErrInvalidStatus
 	}
 
 	fq.Message = message
-	fq.Status = friend_request_valueobject.Pending
+	fq.Status = friendrequestvo.Pending
 	fq.ApplyTime = time.Now().UnixMilli()
 
 	return nil
 }
 
 func (fq *FriendRequest) Accept(userId string) error {
-	if fq.Status != friend_request_valueobject.Pending {
+	if fq.Status != friendrequestvo.Pending {
 		return ErrDuplicateOperation
 	}
 
@@ -61,14 +61,14 @@ func (fq *FriendRequest) Accept(userId string) error {
 		return ErrInvalidOperation
 	}
 
-	fq.Status = friend_request_valueobject.Accepted
+	fq.Status = friendrequestvo.Accepted
 
 	return nil
 }
 
 func (fq *FriendRequest) Refuse(userId string) error {
 	var err error
-	if fq.Status != friend_request_valueobject.Pending {
+	if fq.Status != friendrequestvo.Pending {
 		return ErrDuplicateOperation
 	}
 
@@ -76,7 +76,7 @@ func (fq *FriendRequest) Refuse(userId string) error {
 		return ErrInvalidOperation
 	}
 
-	fq.Status = friend_request_valueobject.Refused
+	fq.Status = friendrequestvo.Refused
 
 	return err
 }

@@ -1,11 +1,11 @@
 package kafka
 
 import (
-	conversation_port "IM_backend/internal/application/ports/cache/conversation"
-	message_repository_interface "IM_backend/internal/application/ports/repository/message"
-	room_repository_interface "IM_backend/internal/application/ports/repository/room"
-	message_entity "IM_backend/internal/domain/message/entity"
-	room_valueobject "IM_backend/internal/domain/room/value_object"
+	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
+	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
+	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
+	messageentity "IM_backend/internal/domain/message/entity"
+	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
 	"IM_backend/internal/shared/protocol"
 	"context"
@@ -18,18 +18,18 @@ import (
 
 type GroupHandler struct {
 	dispatch                   ClientDispatcher
-	conversationCache          conversation_port.ConversationCache
+	conversationCache          convcache.ConversationCache
 	localConversationCache     *local.ConversationVersionCache
 	workerPool                 *WorkerPool
 	sf                         singleflight.Group
-	roomRepository             room_repository_interface.RoomRepository
-	userConversationRepository message_repository_interface.UserConversationRepository
+	roomRepository             roomrepo.RoomRepository
+	userConversationRepository messagerepo.UserConversationRepository
 }
 
 func NewGroupHandler(dispatcher ClientDispatcher,
-	roomRepository room_repository_interface.RoomRepository,
-	userConversationRepository message_repository_interface.UserConversationRepository,
-	conversationCache conversation_port.ConversationCache,
+	roomRepository roomrepo.RoomRepository,
+	userConversationRepository messagerepo.UserConversationRepository,
+	conversationCache convcache.ConversationCache,
 	localConversationCache *local.ConversationVersionCache,
 ) *GroupHandler {
 	return &GroupHandler{
@@ -73,7 +73,7 @@ func (h *GroupHandler) getConvMembers(ctx context.Context, conversationId string
 		if err != nil {
 			return nil, err
 		}
-		room, err := h.roomRepository.FindActiveRoom(roomId, int(room_valueobject.Activate))
+		room, err := h.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +111,7 @@ func (h *GroupHandler) handleMessage(
 			// TODO:补偿
 		}
 
-		uc := message_entity.BuildUserConversation(
+		uc := messageentity.BuildUserConversation(
 			envelope.To,
 			conversationId,
 			0,
@@ -132,7 +132,7 @@ func (h *GroupHandler) handleMessage(
 		if memberCount <= 100 {
 			payload := envelope.Payload
 
-			userConvs := make([]*message_entity.UserConversation, 0, memberCount)
+			userConvs := make([]*messageentity.UserConversation, 0, memberCount)
 
 			for _, uid := range members {
 				id := uid
@@ -147,7 +147,7 @@ func (h *GroupHandler) handleMessage(
 				})
 
 				userConvs = append(userConvs,
-					message_entity.BuildUserConversation(
+					messageentity.BuildUserConversation(
 						id,
 						conversationId,
 						0,

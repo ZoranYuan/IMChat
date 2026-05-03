@@ -1,24 +1,24 @@
-package room_user_repository
+package roomuser
 
 import (
-	room_entity "IM_backend/internal/domain/room/entity"
-	room_valueobject "IM_backend/internal/domain/room/value_object"
+	roomentity "IM_backend/internal/domain/room/entity"
+	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 )
 
-func ToDomain(m model.RoomUser) *room_entity.RoomUser {
-	return &room_entity.RoomUser{
+func ToDomain(m model.RoomUser) *roomentity.RoomUser {
+	return &roomentity.RoomUser{
 		UserId:   m.UserId,
 		RoomId:   m.RoomId,
-		Role:     room_valueobject.Role(m.Role),
-		Status:   room_valueobject.RoomUserStatus(m.Status),
+		Role:     roomvo.Role(m.Role),
+		Status:   roomvo.RoomUserStatus(m.Status),
 		MuteUtil: m.MuteUtil,
 		JoinTime: m.JoinTime,
 		Version:  m.Version,
 	}
 }
 
-func ToModel(e *room_entity.RoomUser) model.RoomUser {
+func ToModel(e *roomentity.RoomUser) model.RoomUser {
 	return model.RoomUser{
 		UserId:    e.UserId,
 		RoomId:    e.RoomId,

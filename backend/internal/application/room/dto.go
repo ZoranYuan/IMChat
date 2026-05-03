@@ -1,6 +1,6 @@
-package application_room
+package room
 
-import room_entity "IM_backend/internal/domain/room/entity"
+import roomentity "IM_backend/internal/domain/room/entity"
 
 type RoomAppDTO struct {
 	RoomId      string
@@ -25,7 +25,7 @@ type RoomUserDTO struct {
 	LeaveTime *int64
 }
 
-func toRoomAppDTO(r *room_entity.Room, inviteCode string) *RoomAppDTO {
+func toRoomAppDTO(r *roomentity.Room, inviteCode string) *RoomAppDTO {
 	return &RoomAppDTO{
 		RoomId:      r.RoomId,
 		OwnerUserId: r.OwnerUserId,
@@ -39,7 +39,7 @@ func toRoomAppDTO(r *room_entity.Room, inviteCode string) *RoomAppDTO {
 	}
 }
 
-func toRoomUserDTO(r *room_entity.RoomUser) *RoomUserDTO {
+func toRoomUserDTO(r *roomentity.RoomUser) *RoomUserDTO {
 	return &RoomUserDTO{
 		UserId:    r.UserId,
 		RoomId:    r.RoomId,

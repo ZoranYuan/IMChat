@@ -1,4 +1,4 @@
-package user_cache
+package user
 
 import "github.com/redis/go-redis/v9"
 

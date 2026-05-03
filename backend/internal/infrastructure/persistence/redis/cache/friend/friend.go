@@ -1,4 +1,4 @@
-package friend_cache
+package friend
 
 import (
 	"context"

@@ -1,16 +1,16 @@
-package application_message
+package message
 
 import (
 	"IM_backend/configs"
-	conversation_port "IM_backend/internal/application/ports/cache/conversation"
-	mq_interface "IM_backend/internal/application/ports/mq"
-	tx_repository_interface "IM_backend/internal/application/ports/persistence/tx_manager"
-	friend_repository_interface "IM_backend/internal/application/ports/repository/friend"
-	message_repository_interface "IM_backend/internal/application/ports/repository/message"
-	room_repository_interface "IM_backend/internal/application/ports/repository/room"
-	message_entity "IM_backend/internal/domain/message/entity"
-	message_valueobject "IM_backend/internal/domain/message/value_object"
-	room_valueobject "IM_backend/internal/domain/room/value_object"
+	mqport "IM_backend/internal/application/ports/mq"
+	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
+	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
+	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
+	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
+	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
+	messageentity "IM_backend/internal/domain/message/entity"
+	messagevo "IM_backend/internal/domain/message/value_object"
+	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
 	"IM_backend/internal/shared/protocol"
@@ -26,30 +26,30 @@ import (
 
 type MessageApplication struct {
 	config                     configs.Config
-	conversationCache          conversation_port.ConversationCache
-	messageRepository          message_repository_interface.MessageRepository
-	txManager                  tx_repository_interface.TxManager
-	userConversationRepository message_repository_interface.UserConversationRepository
-	conversationRepository     message_repository_interface.ConversationRepository
-	friendRepository           friend_repository_interface.FriendRepository
-	roomUserRepository         room_repository_interface.RoomUserRepository
-	roomRepository             room_repository_interface.RoomRepository
-	taskManager                mq_interface.TaskManager
+	conversationCache          convcache.ConversationCache
+	messageRepository          messagerepo.MessageRepository
+	txManager                  txmanager.TxManager
+	userConversationRepository messagerepo.UserConversationRepository
+	conversationRepository     messagerepo.ConversationRepository
+	friendRepository           friendrepo.FriendRepository
+	roomUserRepository         roomrepo.RoomUserRepository
+	roomRepository             roomrepo.RoomRepository
+	taskManager                mqport.TaskManager
 	localConvVersionCache      *local.ConversationVersionCache
 	sf                         singleflight.Group
 }
 
 func NewMessageApplication(
 	config configs.Config,
-	conversationCache conversation_port.ConversationCache,
-	txManager tx_repository_interface.TxManager,
-	taskManager mq_interface.TaskManager,
-	userConversationRepository message_repository_interface.UserConversationRepository,
-	conversationRepository message_repository_interface.ConversationRepository,
-	friendRepository friend_repository_interface.FriendRepository,
-	messageRepository message_repository_interface.MessageRepository,
-	roomUserRepository room_repository_interface.RoomUserRepository,
-	roomRepository room_repository_interface.RoomRepository,
+	conversationCache convcache.ConversationCache,
+	txManager txmanager.TxManager,
+	taskManager mqport.TaskManager,
+	userConversationRepository messagerepo.UserConversationRepository,
+	conversationRepository messagerepo.ConversationRepository,
+	friendRepository friendrepo.FriendRepository,
+	messageRepository messagerepo.MessageRepository,
+	roomUserRepository roomrepo.RoomUserRepository,
+	roomRepository roomrepo.RoomRepository,
 	localConvVersionCache *local.ConversationVersionCache,
 ) *MessageApplication {
 	return &MessageApplication{
@@ -69,7 +69,7 @@ func NewMessageApplication(
 
 func (ma *MessageApplication) checkConvMember(
 	ctx context.Context,
-	convType message_valueobject.ConvType,
+	convType messagevo.ConvType,
 	conversationId string,
 	userId string,
 	recvId string,
@@ -101,7 +101,7 @@ func (ma *MessageApplication) checkConvMember(
 
 		var cacheErr error
 
-		if convType == message_valueobject.PrivateChat {
+		if convType == messagevo.PrivateChat {
 			friend, err := ma.friendRepository.FindRelation(userId, recvId)
 			if err != nil {
 				return false, err
@@ -116,7 +116,7 @@ func (ma *MessageApplication) checkConvMember(
 				cacheVersion,
 			)
 		} else {
-			room, err := ma.roomRepository.FindActiveRoom(recvId, int(room_valueobject.Activate))
+			room, err := ma.roomRepository.FindActiveRoom(recvId, int(roomvo.Activate))
 			if err != nil {
 				return false, err
 			}
@@ -200,7 +200,7 @@ func (ma *MessageApplication) HandleMessageReadAck(
 }
 
 func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
-	conversationId := message_entity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType)
+	conversationId := messageentity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType)
 	messageId, err := snow.GenerateSnowID(int(ma.config.App.MachineID))
 	if err != nil {
 		return &MessageAppeDTO{
@@ -211,7 +211,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 
 	ok, err := ma.checkConvMember(
 		ctx,
-		message_valueobject.ConvType(dto.ConvType),
+		messagevo.ConvType(dto.ConvType),
 		conversationId,
 		dto.SendId,
 		dto.RecvId,
@@ -239,17 +239,17 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		}, err
 	}
 
-	message := message_entity.BuildMessage(
+	message := messageentity.BuildMessage(
 		messageId,
 		conversationId,
 		dto.SendId,
 		seq,
 		dto.Content,
 		dto.VideoTime,
-		message_valueobject.CType(dto.CType),
+		messagevo.CType(dto.CType),
 	)
 
-	conv := message_entity.BuildConversation(
+	conv := messageentity.BuildConversation(
 		conversationId,
 		dto.SendId,
 		dto.RecvId,
@@ -258,7 +258,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		messageId,
 	)
 
-	userConv := message_entity.BuildUserConversation(
+	userConv := messageentity.BuildUserConversation(
 		dto.SendId,
 		conversationId,
 		seq,
@@ -441,7 +441,7 @@ func (ma *MessageApplication) GetOfflineMessages(
 	}
 
 	type syncJob struct {
-		userConv  *message_entity.UserConversation
+		userConv  *messageentity.UserConversation
 		latestSeq int64
 	}
 

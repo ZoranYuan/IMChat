@@ -1,4 +1,4 @@
-package application_friend_request
+package friendrequest
 
 import "errors"
 

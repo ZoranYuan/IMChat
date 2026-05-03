@@ -1,4 +1,4 @@
-package application_friend
+package friend
 
 import "errors"
 

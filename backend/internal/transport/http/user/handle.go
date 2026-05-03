@@ -1,0 +1,187 @@
+package user
+
+import (
+	userapp "IM_backend/internal/application/user"
+	uservo "IM_backend/internal/domain/user/value_object"
+	"IM_backend/internal/transport/http/response"
+	"log"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+type UserHandle struct {
+	app *userapp.UserApplication
+}
+
+func NewUserHandle(app *userapp.UserApplication) *UserHandle {
+	return &UserHandle{
+		app: app,
+	}
+}
+
+func (uh *UserHandle) Login(c *gin.Context) {
+	var req = UserLoginReq{}
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("panic, ", r)
+			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "未知错误"))
+		}
+	}()
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "error request"))
+		return
+	}
+
+	var (
+		userApp *userapp.UserAppDTO
+		err     error
+	)
+
+	switch req.LoginType {
+	case int(uservo.PhoneType):
+		if req.Phone == "" || req.Password == "" {
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+			return
+		}
+
+		userApp, err = uh.app.LoginWithPhone(req.Phone, req.Password)
+	case int(uservo.UserNameType):
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "暂不支持该登录方式"))
+		return
+	case int(uservo.WxType):
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "暂不支持该登录方式"))
+		return
+	default:
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+		return
+	}
+
+	var res = UserRegisterRes{
+		UserId:   userApp.UserId,
+		UserName: userApp.UserName,
+		NickName: userApp.NickName,
+		Phone:    userApp.Phone,
+		Avatar:   userApp.Avatar,
+		Token:    userApp.AccessToken,
+	}
+
+	c.JSON(http.StatusOK, response.Success(res))
+
+	c.SetCookie(
+		"refresh_token",
+		userApp.RefreshToken,
+		7*24*3600,
+		"/",
+		"",
+		false,
+		true,
+	)
+}
+
+func (uh *UserHandle) Logout(c *gin.Context) {
+	userId := c.GetString("userId")
+
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "请登录之后再操作"))
+		return
+	}
+
+	if err := uh.app.Logout(userId); err != nil {
+		log.Println("failed to logout, ", err)
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "退出登录失败"))
+		return
+	}
+
+	c.JSON(http.StatusOK, response.Success(nil))
+
+}
+
+func (uh *UserHandle) Register(c *gin.Context) {
+	var req = UserRegisterReq{}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "error request"))
+		return
+	}
+
+	var (
+		userApp *userapp.UserAppDTO
+		err     error
+	)
+	switch req.LoginType {
+	case int(uservo.PhoneType):
+		// 验证密码，手机号字段
+		if req.Phone == "" || req.Password == "" || req.ReconfirmPassword == "" {
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+			return
+		}
+		userApp, err = uh.app.RegisterWithPhone(req.Password, req.Phone, req.ReconfirmPassword)
+	case int(uservo.WxType):
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "暂不支持该登录方式"))
+		return
+	default:
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, response.Error(201, err.Error()))
+		return
+	}
+
+	var res = UserRegisterRes{
+		UserId:   userApp.UserId,
+		UserName: userApp.UserName,
+		NickName: userApp.NickName,
+		Phone:    userApp.Phone,
+		Avatar:   userApp.Avatar,
+		Token:    userApp.AccessToken,
+	}
+
+	// TODO 更新 Redis
+	c.JSON(http.StatusOK, response.Success(res))
+
+	c.SetCookie(
+		"refresh_token",
+		userApp.RefreshToken,
+		7*24*3600,
+		"/",
+		"",
+		false,
+		true,
+	)
+}
+
+func (uh *UserHandle) GetUserByID(c *gin.Context) {
+	userId := c.Param("userId")
+	if userId == "" {
+		c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
+		return
+	}
+
+	userApp, err := uh.app.GetUserByID(userId)
+
+	if err != nil {
+		log.Println("failed to get user by userId, ", err)
+		c.JSON(http.StatusInternalServerError, response.Error(201, "获取失败"))
+		return
+	}
+
+	var userRes = UserInfoRes{
+		UserId:   userApp.UserId,
+		UserName: userApp.UserName,
+		NickName: userApp.NickName,
+		Phone:    userApp.Phone,
+		Avatar:   userApp.Avatar,
+	}
+
+	c.JSON(http.StatusOK, response.Success(userRes))
+}

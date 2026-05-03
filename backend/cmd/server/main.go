@@ -2,36 +2,36 @@ package main
 
 import (
 	"IM_backend/configs"
-	application_friend "IM_backend/internal/application/friend"
-	application_friend_request "IM_backend/internal/application/friend_request"
-	application_message "IM_backend/internal/application/message"
-	application_room "IM_backend/internal/application/room"
-	application_user "IM_backend/internal/application/user"
+	friendapp "IM_backend/internal/application/friend"
+	friendrequestapp "IM_backend/internal/application/friend_request"
+	messageapp "IM_backend/internal/application/message"
+	roomapp "IM_backend/internal/application/room"
+	userapp "IM_backend/internal/application/user"
 	"IM_backend/internal/infrastructure/messaging"
 	"IM_backend/internal/infrastructure/messaging/client/kafka"
 	"IM_backend/internal/infrastructure/persistence"
 	"IM_backend/internal/infrastructure/persistence/mysql"
-	friend_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/friend"
-	friend_request_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/friend_request"
-	message_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/message"
-	room_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/room"
-	room_user_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/room_user"
-	user_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
+	friendmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/friend"
+	friendrequestmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/friend_request"
+	messagemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/message"
+	roommysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room"
+	roomusermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room_user"
+	usermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
 	"IM_backend/internal/infrastructure/persistence/redis"
-	auth_cache "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
-	conversation_cache "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
+	authredis "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
+	conversationredis "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
-	room_cache "IM_backend/internal/infrastructure/persistence/redis/cache/room"
-	service_auth "IM_backend/internal/infrastructure/security/auth"
-	apis "IM_backend/internal/interfaces/http"
-	https_friend "IM_backend/internal/interfaces/http/friend"
-	https_friend_request "IM_backend/internal/interfaces/http/friend_request"
-	https_message "IM_backend/internal/interfaces/http/message"
-	"IM_backend/internal/interfaces/http/middleware"
-	https_room "IM_backend/internal/interfaces/http/room"
-	https_user "IM_backend/internal/interfaces/http/user"
-	"IM_backend/internal/interfaces/ws"
+	roomredis "IM_backend/internal/infrastructure/persistence/redis/cache/room"
+	authsvc "IM_backend/internal/infrastructure/security/auth"
 	"IM_backend/internal/shared/protocol"
+	httpapi "IM_backend/internal/transport/http"
+	friendhttp "IM_backend/internal/transport/http/friend"
+	friendrequesthttp "IM_backend/internal/transport/http/friend_request"
+	messagehttp "IM_backend/internal/transport/http/message"
+	"IM_backend/internal/transport/http/middleware"
+	roomhttp "IM_backend/internal/transport/http/room"
+	userhttp "IM_backend/internal/transport/http/user"
+	"IM_backend/internal/transport/ws"
 	"context"
 	"fmt"
 	"log"
@@ -71,10 +71,10 @@ func main() {
 	gateway := ws.NewGateway()
 	gateway.KeepAlive(cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
 
-	authCache := auth_cache.NewAuthCache(redis)
-	roomCache := room_cache.NewRoomCache(redis)
+	authCache := authredis.NewAuthCache(redis)
+	roomCache := roomredis.NewRoomCache(redis)
 
-	conversationCache := conversation_cache.NewConversationCache(redis)
+	conversationCache := conversationredis.NewConversationCache(redis)
 
 	kafkaClient, err := kafka.NewClient(cfg.Kafka)
 
@@ -82,20 +82,20 @@ func main() {
 		log.Fatalln("failed to connect kafka, ", err)
 	}
 
-	authService := service_auth.NewAuthService(cfg)
+	authService := authsvc.NewAuthService(cfg)
 
 	// 构造依赖
-	messageRepository := message_repository.NewMessageRepository(db)
-	conversationRepository := message_repository.NewConversationRepository(db)
-	userConversationRepository := message_repository.NewUserConversationRepository(db)
+	messageRepository := messagemysql.NewMessageRepository(db)
+	conversationRepository := messagemysql.NewConversationRepository(db)
+	userConversationRepository := messagemysql.NewUserConversationRepository(db)
 
-	userRepository := user_repository.NewUserRepository(db)
-	userApp := application_user.NewUserApplication(userRepository, cfg, authCache, authService)
-	userHandle := https_user.NewUserHandle(userApp)
+	userRepository := usermysql.NewUserRepository(db)
+	userApp := userapp.NewUserApplication(userRepository, cfg, authCache, authService)
+	userHandle := userhttp.NewUserHandle(userApp)
 
-	friendRepository := friend_repository.NewFriendRepository(db)
-	friendRequestRepositoy := friend_request_repository.NewFriendRequestRepository(db)
-	friendRequestApp := application_friend_request.NewFriendApplication(
+	friendRepository := friendmysql.NewFriendRepository(db)
+	friendRequestRepositoy := friendrequestmysql.NewFriendRequestRepository(db)
+	friendRequestApp := friendrequestapp.NewFriendApplication(
 		friendRequestRepositoy,
 		userRepository,
 		cfg,
@@ -103,14 +103,14 @@ func main() {
 		conversationCache,
 		txManager,
 	)
-	friendRequestHandle := https_friend_request.NewFriendRequestHandle(friendRequestApp)
+	friendRequestHandle := friendrequesthttp.NewFriendRequestHandle(friendRequestApp)
 
-	friendApp := application_friend.NewFriendApplication(friendRepository, userRepository)
-	friendHandle := https_friend.NewFriendHandle(friendApp)
+	friendApp := friendapp.NewFriendApplication(friendRepository, userRepository)
+	friendHandle := friendhttp.NewFriendHandle(friendApp)
 
-	roomUserRepository := room_user_repository.NewRoomUserRepository(db)
-	roomRepository := room_repository.NewRoomRepository(db)
-	roomApp := application_room.NewRoomApplication(
+	roomUserRepository := roomusermysql.NewRoomUserRepository(db)
+	roomRepository := roommysql.NewRoomRepository(db)
+	roomApp := roomapp.NewRoomApplication(
 		roomRepository,
 		roomUserRepository,
 		userConversationRepository,
@@ -121,7 +121,7 @@ func main() {
 		localConvVersionCache,
 		txManager,
 	)
-	roomHandle := https_room.NewRoomHandle(roomApp)
+	roomHandle := roomhttp.NewRoomHandle(roomApp)
 
 	groupHandler := kafka.NewGroupHandler(
 		gateway,
@@ -147,7 +147,7 @@ func main() {
 	dispatcher := ws.NewDispatcher()
 	taskManager := mq.NewTaskManager(messageProducer)
 
-	messageApplication := application_message.NewMessageApplication(
+	messageApplication := messageapp.NewMessageApplication(
 		cfg,
 		conversationCache,
 		txManager,
@@ -160,7 +160,7 @@ func main() {
 		roomRepository,
 		localConvVersionCache,
 	)
-	messageHandle := https_message.NewMessageHandle(messageApplication)
+	messageHandle := messagehttp.NewMessageHandle(messageApplication)
 
 	wsHandle := ws.NewWSHandler(
 		messageApplication,
@@ -174,11 +174,11 @@ func main() {
 
 	// 注册路由
 	apiGroup := r.Group("/api/v1")
-	apis.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
-	apis.RegisterUserRouter(apiGroup, userHandle, authMiddle)
-	apis.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
-	apis.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
-	apis.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)
+	httpapi.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
+	httpapi.RegisterUserRouter(apiGroup, userHandle, authMiddle)
+	httpapi.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
+	httpapi.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
+	httpapi.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)
 
 	ws.RegisterWSRouter(apiGroup, wsHandle, authMiddle)
 

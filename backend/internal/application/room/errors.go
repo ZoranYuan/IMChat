@@ -1,4 +1,4 @@
-package application_room
+package room
 
 import "errors"
 

@@ -1,0 +1,99 @@
+@baseUrl = http://localhost:8080/api/v1
+@token = Bearer REPLACE_ME
+@userId = REPLACE_USER_ID
+@roomId = REPLACE_ROOM_ID
+@conversationId = REPLACE_CONVERSATION_ID
+
+### 用户注册
+POST {{baseUrl}}/users/register
+Content-Type: application/json
+
+{
+  "phone": "13800138000",
+  "password": "123456",
+  "reconfirmPassword": "123456",
+  "loginType": 1
+}
+
+### 用户登录
+POST {{baseUrl}}/users/login
+Content-Type: application/json
+
+{
+  "phone": "13800138000",
+  "password": "123456",
+  "loginType": 1
+}
+
+### 获取用户信息
+GET {{baseUrl}}/users/{{userId}}
+Authorization: {{token}}
+
+### 退出登录
+POST {{baseUrl}}/users/logout
+Authorization: {{token}}
+
+### 获取好友列表
+GET {{baseUrl}}/friends
+Authorization: {{token}}
+
+### 创建好友申请
+POST {{baseUrl}}/friend-requests
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "toUserId": "TARGET_USER_ID",
+  "message": "你好，添加一下好友"
+}
+
+### 查询好友申请列表
+GET {{baseUrl}}/friend-requests
+Authorization: {{token}}
+
+### 处理好友申请
+POST {{baseUrl}}/friend-requests/actions
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "requestId": "REQUEST_ID",
+  "action": 1
+}
+
+### 创建房间
+POST {{baseUrl}}/rooms
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "roomName": "项目群",
+  "description": "项目协作讨论",
+  "avatar": ""
+}
+
+### 获取房间邀请码
+GET {{baseUrl}}/rooms/{{roomId}}/invite-code
+Authorization: {{token}}
+
+### 通过邀请码加入房间
+POST {{baseUrl}}/rooms/join
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "inviteCode": "123456789"
+}
+
+### 获取历史消息
+GET {{baseUrl}}/messages/history?conversationId={{conversationId}}&cursor=0&limit=20
+Authorization: {{token}}
+
+### 获取离线消息
+GET {{baseUrl}}/messages/offline
+Authorization: {{token}}
+
+### WebSocket 握手
+GET http://localhost:8080/api/v1/ws
+Authorization: {{token}}
+

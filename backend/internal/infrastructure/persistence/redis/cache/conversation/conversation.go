@@ -1,7 +1,7 @@
-package conversation_cache
+package conversation
 
 import (
-	message_entity "IM_backend/internal/domain/message/entity"
+	messageentity "IM_backend/internal/domain/message/entity"
 	"context"
 	"errors"
 	"fmt"
@@ -205,7 +205,7 @@ func (mc *ConversationCache) IncrConvLatestSeq(ctx context.Context, convId strin
 	r, err := mc.rb.Incr(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return r, message_entity.ErrConversationNotCreated
+			return r, messageentity.ErrConversationNotCreated
 		}
 
 		return r, err
@@ -219,7 +219,7 @@ func (mc *ConversationCache) GetConvLatestSeq(ctx context.Context, convId string
 	r, err := mc.rb.Get(ctx, key).Int64()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return r, message_entity.ErrConversationNotCreated
+			return r, messageentity.ErrConversationNotCreated
 		}
 
 		return r, err

@@ -1,14 +1,14 @@
-package application_user
+package user
 
 import (
 	"IM_backend/configs"
-	auth_cache_interface "IM_backend/internal/application/ports/cache/auth"
-	user_repository_interface "IM_backend/internal/application/ports/repository/user"
-	auth_service_interface "IM_backend/internal/application/ports/service"
-	user_entity "IM_backend/internal/domain/user/entity"
-	user_valueobject "IM_backend/internal/domain/user/value_object"
+	authport "IM_backend/internal/application/ports/persistence/cache/auth"
+	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
+	authservice "IM_backend/internal/application/ports/service"
+	userentity "IM_backend/internal/domain/user/entity"
+	uservo "IM_backend/internal/domain/user/value_object"
 	"IM_backend/internal/infrastructure/id/snow"
-	user_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
+	usermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
 	"context"
 	"errors"
 	"log"
@@ -18,13 +18,13 @@ import (
 )
 
 type UserApplication struct {
-	userRepository user_repository_interface.UserRepository
-	authService    auth_service_interface.AuthService
+	userRepository userrepo.UserRepository
+	authService    authservice.AuthService
 	config         configs.Config
-	authCache      auth_cache_interface.AuthCache
+	authCache      authport.AuthCache
 }
 
-func NewUserApplication(userRepository user_repository_interface.UserRepository, config configs.Config, authCache auth_cache_interface.AuthCache, authService auth_service_interface.AuthService) *UserApplication {
+func NewUserApplication(userRepository userrepo.UserRepository, config configs.Config, authCache authport.AuthCache, authService authservice.AuthService) *UserApplication {
 	return &UserApplication{
 		userRepository: userRepository,
 		config:         config,
@@ -52,9 +52,9 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 		return nil, ErrPasswordMismatch
 	}
 
-	newUser, err := user_entity.RegisterWithPhone(
-		user_valueobject.Phone(phone),
-		user_valueobject.Password(password),
+	newUser, err := userentity.RegisterWithPhone(
+		uservo.Phone(phone),
+		uservo.Password(password),
 	)
 
 	if err != nil {
@@ -68,7 +68,7 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 	}
 
 	newUser.UserId = userId
-	err = ua.userRepository.Create(user_repository.ToUserModel(newUser))
+	err = ua.userRepository.Create(usermysql.ToUserModel(newUser))
 
 	if err != nil {
 		return nil, err
@@ -112,9 +112,9 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 	}
 
 	// TODO 删除对应的 token 缓存，这里为了防止刷机，可以加一个用户锁
-	if err = user_entity.LoginWithPhone(
-		user_valueobject.Phone(phone),
-		user_valueobject.Password(password),
+	if err = userentity.LoginWithPhone(
+		uservo.Phone(phone),
+		uservo.Password(password),
 		userModel.Password,
 	); err != nil {
 		return nil, err

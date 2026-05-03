@@ -1,7 +1,7 @@
-package room_cache
+package room
 
 import (
-	room_entity "IM_backend/internal/domain/room/entity"
+	roomentity "IM_backend/internal/domain/room/entity"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -108,7 +108,7 @@ func (rc *RoomCache) GetInviteCode(ctx context.Context, roomId string) (string, 
 
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return "", room_entity.ErrRoomNotFound
+			return "", roomentity.ErrRoomNotFound
 		}
 
 		return "", err
@@ -122,7 +122,7 @@ func (rc *RoomCache) GetRoomIDByCode(ctx context.Context, code string) (string, 
 
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return "", room_entity.ErrInviteCodeExpired
+			return "", roomentity.ErrInviteCodeExpired
 		}
 	}
 

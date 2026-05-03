@@ -1,4 +1,4 @@
-package room_cache
+package room
 
 import "errors"
 

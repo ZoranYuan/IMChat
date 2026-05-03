@@ -1,4 +1,4 @@
-package application_user
+package user
 
 import "errors"
 

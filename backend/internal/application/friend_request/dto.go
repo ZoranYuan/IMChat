@@ -1,7 +1,7 @@
-package application_friend_request
+package friendrequest
 
 import (
-	friend_request_entity "IM_backend/internal/domain/friend_request/entity"
+	friendrequestentity "IM_backend/internal/domain/friend_request/entity"
 )
 
 type FriendRequestDTO struct {
@@ -13,7 +13,7 @@ type FriendRequestDTO struct {
 	ApplyTime  int64  `json:"applyTime"`
 }
 
-func toDTO(fr *friend_request_entity.FriendRequest) FriendRequestDTO {
+func toDTO(fr *friendrequestentity.FriendRequest) FriendRequestDTO {
 	return FriendRequestDTO{
 		RequestId:  fr.RequestId,
 		FromUserId: fr.FromUserId,

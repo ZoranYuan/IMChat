@@ -1,27 +1,27 @@
-package room_entity
+package entity
 
 import (
-	room_valueobject "IM_backend/internal/domain/room/value_object"
+	roomvo "IM_backend/internal/domain/room/value_object"
 	"time"
 )
 
 type RoomUser struct {
 	UserId    string
 	RoomId    string
-	Role      room_valueobject.Role
-	Status    room_valueobject.RoomUserStatus
+	Role      roomvo.Role
+	Status    roomvo.RoomUserStatus
 	MuteUtil  *int64
 	JoinTime  int64
 	LeaveTime *int64
 	Version   int64
 }
 
-func NewRoomUser(userId, roomId string, role room_valueobject.Role) *RoomUser {
+func NewRoomUser(userId, roomId string, role roomvo.Role) *RoomUser {
 	return &RoomUser{
 		UserId:   userId,
 		RoomId:   roomId,
 		Role:     role,
-		Status:   room_valueobject.Activate,
+		Status:   roomvo.Activate,
 		MuteUtil: nil,
 		JoinTime: time.Now().UnixMilli(),
 		Version:  1,
@@ -29,7 +29,7 @@ func NewRoomUser(userId, roomId string, role room_valueobject.Role) *RoomUser {
 }
 
 func (ru *RoomUser) Invite() error {
-	if ru.Status != room_valueobject.Activate {
+	if ru.Status != roomvo.Activate {
 		return ErrPermissionDenied
 	}
 
@@ -37,18 +37,18 @@ func (ru *RoomUser) Invite() error {
 }
 
 func (ru *RoomUser) Join() {
-	ru.Status = room_valueobject.Activate
+	ru.Status = roomvo.Activate
 	ru.JoinTime = time.Now().UnixMilli()
 	ru.MuteUtil = nil
 	ru.LeaveTime = nil
 }
 
 func (ru *RoomUser) ReJoin() error {
-	if ru.Status != room_valueobject.BeKicked && ru.Status != room_valueobject.Left {
+	if ru.Status != roomvo.BeKicked && ru.Status != roomvo.Left {
 		return ErrDuplicateJoin
 	}
 
-	ru.Status = room_valueobject.Activate
+	ru.Status = roomvo.Activate
 	ru.JoinTime = time.Now().UnixMilli()
 	ru.MuteUtil = nil
 	ru.LeaveTime = nil
@@ -56,10 +56,10 @@ func (ru *RoomUser) ReJoin() error {
 }
 
 func (ru *RoomUser) Leave() error {
-	if ru.Status != room_valueobject.BeMuted && ru.Status != room_valueobject.Activate {
+	if ru.Status != roomvo.BeMuted && ru.Status != roomvo.Activate {
 		return ErrDuplicateLeave
 	}
-	ru.Status = room_valueobject.Left
+	ru.Status = roomvo.Left
 	now := time.Now().UnixMilli()
 	ru.LeaveTime = &now
 

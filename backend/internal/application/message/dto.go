@@ -1,6 +1,6 @@
-package application_message
+package message
 
-import message_entity "IM_backend/internal/domain/message/entity"
+import messageentity "IM_backend/internal/domain/message/entity"
 
 type MessageAppeDTO struct {
 	ClientMsgId    string `json:"clientMsgId"`      // 客户端消息ID（用于ACK去重）
@@ -17,7 +17,7 @@ type MessageAppeDTO struct {
 	VideoTime      *int64 `json:"videoTime"` // 视频时长（毫秒，可选）
 }
 
-func toMessagesAppDTO(ms []*message_entity.Message) []MessageAppeDTO {
+func toMessagesAppDTO(ms []*messageentity.Message) []MessageAppeDTO {
 	if len(ms) == 0 {
 		return nil
 	}

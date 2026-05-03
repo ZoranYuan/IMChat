@@ -1,10 +1,10 @@
-package message_repository
+package message
 
 import (
 	"context"
 
-	message_repository_interface "IM_backend/internal/application/ports/repository/message"
-	message_entity "IM_backend/internal/domain/message/entity"
+	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
+	messageentity "IM_backend/internal/domain/message/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
 	"gorm.io/gorm"
@@ -18,14 +18,14 @@ func NewMessageRepository(db *gorm.DB) *MessageRepository {
 	return &MessageRepository{db: db}
 }
 
-func (r *MessageRepository) WithTx(tx any) message_repository_interface.MessageRepository {
+func (r *MessageRepository) WithTx(tx any) messagerepo.MessageRepository {
 	return &MessageRepository{
 		db: tx.(*gorm.DB),
 	}
 }
 
 // 保存消息
-func (r *MessageRepository) Save(ctx context.Context, msg *message_entity.Message) error {
+func (r *MessageRepository) Save(ctx context.Context, msg *messageentity.Message) error {
 	m := toMessageModel(msg)
 	return r.db.WithContext(ctx).Create(m).Error
 }
@@ -35,7 +35,7 @@ func (r *MessageRepository) GetHistoryMessage(
 	conversationId string,
 	maxSeq int64,
 	limit int,
-) ([]*message_entity.Message, error) {
+) ([]*messageentity.Message, error) {
 
 	var models []*model.Message
 
@@ -49,7 +49,7 @@ func (r *MessageRepository) GetHistoryMessage(
 		return nil, err
 	}
 
-	result := make([]*message_entity.Message, 0, len(models))
+	result := make([]*messageentity.Message, 0, len(models))
 	for _, m := range models {
 		result = append(result, toMessageDomain(m))
 	}
@@ -60,7 +60,7 @@ func (r *MessageRepository) GetHistoryMessage(
 func (r *MessageRepository) GetLatestMessagesByConversationIDs(
 	ctx context.Context,
 	conversationIDs []string,
-) ([]*message_entity.Message, error) {
+) ([]*messageentity.Message, error) {
 
 	var msgs []*model.Message
 
@@ -74,7 +74,7 @@ func (r *MessageRepository) GetLatestMessagesByConversationIDs(
         `, conversationIDs).
 		Find(&msgs).Error
 
-	var domains []*message_entity.Message
+	var domains []*messageentity.Message
 
 	for _, m := range msgs {
 		domains = append(domains, toMessageDomain(m))

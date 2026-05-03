@@ -1,4 +1,4 @@
-package application_user
+package user
 
 type UserAppDTO struct {
 	UserId       string `json:"userId"`

@@ -1,4 +1,4 @@
-package room_entity
+package entity
 
 import "errors"
 

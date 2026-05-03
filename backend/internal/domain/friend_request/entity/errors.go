@@ -1,4 +1,4 @@
-package friend_request_entity
+package entity
 
 import "errors"
 

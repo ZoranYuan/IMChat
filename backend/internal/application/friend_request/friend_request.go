@@ -1,19 +1,19 @@
-package application_friend_request
+package friendrequest
 
 import (
 	"IM_backend/configs"
-	application_friend "IM_backend/internal/application/friend"
-	conversation_port "IM_backend/internal/application/ports/cache/conversation"
-	tx_repository_interface "IM_backend/internal/application/ports/persistence/tx_manager"
-	friend_repository_interface "IM_backend/internal/application/ports/repository/friend"
-	friend_request_repository_interface "IM_backend/internal/application/ports/repository/friend_request"
-	user_repository_interface "IM_backend/internal/application/ports/repository/user"
-	friend_entity "IM_backend/internal/domain/friend/entity"
-	friend_valueobject "IM_backend/internal/domain/friend/value_object"
-	friend_request_entity "IM_backend/internal/domain/friend_request/entity"
-	friend_request_valueobject "IM_backend/internal/domain/friend_request/value_object"
-	message_entity "IM_backend/internal/domain/message/entity"
-	message_valueobject "IM_backend/internal/domain/message/value_object"
+	friendapp "IM_backend/internal/application/friend"
+	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
+	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
+	friendrequestrepo "IM_backend/internal/application/ports/persistence/repository/friend_request"
+	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
+	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
+	friendentity "IM_backend/internal/domain/friend/entity"
+	friendvo "IM_backend/internal/domain/friend/value_object"
+	friendrequestentity "IM_backend/internal/domain/friend_request/entity"
+	friendrequestvo "IM_backend/internal/domain/friend_request/value_object"
+	messageentity "IM_backend/internal/domain/message/entity"
+	messagevo "IM_backend/internal/domain/message/value_object"
 	"IM_backend/internal/infrastructure/id/snow"
 	"context"
 	"errors"
@@ -25,21 +25,21 @@ import (
 )
 
 type FriendApplication struct {
-	friendRequestRepository friend_request_repository_interface.FriendRequestRepository
-	userRepository          user_repository_interface.UserRepository
-	friendRepository        friend_repository_interface.FriendRepository
-	conversationCache       conversation_port.ConversationCache
+	friendRequestRepository friendrequestrepo.FriendRequestRepository
+	userRepository          userrepo.UserRepository
+	friendRepository        friendrepo.FriendRepository
+	conversationCache       convcache.ConversationCache
 	config                  configs.Config
-	txManager               tx_repository_interface.TxManager
+	txManager               txmanager.TxManager
 }
 
 func NewFriendApplication(
-	friendRequestRepository friend_request_repository_interface.FriendRequestRepository,
-	userRepository user_repository_interface.UserRepository,
+	friendRequestRepository friendrequestrepo.FriendRequestRepository,
+	userRepository userrepo.UserRepository,
 	config configs.Config,
-	friendRepository friend_repository_interface.FriendRepository,
-	conversationCache conversation_port.ConversationCache,
-	txManager tx_repository_interface.TxManager,
+	friendRepository friendrepo.FriendRepository,
+	conversationCache convcache.ConversationCache,
+	txManager txmanager.TxManager,
 ) *FriendApplication {
 	return &FriendApplication{
 		friendRequestRepository: friendRequestRepository,
@@ -73,9 +73,9 @@ func (fa *FriendApplication) CreateFriendRequest(userId, toUserId, message strin
 			return FriendRequestDTO{}, err
 		}
 		// 建立新的申请对象
-		newFriendRequest, err := friend_request_entity.NewFriendRequest(requestId, userId, toUserId, message)
+		newFriendRequest, err := friendrequestentity.NewFriendRequest(requestId, userId, toUserId, message)
 		if err != nil {
-			if errors.Is(err, friend_request_entity.ErrSelfRequest) {
+			if errors.Is(err, friendrequestentity.ErrSelfRequest) {
 				return FriendRequestDTO{}, ErrSelfRequest
 			} else {
 				return FriendRequestDTO{}, ErrUnknown
@@ -97,13 +97,13 @@ func (fa *FriendApplication) CreateFriendRequest(userId, toUserId, message strin
 		}
 
 		if relation != nil {
-			return FriendRequestDTO{}, application_friend.ErrAlreadyFriends
+			return FriendRequestDTO{}, friendapp.ErrAlreadyFriends
 		}
 
 		switch record.Status {
-		case friend_request_valueobject.Pending:
+		case friendrequestvo.Pending:
 			if err := record.ReRequest(message); err != nil {
-				if errors.Is(friend_request_entity.ErrRequestSentTooFrequently, err) {
+				if errors.Is(friendrequestentity.ErrRequestSentTooFrequently, err) {
 					return FriendRequestDTO{}, ErrRequestSentTooFrequently
 				} else {
 					return FriendRequestDTO{}, err
@@ -119,11 +119,11 @@ func (fa *FriendApplication) CreateFriendRequest(userId, toUserId, message strin
 			// 重新创建记录，状态转换已经结束 （Accept / Refused）
 			if err := record.ReRequest(message); err != nil {
 				switch err {
-				case friend_request_entity.ErrRequestSentTooFrequently:
+				case friendrequestentity.ErrRequestSentTooFrequently:
 					return FriendRequestDTO{}, ErrRequestSentTooFrequently
-				case friend_request_entity.ErrInvalidStatus:
+				case friendrequestentity.ErrInvalidStatus:
 					return FriendRequestDTO{}, ErrInvalidStatusTransition
-				case friend_request_entity.ErrSelfRequest:
+				case friendrequestentity.ErrSelfRequest:
 					return FriendRequestDTO{}, ErrSelfRequest
 				default:
 					return FriendRequestDTO{}, ErrUnknown
@@ -151,7 +151,7 @@ func (fa *FriendApplication) Refuse(requestId string, userId string) error {
 		return err
 	}
 
-	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pending), int(record.Status)); err != nil {
+	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friendrequestvo.Pending), int(record.Status)); err != nil {
 		return err
 	}
 
@@ -166,7 +166,7 @@ func (fa *FriendApplication) Accept(requestId string, userId string) error {
 	}
 
 	if err := record.Accept(userId); err != nil {
-		if errors.Is(err, friend_request_entity.ErrDuplicateOperation) {
+		if errors.Is(err, friendrequestentity.ErrDuplicateOperation) {
 			return ErrDuplicateOperation
 		} else {
 			return ErrUnknown
@@ -180,21 +180,21 @@ func (fa *FriendApplication) Accept(requestId string, userId string) error {
 		friendRepository := fa.friendRepository.WithTx(tx)
 		friendRequestRepository := fa.friendRequestRepository.WithTx(tx)
 
-		if err := friendRequestRepository.OperateRequest(record.RequestId, int(friend_request_valueobject.Pending), int(record.Status)); err != nil {
+		if err := friendRequestRepository.OperateRequest(record.RequestId, int(friendrequestvo.Pending), int(record.Status)); err != nil {
 			fmt.Println("failed to operate request, ", err)
 			return ErrOperationFailed
 		}
 
-		if err := friendRepository.Create([]friend_entity.Friend{
+		if err := friendRepository.Create([]friendentity.Friend{
 			{
 				UserId:       record.FromUserId,
 				FriendUserId: record.ToUserId,
-				Status:       friend_valueobject.Status(friend_valueobject.Friend),
+				Status:       friendvo.Status(friendvo.Friend),
 			},
 			{
 				UserId:       record.ToUserId,
 				FriendUserId: record.FromUserId,
-				Status:       friend_valueobject.Status(friend_valueobject.Friend),
+				Status:       friendvo.Status(friendvo.Friend),
 			},
 		}); err != nil {
 			log.Println("failed to create friends, ", err)
@@ -205,7 +205,7 @@ func (fa *FriendApplication) Accept(requestId string, userId string) error {
 		return ErrOperationFailed
 	}
 
-	conversationId := message_entity.GetConversationID(record.ToUserId, record.FromUserId, int(message_valueobject.PrivateChat))
+	conversationId := messageentity.GetConversationID(record.ToUserId, record.FromUserId, int(messagevo.PrivateChat))
 	if err := fa.conversationCache.SetMembers(ctx, conversationId, []string{record.FromUserId, record.ToUserId}, 1); err != nil {
 		// TODO: 异步补偿
 		log.Println("failed to create conversation cache")

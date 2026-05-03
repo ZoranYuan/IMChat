@@ -1,4 +1,4 @@
-package mq_client
+package client
 
 import "context"
 

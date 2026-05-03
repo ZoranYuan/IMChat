@@ -1,4 +1,4 @@
-package application_friend
+package friend
 
 type FriendAppDTO struct {
 	FriendUserId   string

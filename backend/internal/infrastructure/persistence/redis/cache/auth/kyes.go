@@ -1,4 +1,4 @@
-package auth_cache
+package auth
 
 func AccessTokenKey(token string) string {
 	return "auth:access:token:" + token

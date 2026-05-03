@@ -1,9 +1,9 @@
-package user_repository
+package user
 
 import (
-	user_repository_interface "IM_backend/internal/application/ports/repository/user"
-	user_entity "IM_backend/internal/domain/user/entity"
-	user_valueobject "IM_backend/internal/domain/user/value_object"
+	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
+	userentity "IM_backend/internal/domain/user/entity"
+	uservo "IM_backend/internal/domain/user/value_object"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
 	"gorm.io/gorm"
@@ -19,7 +19,7 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 	}
 }
 
-func (r *UserRepository) WithTx(tx *gorm.DB) user_repository_interface.UserRepository {
+func (r *UserRepository) WithTx(tx *gorm.DB) userrepo.UserRepository {
 	return &UserRepository{db: tx}
 }
 
@@ -40,7 +40,7 @@ func (ur *UserRepository) Create(user *model.User) error {
 	}
 
 	if result.RowsAffected == 0 {
-		return user_entity.ErrUserAlreadyExists
+		return userentity.ErrUserAlreadyExists
 	}
 
 	return nil
@@ -55,9 +55,9 @@ func (ur *UserRepository) FindByUserID(userId string) (*model.User, error) {
 	return &user, nil
 }
 
-func (ur *UserRepository) FindByUserIDs(userIds []string) ([]user_entity.User, error) {
+func (ur *UserRepository) FindByUserIDs(userIds []string) ([]userentity.User, error) {
 	if len(userIds) == 0 {
-		return []user_entity.User{}, nil
+		return []userentity.User{}, nil
 	}
 
 	var models []model.User
@@ -69,7 +69,7 @@ func (ur *UserRepository) FindByUserIDs(userIds []string) ([]user_entity.User, e
 		return nil, err
 	}
 
-	users := make([]user_entity.User, 0, len(models))
+	users := make([]userentity.User, 0, len(models))
 	for _, m := range models {
 		users = append(users, toDomain(m))
 	}
@@ -84,7 +84,7 @@ func (ur *UserRepository) UpdateByUserIDAndPhone(phone string, userId string, up
 		Error
 }
 
-func ToUserModel(u *user_entity.User) *model.User {
+func ToUserModel(u *userentity.User) *model.User {
 	return &model.User{
 		UserId:      u.UserId,
 		UserName:    u.UserName,
@@ -98,15 +98,15 @@ func ToUserModel(u *user_entity.User) *model.User {
 	}
 }
 
-func ToUserEntity(m *model.User) *user_entity.User {
-	return &user_entity.User{
+func ToUserEntity(m *model.User) *userentity.User {
+	return &userentity.User{
 		UserId:      m.UserId,
 		UserName:    m.UserName,
 		NickName:    m.NickName,
 		Avatar:      m.Avatar,
-		Password:    user_valueobject.Password(m.Password),
-		Phone:       user_valueobject.Phone(m.Phone),
-		Status:      user_valueobject.Status(m.Status),
+		Password:    uservo.Password(m.Password),
+		Phone:       uservo.Phone(m.Phone),
+		Status:      uservo.Status(m.Status),
 		OnLineTime:  m.OnLineTime,
 		OffLineTime: m.OffLineTime,
 	}

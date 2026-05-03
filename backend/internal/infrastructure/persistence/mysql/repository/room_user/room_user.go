@@ -1,8 +1,8 @@
-package room_user_repository
+package roomuser
 
 import (
-	room_repository_interface "IM_backend/internal/application/ports/repository/room"
-	room_entity "IM_backend/internal/domain/room/entity"
+	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
+	roomentity "IM_backend/internal/domain/room/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 	"errors"
 
@@ -20,18 +20,18 @@ func NewRoomUserRepository(db *gorm.DB) *RoomUserRepository {
 	}
 }
 
-func (rur *RoomUserRepository) WithTx(tx *gorm.DB) room_repository_interface.RoomUserRepository {
+func (rur *RoomUserRepository) WithTx(tx *gorm.DB) roomrepo.RoomUserRepository {
 	return &RoomUserRepository{
 		db: tx,
 	}
 }
 
-func (rur *RoomUserRepository) GetRelationByIDs(userId, roomId string) (*room_entity.RoomUser, error) {
+func (rur *RoomUserRepository) GetRelationByIDs(userId, roomId string) (*roomentity.RoomUser, error) {
 	var m model.RoomUser
 	if err := rur.db.Where("user_id = ? AND room_id = ?", userId, roomId).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, room_entity.ErrMemberNotFound
+			return nil, roomentity.ErrMemberNotFound
 		}
 
 		return nil, err
@@ -40,7 +40,7 @@ func (rur *RoomUserRepository) GetRelationByIDs(userId, roomId string) (*room_en
 	return ToDomain(m), nil
 }
 
-func (rur *RoomUserRepository) Create(domain *room_entity.RoomUser) (*room_entity.RoomUser, error) {
+func (rur *RoomUserRepository) Create(domain *roomentity.RoomUser) (*roomentity.RoomUser, error) {
 	model := ToModel(domain)
 
 	res := rur.db.Clauses(clause.OnConflict{
@@ -58,13 +58,13 @@ func (rur *RoomUserRepository) Create(domain *room_entity.RoomUser) (*room_entit
 	}
 
 	if res.RowsAffected == 0 {
-		return nil, room_entity.ErrDuplicateCreation
+		return nil, roomentity.ErrDuplicateCreation
 	}
 
 	return ToDomain(model), nil
 }
 
-func (rur *RoomUserRepository) JoinRoom(domain *room_entity.RoomUser) error {
+func (rur *RoomUserRepository) JoinRoom(domain *roomentity.RoomUser) error {
 	var m = ToModel(domain)
 
 	result := rur.db.Clauses(clause.OnConflict{
@@ -80,13 +80,13 @@ func (rur *RoomUserRepository) JoinRoom(domain *room_entity.RoomUser) error {
 	}
 
 	if result.RowsAffected == 0 {
-		return room_entity.ErrDuplicateJoin
+		return roomentity.ErrDuplicateJoin
 	}
 
 	return nil
 }
 
-func (rur *RoomUserRepository) Leave(domain *room_entity.RoomUser, status []int) error {
+func (rur *RoomUserRepository) Leave(domain *roomentity.RoomUser, status []int) error {
 	var m = ToModel(domain)
 
 	updates := map[string]interface{}{
@@ -105,7 +105,7 @@ func (rur *RoomUserRepository) Leave(domain *room_entity.RoomUser, status []int)
 	}
 
 	if res.RowsAffected == 0 {
-		return room_entity.ErrVersionConflict
+		return roomentity.ErrVersionConflict
 	}
 
 	return nil

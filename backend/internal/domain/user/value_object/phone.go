@@ -1,4 +1,4 @@
-package user_valueobject
+package valueobject
 
 import "regexp"
 

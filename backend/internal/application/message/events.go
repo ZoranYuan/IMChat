@@ -1,4 +1,4 @@
-package application_message
+package message
 
 type MessageSendEvent struct {
 	MessageId      string

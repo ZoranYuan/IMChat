@@ -1,4 +1,4 @@
-package tx_repository_interface
+package txmanager
 
 import (
 	"context"

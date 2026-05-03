@@ -1,4 +1,4 @@
-package mq_interface
+package mq
 
 import (
 	"IM_backend/internal/shared/protocol"

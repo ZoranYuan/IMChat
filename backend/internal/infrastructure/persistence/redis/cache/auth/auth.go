@@ -1,4 +1,4 @@
-package auth_cache
+package auth
 
 import (
 	"context"

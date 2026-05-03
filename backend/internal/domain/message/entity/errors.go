@@ -1,4 +1,4 @@
-package message_entity
+package entity
 
 import "errors"
 

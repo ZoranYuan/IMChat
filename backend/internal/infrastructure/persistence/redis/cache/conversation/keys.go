@@ -1,4 +1,4 @@
-package conversation_cache
+package conversation
 
 func ConversationMembersKey(conversation string) string {
 	return "conversation:members:" + conversation

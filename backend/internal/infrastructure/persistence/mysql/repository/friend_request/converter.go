@@ -1,23 +1,23 @@
-package friend_request_repository
+package friendrequest
 
 import (
-	friend_request_entity "IM_backend/internal/domain/friend_request/entity"
-	friend_request_valueobject "IM_backend/internal/domain/friend_request/value_object"
+	friendrequestentity "IM_backend/internal/domain/friend_request/entity"
+	friendrequestvo "IM_backend/internal/domain/friend_request/value_object"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 )
 
-func toDomain(m model.FriendRequest) *friend_request_entity.FriendRequest {
-	return &friend_request_entity.FriendRequest{
+func toDomain(m model.FriendRequest) *friendrequestentity.FriendRequest {
+	return &friendrequestentity.FriendRequest{
 		FromUserId: m.FromUserId,
 		ToUserId:   m.ToUserId,
 		RequestId:  m.RequestId,
 		Message:    m.Message,
-		Status:     friend_request_valueobject.Status(m.Status),
+		Status:     friendrequestvo.Status(m.Status),
 		ApplyTime:  m.ApplyTime,
 	}
 }
 
-func toModel(e *friend_request_entity.FriendRequest) model.FriendRequest {
+func toModel(e *friendrequestentity.FriendRequest) model.FriendRequest {
 	return model.FriendRequest{
 		FromUserId: e.FromUserId,
 		RequestId:  e.RequestId,

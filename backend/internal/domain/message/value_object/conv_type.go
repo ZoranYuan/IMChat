@@ -1,4 +1,4 @@
-package message_valueobject
+package valueobject
 
 type ConvType int8
 
