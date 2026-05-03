@@ -13,7 +13,7 @@ type Config struct {
 	Database  Database        `yaml:"database"`
 	JWT       JWT             `yaml:"jwt"`
 	WebSocket WebSocketConfig `yaml:"ws"`
-	Kafka     KafkaConfig     `ymal:"kafka"`
+	Kafka     KafkaConfig     `yaml:"kafka"`
 }
 
 type KafkaConfig struct {

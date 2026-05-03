@@ -30,7 +30,7 @@ func NewRoomUser(userId, roomId string, role room_valueobject.Role) *RoomUser {
 
 func (ru *RoomUser) Invite() error {
 	if ru.Status != room_valueobject.Activate {
-		return ErrNoPermission
+		return ErrPermissionDenied
 	}
 
 	return nil
@@ -44,7 +44,7 @@ func (ru *RoomUser) Join() {
 }
 
 func (ru *RoomUser) ReJoin() error {
-	if ru.Status != room_valueobject.BeKicked || ru.Status != room_valueobject.Left {
+	if ru.Status != room_valueobject.BeKicked && ru.Status != room_valueobject.Left {
 		return ErrDuplicateJoin
 	}
 
@@ -56,8 +56,8 @@ func (ru *RoomUser) ReJoin() error {
 }
 
 func (ru *RoomUser) Leave() error {
-	if ru.Status != room_valueobject.BeMuted || ru.Status != room_valueobject.Activate {
-		return ErrDuplicateLeft
+	if ru.Status != room_valueobject.BeMuted && ru.Status != room_valueobject.Activate {
+		return ErrDuplicateLeave
 	}
 	ru.Status = room_valueobject.Left
 	now := time.Now().UnixMilli()

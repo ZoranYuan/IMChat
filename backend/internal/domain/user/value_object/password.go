@@ -1,6 +1,6 @@
 package user_valueobject
 
-import "IM_backend/internal/infrastructure/pkg/encrypt"
+import "IM_backend/internal/infrastructure/crypto/encrypt"
 
 type Password string
 
@@ -9,6 +9,6 @@ func (p Password) GenPasswordHash() (Password, error) {
 	return Password(hp), err
 }
 
-func (p Password) VertifyPasswordHash(hashed []byte) bool {
-	return encrypt.VertifyPasswordHash([]byte(p), hashed)
+func (p Password) VerifyPasswordHash(hashed []byte) bool {
+	return encrypt.VerifyPasswordHash([]byte(p), hashed)
 }

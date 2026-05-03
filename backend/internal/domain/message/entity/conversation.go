@@ -43,7 +43,7 @@ func BuildConversation(
 	}
 }
 
-func GetConversationId(sendId, targetId string, convType int) string {
+func GetConversationID(sendId, targetId string, convType int) string {
 	if convType == int(message_valueobject.PrivateChat) {
 		return max(targetId, sendId) + "_" + min(targetId, sendId)
 	}

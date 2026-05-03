@@ -3,10 +3,8 @@ package user_entity
 import "errors"
 
 var (
-	errUserNotFound      = errors.New("user not found")
-	errWrongPassword     = errors.New("wrong password")
-	errNickNameTooLong   = errors.New("nickName too long")
-	errUserAlreadyExists = errors.New("user already exists")
-	errInvalidEmail      = errors.New("invalid email")
-	errInvalidPhone      = errors.New("invalid phone")
+	ErrUserAlreadyExists  = errors.New("user already exists")
+	ErrUserNotFound       = errors.New("user not found")
+	errIncorrectPassword  = errors.New("incorrect password")
+	errInvalidPhoneNumber = errors.New("invalid phone number")
 )

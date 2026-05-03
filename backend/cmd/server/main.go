@@ -2,36 +2,36 @@ package main
 
 import (
 	"IM_backend/configs"
-	apis "IM_backend/internal/apis/https"
-	https_friend "IM_backend/internal/apis/https/friend"
-	https_friend_request "IM_backend/internal/apis/https/friend_request"
-	https_message "IM_backend/internal/apis/https/message"
-	"IM_backend/internal/apis/https/middleware"
-	https_room "IM_backend/internal/apis/https/room"
-	https_user "IM_backend/internal/apis/https/user"
-	"IM_backend/internal/apis/ws"
-	application_friend "IM_backend/internal/applications/friend"
-	application_friend_request "IM_backend/internal/applications/friend_request"
-	application_message "IM_backend/internal/applications/message"
-	application_room "IM_backend/internal/applications/room"
-	application_user "IM_backend/internal/applications/user"
-	"IM_backend/internal/infrastructure/database/mysql"
-	friend_repository "IM_backend/internal/infrastructure/database/mysql/repository/friend"
-	friend_request_repository "IM_backend/internal/infrastructure/database/mysql/repository/friend_request"
-	message_repository "IM_backend/internal/infrastructure/database/mysql/repository/message"
-	room_repository "IM_backend/internal/infrastructure/database/mysql/repository/room"
-	room_user_repository "IM_backend/internal/infrastructure/database/mysql/repository/room_user"
-	user_repository "IM_backend/internal/infrastructure/database/mysql/repository/user"
-	"IM_backend/internal/infrastructure/database/redis"
-	auth_cache "IM_backend/internal/infrastructure/database/redis/cache/auth"
-	conversation_cache "IM_backend/internal/infrastructure/database/redis/cache/conversation"
-	"IM_backend/internal/infrastructure/database/redis/cache/local"
-	room_cache "IM_backend/internal/infrastructure/database/redis/cache/room"
-	"IM_backend/internal/infrastructure/mq"
-	"IM_backend/internal/infrastructure/mq/client/kafka"
+	application_friend "IM_backend/internal/application/friend"
+	application_friend_request "IM_backend/internal/application/friend_request"
+	application_message "IM_backend/internal/application/message"
+	application_room "IM_backend/internal/application/room"
+	application_user "IM_backend/internal/application/user"
+	"IM_backend/internal/infrastructure/messaging"
+	"IM_backend/internal/infrastructure/messaging/client/kafka"
 	"IM_backend/internal/infrastructure/persistence"
-	"IM_backend/internal/protocol"
-	service_auth "IM_backend/internal/service/auth"
+	"IM_backend/internal/infrastructure/persistence/mysql"
+	friend_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/friend"
+	friend_request_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/friend_request"
+	message_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/message"
+	room_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/room"
+	room_user_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/room_user"
+	user_repository "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
+	"IM_backend/internal/infrastructure/persistence/redis"
+	auth_cache "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
+	conversation_cache "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
+	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
+	room_cache "IM_backend/internal/infrastructure/persistence/redis/cache/room"
+	service_auth "IM_backend/internal/infrastructure/security/auth"
+	apis "IM_backend/internal/interfaces/http"
+	https_friend "IM_backend/internal/interfaces/http/friend"
+	https_friend_request "IM_backend/internal/interfaces/http/friend_request"
+	https_message "IM_backend/internal/interfaces/http/message"
+	"IM_backend/internal/interfaces/http/middleware"
+	https_room "IM_backend/internal/interfaces/http/room"
+	https_user "IM_backend/internal/interfaces/http/user"
+	"IM_backend/internal/interfaces/ws"
+	"IM_backend/internal/shared/protocol"
 	"context"
 	"fmt"
 	"log"
@@ -65,8 +65,8 @@ func main() {
 
 	txManager := persistence.NewGormTxManager(db)
 
-	loaclConvVersionCache := local.NewConversationVersionTTLCache(60*time.Second, 1000, 30*time.Second)
-	loaclConvVersionCache.StartCleanup(ctx)
+	localConvVersionCache := local.NewConversationVersionTTLCache(60*time.Second, 1000, 30*time.Second)
+	localConvVersionCache.StartCleanup(ctx)
 
 	gateway := ws.NewGateway()
 	gateway.KeepAlive(cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
@@ -118,7 +118,7 @@ func main() {
 		cfg,
 		roomCache,
 		conversationCache,
-		loaclConvVersionCache,
+		localConvVersionCache,
 		txManager,
 	)
 	roomHandle := https_room.NewRoomHandle(roomApp)
@@ -128,7 +128,7 @@ func main() {
 		roomRepository,
 		userConversationRepository,
 		conversationCache,
-		loaclConvVersionCache,
+		localConvVersionCache,
 	)
 
 	messageConsumer := kafka.NewConsumer(kafkaClient, []string{
@@ -158,11 +158,11 @@ func main() {
 		messageRepository,
 		roomUserRepository,
 		roomRepository,
-		loaclConvVersionCache,
+		localConvVersionCache,
 	)
 	messageHandle := https_message.NewMessageHandle(messageApplication)
 
-	wsHandle := ws.NewWshandler(
+	wsHandle := ws.NewWSHandler(
 		messageApplication,
 		cfg,
 		dispatcher,
@@ -180,7 +180,7 @@ func main() {
 	apis.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
 	apis.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)
 
-	ws.RegisterWsRouter(apiGroup, wsHandle, authMiddle)
+	ws.RegisterWSRouter(apiGroup, wsHandle, authMiddle)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Port,

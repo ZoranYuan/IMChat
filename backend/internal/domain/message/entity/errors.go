@@ -3,6 +3,6 @@ package message_entity
 import "errors"
 
 var (
-	ErrDuplicateCreate        = errors.New("重复创建")
-	ErrConversationNotCreated = errors.New("会话未创建")
+	ErrDuplicateCreation      = errors.New("duplicate creation")
+	ErrConversationNotCreated = errors.New("conversation has not been created")
 )

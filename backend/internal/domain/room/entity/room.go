@@ -28,7 +28,7 @@ func NewRoom(
 	avatar string,
 ) (*Room, error) {
 	if roomName == "" {
-		return nil, ErrRoomNameIsNotNull
+		return nil, ErrRoomNameRequired
 	}
 
 	return &Room{
