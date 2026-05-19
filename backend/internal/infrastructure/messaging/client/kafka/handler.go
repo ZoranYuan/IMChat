@@ -186,6 +186,35 @@ func (h *GroupHandler) handleMessageReadAck(
 	return nil
 }
 
+func (h *GroupHandler) handleConversationSyncSeq(
+	ctx context.Context,
+	envelope protocol.Envelope,
+) error {
+	var event protocol.ConversationSyncSeqEvent
+	if err := json.Unmarshal(envelope.Payload, &event); err != nil {
+		return err
+	}
+
+	if len(event.Items) == 0 {
+		return nil
+	}
+
+	userConvs := make([]*messageentity.UserConversation, 0, len(event.Items))
+	for _, item := range event.Items {
+		if item.UserId == "" || item.ConversationId == "" {
+			continue
+		}
+		userConvs = append(userConvs, messageentity.BuildUserConversation(
+			item.UserId,
+			item.ConversationId,
+			0,
+			item.LatestSeq,
+		))
+	}
+
+	return h.userConversationRepository.BatchUpdateSyncSeq(ctx, userConvs)
+}
+
 func (h *GroupHandler) ConsumeClaim(
 	session sarama.ConsumerGroupSession,
 	claim sarama.ConsumerGroupClaim,
@@ -199,14 +228,22 @@ func (h *GroupHandler) ConsumeClaim(
 			continue
 		}
 
+		var err error
 		switch claim.Topic() {
 		case protocol.EventTypeMessage:
-			h.handleMessage(session.Context(), msg.Topic, string(msg.Key), envelope)
+			err = h.handleMessage(session.Context(), msg.Topic, string(msg.Key), envelope)
 		case protocol.EventMessageReadAck:
-			h.handleMessageReadAck(msg.Topic, envelope)
+			err = h.handleMessageReadAck(msg.Topic, envelope)
+		case protocol.EventConversationSyncSeq:
+			err = h.handleConversationSyncSeq(session.Context(), envelope)
 		default:
 			log.Println("unknow topic")
 		}
+
+		if err != nil {
+			log.Printf("consume topic %s failed: %v", claim.Topic(), err)
+		}
+		session.MarkMessage(msg, "")
 	}
 
 	return nil

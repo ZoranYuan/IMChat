@@ -27,11 +27,12 @@ const (
 )
 
 const (
-	EventMessageReadAck = "msg_read_ack"
-	EventTypeMsgAck     = "msg_ack"
-	EventTypeMessage    = "msg"
-	EventWatchVideoCtrl = "watch_video_control"
-	EventWatchVideoSync = "watch_video_sync"
+	EventMessageReadAck      = "msg_read_ack"
+	EventTypeMsgAck          = "msg_ack"
+	EventTypeMessage         = "msg"
+	EventWatchVideoCtrl      = "watch_video_control"
+	EventWatchVideoSync      = "watch_video_sync"
+	EventConversationSyncSeq = "conversation_sync_seq"
 )
 
 type Event struct {
@@ -69,4 +70,14 @@ type MessageEvent struct {
 	CType          int      `json:"cType"`
 	Content        string   `json:"content"`
 	SendTime       int64    `json:"sendTime"`
+}
+
+type ConversationSyncSeqItem struct {
+	UserId         string `json:"userId"`
+	ConversationId string `json:"conversationId"`
+	LatestSeq      int64  `json:"latestSeq"`
+}
+
+type ConversationSyncSeqEvent struct {
+	Items []ConversationSyncSeqItem `json:"items"`
 }

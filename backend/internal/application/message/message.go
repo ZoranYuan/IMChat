@@ -522,12 +522,7 @@ func (ma *MessageApplication) GetOfflineMessages(
 		return nil, nil, err
 	}
 
-	type syncJob struct {
-		userConv  *messageentity.UserConversation
-		latestSeq int64
-	}
-
-	jobs := make([]syncJob, 0, len(uconvs))
+	syncItems := make([]protocol.ConversationSyncSeqItem, 0, len(uconvs))
 
 	for _, uconv := range uconvs {
 		latestSeq := syncMap[uconv.ConversationId]
@@ -536,26 +531,25 @@ func (ma *MessageApplication) GetOfflineMessages(
 			continue
 		}
 
-		jobs = append(jobs, syncJob{
-			userConv:  uconv,
-			latestSeq: latestSeq,
+		syncItems = append(syncItems, protocol.ConversationSyncSeqItem{
+			UserId:         uconv.UserId,
+			ConversationId: uconv.ConversationId,
+			LatestSeq:      latestSeq,
 		})
 	}
 
-	if len(jobs) > 0 {
-		// TODO 后期可以使用 kafka 去实现
-		go func(jobs []syncJob) {
-			for _, job := range jobs {
-				job.userConv.UpdateSyncSeq(job.latestSeq)
-				if err := ma.userConversationRepository.UpdateSyncSeq(
-					// 这里必须要额外一个 ctx
-					context.Background(),
-					job.userConv,
-				); err != nil {
-					log.Printf("marn: async update sync seq failed: %v", err)
-				}
+	if len(syncItems) > 0 {
+		go func(items []protocol.ConversationSyncSeqItem) {
+			event := protocol.ConversationSyncSeqEvent{Items: items}
+			if err := ma.taskManager.SendConversationSyncSeq(
+				context.Background(),
+				protocol.EventConversationSyncSeq,
+				userId,
+				event,
+			); err != nil {
+				log.Printf("mq send conversation sync seq failed: %v", err)
 			}
-		}(jobs)
+		}(syncItems)
 	}
 
 	return toMessagesAppDTO(msgs), unreadMap, nil

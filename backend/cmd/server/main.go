@@ -150,6 +150,7 @@ func main() {
 		string(protocol.EventMessageReadAck),
 		string(protocol.EventTypeMessage),
 		string(protocol.EventTypeMsgAck),
+		string(protocol.EventConversationSyncSeq),
 	},
 		fmt.Sprintf("machine-%d-group", cfg.App.MachineID),
 		groupHandler,
