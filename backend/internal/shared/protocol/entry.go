@@ -30,6 +30,8 @@ const (
 	EventMessageReadAck = "msg_read_ack"
 	EventTypeMsgAck     = "msg_ack"
 	EventTypeMessage    = "msg"
+	EventWatchVideoCtrl = "watch_video_control"
+	EventWatchVideoSync = "watch_video_sync"
 )
 
 type Event struct {

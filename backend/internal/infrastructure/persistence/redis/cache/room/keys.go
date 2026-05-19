@@ -1,16 +1,16 @@
 package room
 
-import "fmt"
+import cachekey "IM_backend/internal/infrastructure/persistence/redis/cache/key"
 
 func InviteKey(code string) string {
-	return fmt.Sprintf("invite:%s", code)
+	return cachekey.RoomInviteCode(code)
 }
 
 // 房间ID -> 邀请码
 func RoomInviteKey(roomId string) string {
-	return fmt.Sprintf("room:%s:invite", roomId)
+	return cachekey.RoomInvite(roomId)
 }
 
 func RoomMembersKey(roomId string) string {
-	return "room:members:" + roomId
+	return cachekey.RoomMembers(roomId)
 }

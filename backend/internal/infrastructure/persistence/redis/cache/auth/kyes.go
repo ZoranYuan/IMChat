@@ -1,17 +1,19 @@
 package auth
 
+import cachekey "IM_backend/internal/infrastructure/persistence/redis/cache/key"
+
 func AccessTokenKey(token string) string {
-	return "auth:access:token:" + token
+	return cachekey.AuthAccessToken(token)
 }
 
 func AccessUserKey(userId string) string {
-	return "auth:access:user:" + userId
+	return cachekey.AuthAccessUser(userId)
 }
 
 func RefreshUserKey(userId string) string {
-	return "auth:refresh:user:" + userId
+	return cachekey.AuthRefreshUser(userId)
 }
 
 func RefreshTokenKey(token string) string {
-	return "auth:refresh:token:" + token
+	return cachekey.AuthRefreshToken(token)
 }

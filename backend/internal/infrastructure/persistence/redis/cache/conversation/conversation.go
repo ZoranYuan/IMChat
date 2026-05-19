@@ -2,6 +2,7 @@ package conversation
 
 import (
 	messageentity "IM_backend/internal/domain/message/entity"
+	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
 	"errors"
 	"fmt"
@@ -11,12 +12,12 @@ import (
 )
 
 type ConversationCache struct {
-	rb *redis.Client
+	store *shared.Store
 }
 
 func NewConversationCache(rb *redis.Client) *ConversationCache {
 	return &ConversationCache{
-		rb: rb,
+		store: shared.NewStore(rb),
 	}
 }
 
@@ -30,12 +31,12 @@ func (c *ConversationCache) IsMemberWithVersion(ctx context.Context, convId, use
 	memberKey := ConversationMembersKey(convId)
 	versionKey := ConversationMembersVerKey(convId)
 
-	res, err := c.rb.Eval(
+	res, err := c.store.Eval(
 		ctx,
 		script,
 		[]string{memberKey, versionKey},
 		userId,
-	).Result()
+	)
 	if err != nil {
 		return false, 0, err
 	}
@@ -82,12 +83,12 @@ func (c *ConversationCache) SetMembers(ctx context.Context, convId string, userI
 	}
 	args = append(args, version)
 
-	_, err := c.rb.Eval(
+	_, err := c.store.Eval(
 		ctx,
 		script,
 		[]string{membersKey, versionKey},
 		args...,
-	).Result()
+	)
 
 	return err
 }
@@ -113,14 +114,14 @@ func (c *ConversationCache) updateMemberWithVersion(
 		return 1
 	`
 
-	_, err := c.rb.Eval(
+	_, err := c.store.Eval(
 		ctx,
 		script,
 		[]string{membersKey, versionKey},
 		userId,
 		version,
 		op,
-	).Result()
+	)
 
 	return err
 }
@@ -147,11 +148,11 @@ func (c *ConversationCache) GetMembersWithVersion(
 		return {members, version}
 	`
 
-	res, err := c.rb.Eval(
+	res, err := c.store.Eval(
 		ctx,
 		script,
 		[]string{memberKey, versionKey},
-	).Result()
+	)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -196,13 +197,13 @@ func (c *ConversationCache) GetMembersWithVersion(
 
 func (c *ConversationCache) DeleteConversation(ctx context.Context, convId string) error {
 	key := ConversationMembersKey(convId)
-	return c.rb.Del(ctx, key).Err()
+	return c.store.Del(ctx, key)
 }
 
 func (mc *ConversationCache) IncrConvLatestSeq(ctx context.Context, convId string) (int64, error) {
 	key := ConversationSeqKeys(convId)
 
-	r, err := mc.rb.Incr(ctx, key).Result()
+	r, err := mc.store.Incr(ctx, key)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return r, messageentity.ErrConversationNotCreated
@@ -216,7 +217,7 @@ func (mc *ConversationCache) IncrConvLatestSeq(ctx context.Context, convId strin
 
 func (mc *ConversationCache) GetConvLatestSeq(ctx context.Context, convId string) (int64, error) {
 	key := ConversationSeqKeys(convId)
-	r, err := mc.rb.Get(ctx, key).Int64()
+	r, err := mc.store.GetInt64(ctx, key)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return r, messageentity.ErrConversationNotCreated
@@ -230,7 +231,5 @@ func (mc *ConversationCache) GetConvLatestSeq(ctx context.Context, convId string
 
 func (mc *ConversationCache) SetConvSeq(ctx context.Context, convId string, seq int64) error {
 	key := ConversationSeqKeys(convId)
-	return mc.rb.SetArgs(ctx, key, seq, redis.SetArgs{
-		Mode: "NX",
-	}).Err()
+	return mc.store.SetNXInt64(ctx, key, seq)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"IM_backend/configs"
+	fileapp "IM_backend/internal/application/file"
 	friendapp "IM_backend/internal/application/friend"
 	friendrequestapp "IM_backend/internal/application/friend_request"
 	messageapp "IM_backend/internal/application/message"
@@ -11,6 +12,7 @@ import (
 	"IM_backend/internal/infrastructure/messaging/client/kafka"
 	"IM_backend/internal/infrastructure/persistence"
 	"IM_backend/internal/infrastructure/persistence/mysql"
+	filemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/file"
 	friendmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/friend"
 	friendrequestmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/friend_request"
 	messagemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/message"
@@ -20,11 +22,14 @@ import (
 	"IM_backend/internal/infrastructure/persistence/redis"
 	authredis "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
 	conversationredis "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
+	fileredis "IM_backend/internal/infrastructure/persistence/redis/cache/file"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
 	roomredis "IM_backend/internal/infrastructure/persistence/redis/cache/room"
 	authsvc "IM_backend/internal/infrastructure/security/auth"
+	minioobj "IM_backend/internal/infrastructure/storage/minio"
 	"IM_backend/internal/shared/protocol"
 	httpapi "IM_backend/internal/transport/http"
+	filehttp "IM_backend/internal/transport/http/file"
 	friendhttp "IM_backend/internal/transport/http/friend"
 	friendrequesthttp "IM_backend/internal/transport/http/friend_request"
 	messagehttp "IM_backend/internal/transport/http/message"
@@ -73,6 +78,7 @@ func main() {
 
 	authCache := authredis.NewAuthCache(redis)
 	roomCache := roomredis.NewRoomCache(redis)
+	fileCache := fileredis.NewFileCache(redis)
 
 	conversationCache := conversationredis.NewConversationCache(redis)
 
@@ -84,7 +90,16 @@ func main() {
 
 	authService := authsvc.NewAuthService(cfg)
 
+	objectStorage, err := minioobj.NewObjectStorage(ctx, cfg.Storage.MinIO)
+	if err != nil {
+		log.Fatalln("failed to connect minio, ", err)
+	}
+
 	// 构造依赖
+	fileRepository := filemysql.NewFileRepository(db)
+	fileApplication := fileapp.NewApplication(cfg, fileRepository, fileCache, objectStorage)
+	fileHandle := filehttp.NewHandle(fileApplication)
+
 	messageRepository := messagemysql.NewMessageRepository(db)
 	conversationRepository := messagemysql.NewConversationRepository(db)
 	userConversationRepository := messagemysql.NewUserConversationRepository(db)
@@ -179,6 +194,7 @@ func main() {
 	httpapi.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	httpapi.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
 	httpapi.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)
+	httpapi.RegisterFileRouter(apiGroup, fileHandle, authMiddle)
 
 	ws.RegisterWSRouter(apiGroup, wsHandle, authMiddle)
 

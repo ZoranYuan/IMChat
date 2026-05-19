@@ -17,6 +17,15 @@ type MessageAppeDTO struct {
 	VideoTime      *int64 `json:"videoTime"` // 视频时长（毫秒，可选）
 }
 
+type DanmakuDTO struct {
+	MessageId string `json:"messageId"`
+	SenderId  string `json:"senderId"`
+	Content   string `json:"content"`
+	Seq       int64  `json:"seq"`
+	TimeMs    int64  `json:"timeMs"`
+	SendTime  int64  `json:"sendTime"`
+}
+
 func toMessagesAppDTO(ms []*messageentity.Message) []MessageAppeDTO {
 	if len(ms) == 0 {
 		return nil

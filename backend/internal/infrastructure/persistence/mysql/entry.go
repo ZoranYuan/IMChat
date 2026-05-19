@@ -47,6 +47,7 @@ func InitMysql(dns string) *gorm.DB {
 		&model.Conversation{},
 		&model.UserConversation{},
 		&model.Message{},
+		&model.File{},
 	)
 	return db
 }

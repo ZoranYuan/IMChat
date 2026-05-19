@@ -1,6 +1,7 @@
 package api
 
 import (
+	filehttp "IM_backend/internal/transport/http/file"
 	friendhttp "IM_backend/internal/transport/http/friend"
 	friendrequesthttp "IM_backend/internal/transport/http/friend_request"
 	messagehttp "IM_backend/internal/transport/http/message"
@@ -34,4 +35,9 @@ func RegisterRoomRouter(r *gin.RouterGroup, rh *roomhttp.RoomHandle, authMiddle 
 func RegisterMessagesRouter(r *gin.RouterGroup, mh *messagehttp.MessageHandle, authMiddle *middleware.AuthMiddleware) {
 	messageGroup := r.Group("/messages").Use(authMiddle.JWTAuthMiddleware())
 	messagehttp.RegisterRoutes(messageGroup, mh)
+}
+
+func RegisterFileRouter(r *gin.RouterGroup, fh *filehttp.Handle, authMiddle *middleware.AuthMiddleware) {
+	fileGroup := r.Group("/files").Use(authMiddle.JWTAuthMiddleware())
+	filehttp.RegisterRoutes(fileGroup, fh)
 }

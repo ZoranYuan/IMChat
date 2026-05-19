@@ -1,11 +1,11 @@
 package friend
 
-import "fmt"
+import cachekey "IM_backend/internal/infrastructure/persistence/redis/cache/key"
 
 const (
-	FriendSetKeyPrefix = "friend:set:" // user -> set(friendUserId)
+	FriendSetKeyPrefix = "im:user:" // user -> set(friendUserId)
 )
 
 func FriendSetKey(userId string) string {
-	return fmt.Sprintf("%s%s", FriendSetKeyPrefix, userId)
+	return cachekey.UserFriends(userId)
 }

@@ -14,6 +14,7 @@ type Config struct {
 	JWT       JWT             `yaml:"jwt"`
 	WebSocket WebSocketConfig `yaml:"ws"`
 	Kafka     KafkaConfig     `yaml:"kafka"`
+	Storage   StorageConfig   `yaml:"storage"`
 }
 
 type KafkaConfig struct {
@@ -49,6 +50,21 @@ type KafkaProducerConfig struct {
 
 type KafkaPartitionConfig struct {
 	Strategy string `yaml:"strategy"` // conversation_hash / user_hash / random
+}
+
+type StorageConfig struct {
+	MinIO MinIOConfig `yaml:"minio"`
+}
+
+type MinIOConfig struct {
+	Endpoint        string `yaml:"endpoint"`
+	PublicEndpoint  string `yaml:"public_endpoint"`
+	AccessKeyID     string `yaml:"access_key_id"`
+	SecretAccessKey string `yaml:"secret_access_key"`
+	Bucket          string `yaml:"bucket"`
+	UseSSL          bool   `yaml:"use_ssl"`
+	CacheTTLSeconds int    `yaml:"cache_ttl_seconds"`
+	URLTTLSeconds   int    `yaml:"url_ttl_seconds"`
 }
 
 type App struct {

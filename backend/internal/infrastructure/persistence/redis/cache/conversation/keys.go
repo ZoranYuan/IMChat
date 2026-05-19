@@ -1,13 +1,15 @@
 package conversation
 
+import cachekey "IM_backend/internal/infrastructure/persistence/redis/cache/key"
+
 func ConversationMembersKey(conversation string) string {
-	return "conversation:members:" + conversation
+	return cachekey.ConversationMembers(conversation)
 }
 
 func ConversationSeqKeys(convId string) string {
-	return "conversation:seq:" + convId
+	return cachekey.ConversationSeq(convId)
 }
 
 func ConversationMembersVerKey(conversation string) string {
-	return "conversation:members:ver:" + conversation
+	return cachekey.ConversationMembersVersion(conversation)
 }

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
 	"time"
 
@@ -8,12 +9,12 @@ import (
 )
 
 type authCache struct {
-	client *redis.Client
+	store *shared.Store
 }
 
 func NewAuthCache(client *redis.Client) *authCache {
 	return &authCache{
-		client: client,
+		store: shared.NewStore(client),
 	}
 }
 
@@ -23,31 +24,21 @@ func (ac *authCache) set(
 	value string,
 	expire time.Duration,
 ) error {
-	return ac.client.Set(ctx, key, value, expire).Err()
+	return ac.store.SetString(ctx, key, value, expire)
 }
 
 func (ac *authCache) get(
 	ctx context.Context,
 	key string,
 ) (string, error) {
-
-	result, err := ac.client.Get(ctx, key).Result()
-
-	if err == redis.Nil {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-
-	return result, nil
+	return ac.store.GetString(ctx, key)
 }
 
 func (ac *authCache) del(
 	ctx context.Context,
 	key string,
 ) error {
-	return ac.client.Del(ctx, key).Err()
+	return ac.store.Del(ctx, key)
 }
 
 func (ac *authCache) SetAccessToken(

@@ -2,6 +2,7 @@ package room
 
 import (
 	roomentity "IM_backend/internal/domain/room/entity"
+	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -12,12 +13,12 @@ import (
 )
 
 type RoomCache struct {
-	rb *redis.Client
+	store *shared.Store
 }
 
 func NewRoomCache(rb *redis.Client) *RoomCache {
 	return &RoomCache{
-		rb: rb,
+		store: shared.NewStore(rb),
 	}
 }
 
@@ -48,15 +49,15 @@ func (rc *RoomCache) UpdateInviteCode(
 	roomKey := RoomInviteKey(roomId)
 	ttlDur := time.Duration(ttl) * time.Minute
 
-	oldCode, err := rc.rb.Get(ctx, roomKey).Result()
+	oldCode, err := rc.store.GetRequiredString(ctx, roomKey)
 
 	if err != nil && !errors.Is(err, redis.Nil) {
 		return "", err
 	}
 
 	if err == nil {
-		_ = rc.rb.Expire(ctx, roomKey, ttlDur)
-		_ = rc.rb.Expire(ctx, InviteKey(oldCode), ttlDur)
+		_ = rc.store.Expire(ctx, roomKey, ttlDur)
+		_ = rc.store.Expire(ctx, InviteKey(oldCode), ttlDur)
 		return oldCode, nil
 	}
 
@@ -67,33 +68,25 @@ func (rc *RoomCache) UpdateInviteCode(
 			continue
 		}
 
-		ok, err := rc.rb.SetArgs(
-			ctx,
-			InviteKey(code),
-			roomId,
-			redis.SetArgs{
-				Mode: "NX",
-				TTL:  ttlDur,
-			},
-		).Result()
+		ok, err := rc.store.SetNXString(ctx, InviteKey(code), roomId, ttlDur)
 
 		if err != nil {
 			continue
 		}
 
-		if ok != "OK" {
+		if !ok {
 			continue
 		}
 
-		err = rc.rb.Set(
+		err = rc.store.SetString(
 			ctx,
 			roomKey,
 			code,
 			ttlDur,
-		).Err()
+		)
 
 		if err != nil {
-			rc.rb.Del(ctx, InviteKey(code))
+			_ = rc.store.Del(ctx, InviteKey(code))
 			continue
 		}
 
@@ -104,7 +97,7 @@ func (rc *RoomCache) UpdateInviteCode(
 }
 
 func (rc *RoomCache) GetInviteCode(ctx context.Context, roomId string) (string, error) {
-	inviteCode, err := rc.rb.Get(ctx, RoomInviteKey(roomId)).Result()
+	inviteCode, err := rc.store.GetRequiredString(ctx, RoomInviteKey(roomId))
 
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -118,7 +111,7 @@ func (rc *RoomCache) GetInviteCode(ctx context.Context, roomId string) (string, 
 }
 
 func (rc *RoomCache) GetRoomIDByCode(ctx context.Context, code string) (string, error) {
-	roomId, err := rc.rb.Get(ctx, InviteKey(code)).Result()
+	roomId, err := rc.store.GetRequiredString(ctx, InviteKey(code))
 
 	if err != nil {
 		if errors.Is(err, redis.Nil) {

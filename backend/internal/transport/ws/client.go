@@ -2,12 +2,15 @@ package ws
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
 
+	wspb "IM_backend/internal/transport/ws/pb"
+
 	"github.com/gorilla/websocket"
+	"google.golang.org/protobuf/proto"
 )
 
 type Client struct {
@@ -77,15 +80,22 @@ func (c *Client) Write(messageType int, data []byte, writeWaitSeconds int) error
 }
 
 func (c *Client) Read(pongWaitSeconds int) (*WsMessage, error) {
-	_, msg, err := c.conn.ReadMessage()
+	messageType, msg, err := c.conn.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
 
 	var wsMsg WsMessage
-	if err := json.Unmarshal(msg, &wsMsg); err != nil {
+	if messageType != websocket.BinaryMessage {
+		return nil, fmt.Errorf("unsupported websocket message type: %d", messageType)
+	}
+
+	var frame wspb.WsFrame
+	if err := proto.Unmarshal(msg, &frame); err != nil {
 		return nil, err
 	}
+	wsMsg.Op = frame.GetOp()
+	wsMsg.Data = frame.GetData()
 
 	c.mu.Lock()
 	c.idle = time.Now().UnixMilli()

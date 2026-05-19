@@ -17,6 +17,14 @@ type MessageRepository interface {
 		limit int,
 	) ([]*messageentity.Message, error)
 
+	GetMessagesBySendTime(
+		ctx context.Context,
+		conversationId string,
+		startTime int64,
+		endTime int64,
+		limit int,
+	) ([]*messageentity.Message, error)
+
 	GetLatestMessagesByConversationIDs(
 		ctx context.Context,
 		conversationIDs []string,

@@ -10,6 +10,13 @@ type MessageHistoryReq struct {
 	Limit          int    `form:"limit"`
 }
 
+type DanmakuReq struct {
+	RoomId    string `form:"roomId" binding:"required"`
+	StartTime int64  `form:"startTime"`
+	EndTime   int64  `form:"endTime"`
+	Limit     int    `form:"limit"`
+}
+
 type Message struct {
 	MessageId string `json:"messageId"`
 	SenderId  string `json:"senderId"`
@@ -30,6 +37,19 @@ type MessageHistoryRes struct {
 	Messages   []Message `json:"messages"`
 	NextCursor int64     `json:"nextCursor"`
 	HasMore    bool      `json:"hasMore"`
+}
+
+type Danmaku struct {
+	MessageId string `json:"messageId"`
+	SenderId  string `json:"senderId"`
+	Content   string `json:"content"`
+	Seq       int64  `json:"seq"`
+	TimeMs    int64  `json:"timeMs"`
+	SendTime  int64  `json:"sendTime"`
+}
+
+type DanmakuRes struct {
+	Items []Danmaku `json:"items"`
 }
 
 func toHistoryMessageRes(messages []messageapp.MessageAppeDTO, nextCursor int64, hashMore bool) (res MessageHistoryRes) {
@@ -54,6 +74,21 @@ func toHistoryMessageRes(messages []messageapp.MessageAppeDTO, nextCursor int64,
 	res.NextCursor = nextCursor
 
 	return
+}
+
+func toDanmakuRes(items []messageapp.DanmakuDTO) (res DanmakuRes) {
+	res.Items = make([]Danmaku, 0, len(items))
+	for _, item := range items {
+		res.Items = append(res.Items, Danmaku{
+			MessageId: item.MessageId,
+			SenderId:  item.SenderId,
+			Content:   item.Content,
+			Seq:       item.Seq,
+			TimeMs:    item.TimeMs,
+			SendTime:  item.SendTime,
+		})
+	}
+	return res
 }
 
 func toOfflineMessageRes(messages []messageapp.MessageAppeDTO, unreadMap map[string]int64) (res []OfflineMessageRes) {

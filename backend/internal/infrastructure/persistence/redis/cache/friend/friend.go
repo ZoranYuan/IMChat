@@ -1,42 +1,36 @@
 package friend
 
 import (
+	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
 
 	"github.com/redis/go-redis/v9"
 )
 
 type FriendCache struct {
-	rb *redis.Client
+	store *shared.Store
 }
 
 func NewFriendCache(rb *redis.Client) *FriendCache {
 	return &FriendCache{
-		rb: rb,
+		store: shared.NewStore(rb),
 	}
 }
 
 func (c *FriendCache) IsFriend(ctx context.Context, userId, friendUserId string) (bool, error) {
 	key := FriendSetKey(userId)
-	return c.rb.SIsMember(ctx, key, friendUserId).Result()
+	return c.store.SIsMember(ctx, key, friendUserId)
 }
 
 func (c *FriendCache) AddFriend(ctx context.Context, userId, friendUserId string) error {
-	pipe := c.rb.Pipeline()
-
 	key1 := FriendSetKey(userId)
 	key2 := FriendSetKey(friendUserId)
-
-	pipe.SAdd(ctx, key1, friendUserId)
-	pipe.SAdd(ctx, key2, userId)
-
-	_, err := pipe.Exec(ctx)
-	return err
+	return c.store.SAddPair(ctx, key1, friendUserId, key2, userId)
 }
 
 func (c *FriendCache) GetFriends(ctx context.Context, userId string) ([]string, error) {
 	key := FriendSetKey(userId)
-	return c.rb.SMembers(ctx, key).Result()
+	return c.store.SMembers(ctx, key)
 }
 
 func (c *FriendCache) SetFriends(ctx context.Context, userId string, friendIds []string) error {
@@ -46,25 +40,13 @@ func (c *FriendCache) SetFriends(ctx context.Context, userId string, friendIds [
 
 	key := FriendSetKey(userId)
 
-	values := make([]interface{}, 0, len(friendIds))
-	for _, id := range friendIds {
-		values = append(values, id)
-	}
-
-	return c.rb.SAdd(ctx, key, values...).Err()
+	return c.store.SAddStrings(ctx, key, friendIds...)
 }
 
 func (c *FriendCache) RemoveFriend(ctx context.Context, userId, friendUserId string) error {
-	pipe := c.rb.Pipeline()
-
 	key1 := FriendSetKey(userId)
 	key2 := FriendSetKey(friendUserId)
-
-	pipe.SRem(ctx, key1, friendUserId)
-	pipe.SRem(ctx, key2, userId)
-
-	_, err := pipe.Exec(ctx)
-	return err
+	return c.store.SRemPair(ctx, key1, friendUserId, key2, userId)
 }
 
 func (c *FriendCache) DeleteUserFriends(ctx context.Context, userId []string) error {
@@ -74,5 +56,5 @@ func (c *FriendCache) DeleteUserFriends(ctx context.Context, userId []string) er
 		keys = append(keys, FriendSetKey(u))
 	}
 
-	return c.rb.Del(ctx, keys...).Err()
+	return c.store.Del(ctx, keys...)
 }

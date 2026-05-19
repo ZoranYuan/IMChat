@@ -3,6 +3,7 @@ package roomuser
 import (
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	roomentity "IM_backend/internal/domain/room/entity"
+	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 	"errors"
 
@@ -38,6 +39,14 @@ func (rur *RoomUserRepository) GetRelationByIDs(userId, roomId string) (*rooment
 	}
 
 	return ToDomain(m), nil
+}
+
+func (rur *RoomUserRepository) ListActiveUserIDs(roomId string) ([]string, error) {
+	var userIds []string
+	err := rur.db.Model(&model.RoomUser{}).
+		Where("room_id = ? AND status IN ?", roomId, []int{int(roomvo.Activate), int(roomvo.BeMuted)}).
+		Pluck("user_id", &userIds).Error
+	return userIds, err
 }
 
 func (rur *RoomUserRepository) Create(domain *roomentity.RoomUser) (*roomentity.RoomUser, error) {

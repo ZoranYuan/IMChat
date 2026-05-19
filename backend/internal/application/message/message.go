@@ -199,6 +199,33 @@ func (ma *MessageApplication) HandleMessageReadAck(
 	return nil
 }
 
+func (ma *MessageApplication) CheckRoomMember(ctx context.Context, userId string, roomId string) error {
+	ok, err := ma.checkConvMember(ctx, messagevo.RoomChat, roomId, userId, roomId)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotRoomMember
+	}
+	return nil
+}
+
+func (ma *MessageApplication) GetRoomMemberIDs(ctx context.Context, roomId string) ([]string, error) {
+	members, _, err := ma.conversationCache.GetMembersWithVersion(ctx, roomId)
+	if err == nil && len(members) > 0 {
+		return members, nil
+	}
+
+	members, err = ma.roomUserRepository.ListActiveUserIDs(roomId)
+	if err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return nil, ErrNotRoomMember
+	}
+	return members, nil
+}
+
 func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
 	conversationId := messageentity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType)
 	messageId, err := snow.GenerateSnowID(int(ma.config.App.MachineID))
@@ -400,6 +427,61 @@ func (ma *MessageApplication) GetHistoryMessages(
 	}
 
 	return msgsApp, nextCursor, hasMore, nil
+}
+
+func (ma *MessageApplication) GetRoomDanmaku(
+	ctx context.Context,
+	roomId string,
+	userId string,
+	startTime int64,
+	endTime int64,
+	limit int,
+) ([]DanmakuDTO, error) {
+	if err := ma.CheckRoomMember(ctx, userId, roomId); err != nil {
+		return nil, err
+	}
+
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	if startTime < 0 {
+		startTime = 0
+	}
+
+	msgs, err := ma.messageRepository.GetMessagesBySendTime(ctx, roomId, startTime, endTime, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return []DanmakuDTO{}, nil
+	}
+
+	baseTime := startTime
+	if baseTime == 0 {
+		baseTime = msgs[0].SendTime
+	}
+
+	res := make([]DanmakuDTO, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg == nil || msg.Type != messagevo.Text {
+			continue
+		}
+
+		offset := msg.SendTime - baseTime
+		if offset < 0 {
+			offset = 0
+		}
+		res = append(res, DanmakuDTO{
+			MessageId: msg.MessageId,
+			SenderId:  msg.SendId,
+			Content:   msg.Content,
+			Seq:       msg.Seq,
+			TimeMs:    offset,
+			SendTime:  msg.SendTime,
+		})
+	}
+
+	return res, nil
 }
 
 func (ma *MessageApplication) GetOfflineMessages(

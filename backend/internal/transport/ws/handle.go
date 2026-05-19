@@ -5,6 +5,7 @@ import (
 	messageapp "IM_backend/internal/application/message"
 	"IM_backend/internal/shared/protocol"
 	"IM_backend/internal/transport/http/response"
+	wspb "IM_backend/internal/transport/ws/pb"
 	"context"
 	"encoding/json"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"google.golang.org/protobuf/proto"
 )
 
 type WSHandler struct {
@@ -39,25 +41,27 @@ func NewWSHandler(app *messageapp.MessageApplication, config configs.Config, dis
 
 	dispatcher.RegisterHandler(protocol.EventTypeMessage, wh.handleSendMessage)
 	dispatcher.RegisterHandler(protocol.EventMessageReadAck, wh.handleHistoryMessageRead)
+	dispatcher.RegisterHandler(protocol.EventWatchVideoCtrl, wh.handleWatchVideoControl)
 
 	return wh
 }
 
 func (wh *WSHandler) handleHistoryMessageRead(ctx context.Context, c *Client, data []byte) error {
-	var req MessageReadAckReq
+	var pb wspb.MessageReadAckReq
 
-	if err := json.Unmarshal(data, &req); err != nil {
+	if err := proto.Unmarshal(data, &pb); err != nil {
 		return err
 	}
 
-	return wh.app.HandleMessageReadAck(ctx, c.userId, req.ConversationId, req.LastReadSeq)
+	return wh.app.HandleMessageReadAck(ctx, c.userId, pb.GetConversationId(), pb.GetLastReadSeq())
 }
 
 func (wh *WSHandler) handleSendMessage(ctx context.Context, c *Client, data []byte) error {
-	var req MessageReq
-	if err := json.Unmarshal(data, &req); err != nil {
+	var pb wspb.MessageReq
+	if err := proto.Unmarshal(data, &pb); err != nil {
 		return err
 	}
+	req := messageReqFromPB(&pb)
 
 	messageApp, err := wh.app.HandleMessage(ctx, messageapp.MessageAppeDTO{
 		SendId:      c.userId,
@@ -68,6 +72,12 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 		Content:     req.Content,
 		VideoTime:   req.VideoTime,
 	})
+	if messageApp == nil {
+		messageApp = &messageapp.MessageAppeDTO{
+			ClientMsgId: req.ClientMsgId,
+			Status:      string(protocol.AckStatusFailed),
+		}
+	}
 
 	var ackEvent *protocol.MessageAckEvent = &protocol.MessageAckEvent{
 		ClientMsgId: messageApp.ClientMsgId,
@@ -88,6 +98,38 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 	}
 
 	return wh.gateway.SendToClient(protocol.EventTypeMsgAck, c.userId, data)
+}
+
+func (wh *WSHandler) handleWatchVideoControl(ctx context.Context, c *Client, data []byte) error {
+	var pb wspb.WatchVideoControl
+	if err := proto.Unmarshal(data, &pb); err != nil {
+		return err
+	}
+	req := watchVideoControlFromPB(&pb)
+
+	if req.RoomId == "" {
+		return nil
+	}
+	if err := wh.app.CheckRoomMember(ctx, c.userId, req.RoomId); err != nil {
+		return err
+	}
+
+	if req.Action == "get_state" {
+		state, ok := wh.gateway.GetWatchVideoState(req.RoomId)
+		if !ok {
+			return nil
+		}
+		return wh.gateway.SendWatchVideoStateToUsers(protocol.EventWatchVideoSync, []string{c.userId}, state)
+	}
+
+	state := wh.gateway.UpsertWatchVideoState(req, c.userId)
+
+	members, err := wh.app.GetRoomMemberIDs(ctx, req.RoomId)
+	if err != nil {
+		return err
+	}
+
+	return wh.gateway.SendWatchVideoStateToUsers(protocol.EventWatchVideoSync, members, state)
 }
 
 func (wh *WSHandler) readLoop(ctx context.Context, client *Client) {
@@ -114,13 +156,7 @@ func (wh *WSHandler) readLoop(ctx context.Context, client *Client) {
 			return
 		}
 
-		data, err := json.Marshal(msg.Data)
-		if err != nil {
-			log.Println("failed to read message, ", err)
-			return
-		}
-
-		wh.dispatcher.Dispatch(ctx, client, msg.Op, data)
+		wh.dispatcher.Dispatch(ctx, client, msg.Op, msg.Data)
 	}
 }
 
@@ -135,9 +171,16 @@ func (wh *WSHandler) writeLoop(client *Client) {
 				return
 			}
 
-			m, _ := json.Marshal(msg)
+			m, err := proto.Marshal(&wspb.WsFrame{
+				Op:   msg.Op,
+				Data: msg.Data,
+			})
+			if err != nil {
+				log.Println("marshal ws message failed ", err)
+				return
+			}
 
-			if err := client.Write(websocket.TextMessage, m, wh.config.WebSocket.WriteWaitSeconds); err != nil {
+			if err := client.Write(websocket.BinaryMessage, m, wh.config.WebSocket.WriteWaitSeconds); err != nil {
 				return
 			}
 		case <-ticker.C:
