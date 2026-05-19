@@ -39,7 +39,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 
 		// context cancel 退出
 		if ctx.Err() != nil {
-			log.Println("consum error:", ctx.Err())
+			log.Println("consume error:", ctx.Err())
 			return ctx.Err()
 		}
 	}

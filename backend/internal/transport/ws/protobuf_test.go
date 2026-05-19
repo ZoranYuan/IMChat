@@ -39,7 +39,8 @@ func TestEncodeWebSocketPayloadMessageEvent(t *testing.T) {
 		got.GetConversationId() != event.ConversationId ||
 		got.GetConvType() != int32(event.ConvType) ||
 		got.GetContent() != event.Content {
-		t.Fatalf("unexpected protobuf event: %+v", got)
+		t.Fatalf("unexpected protobuf event: messageId=%q conversationId=%q convType=%d content=%q",
+			got.GetMessageId(), got.GetConversationId(), got.GetConvType(), got.GetContent())
 	}
 }
 

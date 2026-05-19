@@ -7,5 +7,5 @@ type FriendCache interface {
 	AddFriend(ctx context.Context, userId, friendUserId string) error
 	GetFriends(ctx context.Context, userId string) ([]string, error)
 	RemoveFriend(ctx context.Context, userId, friendUserId string) error
-	DeleteUsersFriends(ctx context.Context, userId []string) error
+	DeleteUserFriends(ctx context.Context, userIds []string) error
 }

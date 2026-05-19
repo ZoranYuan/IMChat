@@ -105,9 +105,9 @@ func main() {
 	userHandle := userhttp.NewUserHandle(userApp)
 
 	friendRepository := friendmysql.NewFriendRepository(db)
-	friendRequestRepositoy := friendrequestmysql.NewFriendRequestRepository(db)
+	friendRequestRepository := friendrequestmysql.NewFriendRequestRepository(db)
 	friendRequestApp := friendrequestapp.NewFriendApplication(
-		friendRequestRepositoy,
+		friendRequestRepository,
 		userRepository,
 		cfg,
 		friendRepository,
@@ -204,11 +204,11 @@ func main() {
 
 	defer srv.Close()
 
-	log.Println("start the serve....")
+	log.Println("start the server....")
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("failed to run serve", err)
+			log.Fatal("failed to run server", err)
 		}
 	}()
 
@@ -218,9 +218,9 @@ func main() {
 	<-quit
 
 	// 关闭服务
-	log.Println("finish the serve....")
+	log.Println("finish the server....")
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("failed to finish the serve", err)
+		log.Fatal("failed to finish the server", err)
 	}
 }

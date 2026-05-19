@@ -49,11 +49,11 @@ func (c *FriendCache) RemoveFriend(ctx context.Context, userId, friendUserId str
 	return c.store.SRemPair(ctx, key1, friendUserId, key2, userId)
 }
 
-func (c *FriendCache) DeleteUserFriends(ctx context.Context, userId []string) error {
-	keys := make([]string, 0, len(userId))
+func (c *FriendCache) DeleteUserFriends(ctx context.Context, userIds []string) error {
+	keys := make([]string, 0, len(userIds))
 
-	for _, u := range userId {
-		keys = append(keys, FriendSetKey(u))
+	for _, userId := range userIds {
+		keys = append(keys, FriendSetKey(userId))
 	}
 
 	return c.store.Del(ctx, keys...)

@@ -224,7 +224,7 @@ func (h *GroupHandler) ConsumeClaim(
 		case protocol.EventConversationSyncSeq:
 			err = h.handleConversationSyncSeq(session.Context(), envelope)
 		default:
-			log.Println("unknow topic")
+			log.Println("unknown topic")
 		}
 
 		if err != nil {

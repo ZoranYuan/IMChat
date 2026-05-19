@@ -157,14 +157,14 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 		return "", ErrRoomUnavailable
 	}
 
-	invitecode, err := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
+	inviteCode, err := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
 
 	if err != nil {
 		log.Println("failed to get invite code, ", err)
 		return "", nil
 	}
 
-	return invitecode, nil
+	return inviteCode, nil
 }
 
 func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) (*RoomUserDTO, *RoomAppDTO, error) {
