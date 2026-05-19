@@ -23,6 +23,9 @@ func NewConversationCache(rb *redis.Client) *ConversationCache {
 
 func (c *ConversationCache) IsMemberWithVersion(ctx context.Context, convId, userId string) (bool, int64, error) {
 	script := `
+		if redis.call("EXISTS", KEYS[2]) == 0 then
+			return {0, nil}
+		end
 		local isMember = redis.call("SISMEMBER", KEYS[1], ARGV[1])
 		local version = redis.call("GET", KEYS[2])
 		return {isMember, version}
@@ -61,27 +64,23 @@ func (c *ConversationCache) IsMemberWithVersion(ctx context.Context, convId, use
 }
 
 func (c *ConversationCache) SetMembers(ctx context.Context, convId string, userIds []string, version int64) error {
-	if len(userIds) == 0 {
-		return nil
-	}
-
 	membersKey := ConversationMembersKey(convId)
 	versionKey := ConversationMembersVerKey(convId)
 
 	script := `
-		for i = 1, #ARGV-1 do
+		redis.call('DEL', KEYS[1])
+		for i = 2, #ARGV do
 			redis.call('SADD', KEYS[1], ARGV[i])
 		end
-
-		redis.call('SET', KEYS[2], ARGV[#ARGV])
+		redis.call('SET', KEYS[2], ARGV[1])
 		return 1
 	`
 
 	args := make([]interface{}, 0, len(userIds)+1)
+	args = append(args, version)
 	for _, uid := range userIds {
 		args = append(args, uid)
 	}
-	args = append(args, version)
 
 	_, err := c.store.Eval(
 		ctx,
@@ -105,6 +104,9 @@ func (c *ConversationCache) updateMemberWithVersion(
 	versionKey := ConversationMembersVerKey(convId)
 
 	script := `
+		if redis.call('EXISTS', KEYS[2]) == 0 then
+			return 0
+		end
 		if ARGV[3] == "add" then
 			redis.call('SADD', KEYS[1], ARGV[1])
 		else
@@ -143,6 +145,9 @@ func (c *ConversationCache) GetMembersWithVersion(
 	versionKey := ConversationMembersVerKey(convId)
 
 	script := `
+		if redis.call("EXISTS", KEYS[2]) == 0 then
+			return {{}, nil}
+		end
 		local members = redis.call("SMEMBERS", KEYS[1])
 		local version = redis.call("GET", KEYS[2])
 		return {members, version}
@@ -196,8 +201,7 @@ func (c *ConversationCache) GetMembersWithVersion(
 }
 
 func (c *ConversationCache) DeleteConversation(ctx context.Context, convId string) error {
-	key := ConversationMembersKey(convId)
-	return c.store.Del(ctx, key)
+	return c.store.Del(ctx, ConversationMembersKey(convId), ConversationMembersVerKey(convId))
 }
 
 func (mc *ConversationCache) IncrConvLatestSeq(ctx context.Context, convId string) (int64, error) {

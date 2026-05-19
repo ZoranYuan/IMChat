@@ -6,7 +6,6 @@ import (
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	messageentity "IM_backend/internal/domain/message/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
-	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
@@ -19,7 +18,6 @@ import (
 type GroupHandler struct {
 	dispatch                   ClientDispatcher
 	conversationCache          convcache.ConversationCache
-	localConversationCache     *local.ConversationVersionCache
 	workerPool                 *WorkerPool
 	sf                         singleflight.Group
 	roomRepository             roomrepo.RoomRepository
@@ -30,7 +28,6 @@ func NewGroupHandler(dispatcher ClientDispatcher,
 	roomRepository roomrepo.RoomRepository,
 	userConversationRepository messagerepo.UserConversationRepository,
 	conversationCache convcache.ConversationCache,
-	localConversationCache *local.ConversationVersionCache,
 ) *GroupHandler {
 	return &GroupHandler{
 		dispatch:                   dispatcher,
@@ -38,7 +35,6 @@ func NewGroupHandler(dispatcher ClientDispatcher,
 		userConversationRepository: userConversationRepository,
 		roomRepository:             roomRepository,
 		workerPool:                 newWorkerPool(100, 1000),
-		localConversationCache:     localConversationCache,
 	}
 }
 
@@ -51,22 +47,15 @@ func (h *GroupHandler) Cleanup(sarama.ConsumerGroupSession) error {
 }
 
 func (h *GroupHandler) getConvMembers(ctx context.Context, conversationId string, roomId string) ([]string, error) {
-	localVersion, ok := h.localConversationCache.GetVersion(conversationId)
-
 	members, cacheVersion, err := h.conversationCache.GetMembersWithVersion(ctx, conversationId)
-	if ok && localVersion == cacheVersion {
+	if err == nil && cacheVersion > 0 && len(members) > 0 {
 		return members, nil
 	}
 
 	v, err, _ := h.sf.Do(conversationId, func() (any, error) {
-		// double check
-		localVersion, ok := h.localConversationCache.GetVersion(conversationId)
-
 		members, cacheVersion, err := h.conversationCache.GetMembersWithVersion(ctx, conversationId)
-		if err == nil {
-			if ok && localVersion == cacheVersion && len(members) > 0 {
-				return members, nil
-			}
+		if err == nil && cacheVersion > 0 && len(members) > 0 {
+			return members, nil
 		}
 
 		members, err = h.userConversationRepository.GetUsersByConversationID(ctx, conversationId)
@@ -83,8 +72,6 @@ func (h *GroupHandler) getConvMembers(ctx context.Context, conversationId string
 			// TODO: 异步补偿（MQ / retry）
 		}
 
-		// 7️⃣ 再写本地（L1）
-		h.localConversationCache.SetVersion(conversationId, version)
 		return members, nil
 	})
 

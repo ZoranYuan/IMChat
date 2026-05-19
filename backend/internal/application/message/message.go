@@ -12,7 +12,6 @@ import (
 	messagevo "IM_backend/internal/domain/message/value_object"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/id/snow"
-	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"fmt"
@@ -35,7 +34,6 @@ type MessageApplication struct {
 	roomUserRepository         roomrepo.RoomUserRepository
 	roomRepository             roomrepo.RoomRepository
 	taskManager                mqport.TaskManager
-	localConvVersionCache      *local.ConversationVersionCache
 	sf                         singleflight.Group
 }
 
@@ -50,7 +48,6 @@ func NewMessageApplication(
 	messageRepository messagerepo.MessageRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
 	roomRepository roomrepo.RoomRepository,
-	localConvVersionCache *local.ConversationVersionCache,
 ) *MessageApplication {
 	return &MessageApplication{
 		config:                     config,
@@ -62,7 +59,6 @@ func NewMessageApplication(
 		userConversationRepository: userConversationRepository,
 		roomRepository:             roomRepository,
 		roomUserRepository:         roomUserRepository,
-		localConvVersionCache:      localConvVersionCache,
 		friendRepository:           friendRepository,
 	}
 }
@@ -74,29 +70,21 @@ func (ma *MessageApplication) checkConvMember(
 	userId string,
 	recvId string,
 ) (bool, error) {
-	localVer, ok := ma.localConvVersionCache.GetVersion(conversationId)
-
 	isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
 		ctx, conversationId, userId,
 	)
-	if err == nil {
-		if ok && localVer == cacheVersion {
-			return isMember, nil
-		}
+	if err == nil && cacheVersion > 0 {
+		return isMember, nil
 	}
 
 	key := userId + ":" + conversationId
 
 	v, err, _ := ma.sf.Do(key, func() (any, error) {
-		localVer, ok := ma.localConvVersionCache.GetVersion(conversationId)
-
 		isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
 			ctx, conversationId, userId,
 		)
-		if err == nil {
-			if ok && localVer == cacheVersion {
-				return isMember, nil
-			}
+		if err == nil && cacheVersion > 0 {
+			return isMember, nil
 		}
 
 		var cacheErr error
@@ -113,7 +101,7 @@ func (ma *MessageApplication) checkConvMember(
 				ctx,
 				conversationId,
 				[]string{userId, recvId},
-				cacheVersion,
+				1,
 			)
 		} else {
 			room, err := ma.roomRepository.FindActiveRoom(recvId, int(roomvo.Activate))
@@ -135,8 +123,6 @@ func (ma *MessageApplication) checkConvMember(
 				room.Version,
 			)
 		}
-
-		ma.localConvVersionCache.SetVersion(conversationId, cacheVersion)
 
 		return true, cacheErr
 	})

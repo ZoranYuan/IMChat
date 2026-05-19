@@ -12,7 +12,6 @@ import (
 	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/id/snow"
-	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
 	"context"
 	"errors"
 	"log"
@@ -27,7 +26,6 @@ type RoomApplication struct {
 	conversationRepository     messagerepo.ConversationRepository
 	config                     configs.Config
 	conversationCache          convcache.ConversationCache
-	localConvVersionCache      *local.ConversationVersionCache
 	roomCache                  roomcache.RoomCache
 	txManager                  txmanager.TxManager
 }
@@ -39,7 +37,6 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 	config configs.Config,
 	roomCache roomcache.RoomCache,
 	conversationCache convcache.ConversationCache,
-	localConvVersionCache *local.ConversationVersionCache,
 	txManager txmanager.TxManager,
 ) *RoomApplication {
 	return &RoomApplication{
@@ -50,7 +47,6 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 		config:                     config,
 		roomCache:                  roomCache,
 		conversationCache:          conversationCache,
-		localConvVersionCache:      localConvVersionCache,
 		txManager:                  txManager,
 	}
 }
@@ -119,8 +115,6 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		return nil, err
 	}
 
-	// 创建房间，会话成员初始化是 1
-	ra.localConvVersionCache.SetVersion(conversationId, 1)
 	inviteCode, inviteErr := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
 
 	if err := ra.conversationCache.AddMember(ctx, conversationId, userId, 1); err != nil {
@@ -237,7 +231,6 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		return nil, nil, err
 	}
 
-	ra.localConvVersionCache.SetVersion(conversationId, version)
 	if err := ra.conversationCache.AddMember(ctx, conversationId, userId, version); err != nil {
 		// TODO: 异步补偿
 		log.Println("failed to update join room cache ", err)
@@ -286,7 +279,6 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 		return err
 	}
 
-	ra.localConvVersionCache.SetVersion(conversationId, version)
 	if err := ra.conversationCache.RemoveMember(ctx, conversationId, userId, version); err != nil {
 		// TODO: 异步补偿
 		log.Println("failed to update remove room cache ", err)

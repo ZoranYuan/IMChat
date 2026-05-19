@@ -23,7 +23,6 @@ import (
 	authredis "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
 	conversationredis "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
 	fileredis "IM_backend/internal/infrastructure/persistence/redis/cache/file"
-	"IM_backend/internal/infrastructure/persistence/redis/cache/local"
 	roomredis "IM_backend/internal/infrastructure/persistence/redis/cache/room"
 	authsvc "IM_backend/internal/infrastructure/security/auth"
 	minioobj "IM_backend/internal/infrastructure/storage/minio"
@@ -69,9 +68,6 @@ func main() {
 	}()
 
 	txManager := persistence.NewGormTxManager(db)
-
-	localConvVersionCache := local.NewConversationVersionTTLCache(60*time.Second, 1000, 30*time.Second)
-	localConvVersionCache.StartCleanup(ctx)
 
 	gateway := ws.NewGateway()
 	gateway.KeepAlive(cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
@@ -133,7 +129,6 @@ func main() {
 		cfg,
 		roomCache,
 		conversationCache,
-		localConvVersionCache,
 		txManager,
 	)
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
@@ -143,7 +138,6 @@ func main() {
 		roomRepository,
 		userConversationRepository,
 		conversationCache,
-		localConvVersionCache,
 	)
 
 	messageConsumer := kafka.NewConsumer(kafkaClient, []string{
@@ -174,7 +168,6 @@ func main() {
 		messageRepository,
 		roomUserRepository,
 		roomRepository,
-		localConvVersionCache,
 	)
 	messageHandle := messagehttp.NewMessageHandle(messageApplication)
 
