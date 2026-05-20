@@ -8,8 +8,14 @@
           <span>聊天与一起看视频</span>
         </div>
       </div>
-      <h1>实时聊天，一起同步观影。</h1>
-      <p>房间成员可以聊天、上传视频、同步播放进度，并把历史聊天作为弹幕回放。</p>
+      <h1 class="stream-title">
+        {{ streamedTitle }}
+        <span v-if="isStreamingTitle" class="stream-cursor"></span>
+      </h1>
+      <p class="stream-copy">
+        {{ streamedCopy }}
+        <span v-if="!isStreamingTitle" class="stream-cursor"></span>
+      </p>
     </section>
 
     <section class="login-card">
@@ -42,6 +48,7 @@
 </template>
 
 <script setup>
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { LogIn } from "@lucide/vue";
 
 defineProps({
@@ -50,4 +57,39 @@ defineProps({
 });
 
 defineEmits(["update:authMode", "submit-auth"]);
+
+const titleText = "实时聊天，一起同步观影。";
+const copyText = "房间成员可以聊天、上传视频、同步播放进度，并把历史聊天作为弹幕回放。";
+const streamedTitle = ref("");
+const streamedCopy = ref("");
+const isStreamingTitle = ref(true);
+let streamTimer = 0;
+
+function streamText(source, target, done, speed) {
+  let index = 0;
+  streamTimer = window.setInterval(() => {
+    target.value = source.slice(0, index + 1);
+    index += 1;
+    if (index >= source.length) {
+      window.clearInterval(streamTimer);
+      done?.();
+    }
+  }, speed);
+}
+
+onMounted(() => {
+  streamText(
+    titleText,
+    streamedTitle,
+    () => {
+      isStreamingTitle.value = false;
+      window.setTimeout(() => streamText(copyText, streamedCopy, null, 34), 260);
+    },
+    58,
+  );
+});
+
+onBeforeUnmount(() => {
+  window.clearInterval(streamTimer);
+});
 </script>

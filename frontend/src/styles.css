@@ -81,16 +81,39 @@ select {
 
 .login-hero h1 {
   max-width: 620px;
+  min-height: 118px;
   font-size: 56px;
   line-height: 1.04;
 }
 
 .login-hero p {
   max-width: 520px;
+  min-height: 62px;
   margin-top: 20px;
   color: #b8abc9;
   font-size: 17px;
   line-height: 1.8;
+}
+
+.stream-title,
+.stream-copy {
+  white-space: pre-wrap;
+}
+
+.stream-cursor {
+  display: inline-block;
+  width: 0.6em;
+  height: 1em;
+  margin-left: 4px;
+  border-right: 2px solid #c9b8ff;
+  transform: translateY(2px);
+  animation: cursorBlink 0.88s step-end infinite;
+}
+
+@keyframes cursorBlink {
+  50% {
+    opacity: 0;
+  }
 }
 
 .login-card {
