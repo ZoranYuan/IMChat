@@ -10,9 +10,9 @@
   <main v-else class="app-shell">
     <header class="topbar">
       <div class="brand compact-brand">
-        <div class="brand-mark">IM</div>
+        <div class="brand-mark">SY</div>
         <div>
-          <strong>IM Watch</strong>
+          <strong>SYCHAT</strong>
           <span>{{ currentUser.userId }}</span>
         </div>
       </div>

@@ -2,9 +2,9 @@
   <main class="login-page">
     <section class="login-hero">
       <div class="brand big">
-        <div class="brand-mark">IM</div>
+        <div class="brand-mark">SY</div>
         <div>
-          <strong>IM Watch</strong>
+          <strong>SYCHAT</strong>
           <span>聊天与一起看视频</span>
         </div>
       </div>
@@ -41,7 +41,7 @@
 
       <button class="primary wide login-submit" @click="$emit('submit-auth')">
         <LogIn :size="17" />
-        {{ authMode === "login" ? "登录工作台" : "创建账号" }}
+        {{ authMode === "login" ? "登录 SYCHAT" : "创建账号" }}
       </button>
 
       <div class="oauth-divider">

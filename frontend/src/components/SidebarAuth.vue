@@ -1,10 +1,10 @@
 <template>
   <aside class="rail">
     <div class="brand">
-      <div class="brand-mark">IM</div>
+      <div class="brand-mark">SY</div>
       <div>
-        <strong>IM Watch</strong>
-        <span>一起看工作台</span>
+        <strong>SYCHAT</strong>
+        <span>聊天与一起看视频</span>
       </div>
     </div>
 
