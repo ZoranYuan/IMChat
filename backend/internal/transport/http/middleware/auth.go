@@ -28,16 +28,16 @@ func (a *AuthMiddleware) JWTAuthMiddleware() gin.HandlerFunc {
 		token := ctx.GetHeader("Authorization")
 
 		if token == "" {
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
-			return
+			token = ctx.Query("token")
+		} else {
+			if !strings.HasPrefix(token, "Bearer ") {
+				ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+				return
+			}
+			token = strings.TrimSpace(strings.TrimPrefix(token, "Bearer "))
 		}
 
-		if !strings.HasPrefix(token, "Bearer ") {
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
-			return
-		}
-
-		token = strings.TrimSpace(strings.TrimPrefix(token, "Bearer "))
+		token = strings.TrimSpace(token)
 		if token == "" {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 			return
