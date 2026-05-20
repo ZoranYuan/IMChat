@@ -1,116 +1,118 @@
-const API_BASE = "/api/v1";
+import axios from "axios";
 
 export class ApiError extends Error {
-  constructor(message, code) {
+  constructor(message, code, raw) {
     super(message);
     this.name = "ApiError";
     this.code = code;
+    this.raw = raw;
   }
 }
 
-export function authHeaders(token) {
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+export const http = axios.create({
+  baseURL: "/api/v1",
+  timeout: 15000,
+});
 
-export async function request(path, options = {}) {
-  const headers = {
-    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-    ...authHeaders(options.token),
-    ...options.headers,
-  };
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
-  const payload = await res.json().catch(() => ({}));
-
-  if (!res.ok || (payload.code && payload.code !== 200)) {
-    throw new ApiError(payload.message || `请求失败：${res.status}`, payload.code || res.status);
+http.interceptors.request.use((config) => {
+  const token = config.token || localStorage.getItem("im_token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
-  return payload.data ?? payload;
-}
+  delete config.token;
+  return config;
+});
+
+http.interceptors.response.use(
+  (response) => {
+    const payload = response.data;
+    if (payload && typeof payload === "object" && "code" in payload) {
+      if (payload.code !== 200) {
+        throw new ApiError(payload.message || "请求失败", payload.code, payload);
+      }
+      return payload.data ?? payload;
+    }
+    return payload;
+  },
+  (error) => {
+    const payload = error.response?.data;
+    if (payload && typeof payload === "object") {
+      throw new ApiError(payload.message || error.message, payload.code || error.response?.status, payload);
+    }
+    throw new ApiError(error.message || "网络异常", error.response?.status, error);
+  },
+);
 
 export function login(form) {
-  return request("/users/login", {
-    method: "POST",
-    body: JSON.stringify({
-      loginType: 1,
-      phone: form.phone,
-      password: form.password,
-    }),
+  return http.post("/users/login", {
+    loginType: 1,
+    phone: form.phone,
+    password: form.password,
   });
 }
 
 export function register(form) {
-  return request("/users/register", {
-    method: "POST",
-    body: JSON.stringify({
-      loginType: 1,
-      phone: form.phone,
-      password: form.password,
-      reconfirmPassword: form.password,
-    }),
+  return http.post("/users/register", {
+    loginType: 1,
+    phone: form.phone,
+    password: form.password,
+    reconfirmPassword: form.password,
   });
 }
 
 export function getOfflineMessages(token) {
-  return request("/messages/offline", { token });
+  return http.get("/messages/offline", { token });
 }
 
 export function getHistoryMessages(token, conversationId, cursor = 0, limit = 30) {
-  const params = new URLSearchParams({
-    conversationId,
-    cursor: String(cursor),
-    limit: String(limit),
+  return http.get("/messages/history", {
+    token,
+    params: {
+      conversationId,
+      cursor,
+      limit,
+    },
   });
-  return request(`/messages/history?${params.toString()}`, { token });
 }
 
 export function getDanmaku(token, roomId, startTime = 0, endTime = Date.now(), limit = 200) {
-  const params = new URLSearchParams({
-    roomId,
-    startTime: String(startTime),
-    endTime: String(endTime),
-    limit: String(limit),
+  return http.get("/messages/danmaku", {
+    token,
+    params: {
+      roomId,
+      startTime,
+      endTime,
+      limit,
+    },
   });
-  return request(`/messages/danmaku?${params.toString()}`, { token });
 }
 
 export function createRoom(token, form) {
-  return request("/rooms", {
-    method: "POST",
-    token,
-    body: JSON.stringify({
+  return http.post(
+    "/rooms",
+    {
       roomName: form.roomName,
       avatar: form.avatar || "",
       description: form.description || "",
-    }),
-  });
+    },
+    { token },
+  );
 }
 
 export function joinRoom(token, inviteCode) {
-  return request("/rooms/join", {
-    method: "POST",
-    token,
-    body: JSON.stringify({ inviteCode }),
-  });
+  return http.post("/rooms/join", { inviteCode }, { token });
 }
 
 export function getInviteCode(token, roomId) {
-  return request(`/rooms/${roomId}/invite-code`, { token });
+  return http.get(`/rooms/${roomId}/invite-code`, { token });
 }
 
 export function uploadFile(token, file) {
   const form = new FormData();
   form.append("file", file);
-  return request("/files", {
-    method: "POST",
-    token,
-    body: form,
-  });
+  return http.post("/files", form, { token });
 }
 
 export function getFile(token, fileId) {
-  return request(`/files/${fileId}`, { token });
+  return http.get(`/files/${fileId}`, { token });
 }
