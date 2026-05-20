@@ -4,6 +4,7 @@
     v-model:auth-mode="authMode"
     :auth-form="authForm"
     @submit-auth="submitAuth"
+    @oauth-login="handleOAuthLogin"
   />
 
   <main v-else class="app-shell">
@@ -205,6 +206,11 @@ const {
   onVideoTimeUpdate,
   formatTime,
 } = useImClient();
+
+function handleOAuthLogin(provider) {
+  const providerName = provider === "wechat" ? "微信" : "GitHub";
+  toast.value = `${providerName} 登录后端接口待接入`;
+}
 
 function refreshFriends() {
   loadFriends();

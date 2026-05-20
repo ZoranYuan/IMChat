@@ -43,6 +43,23 @@
         <LogIn :size="17" />
         {{ authMode === "login" ? "登录工作台" : "创建账号" }}
       </button>
+
+      <div class="oauth-divider">
+        <span></span>
+        <em>第三方登录</em>
+        <span></span>
+      </div>
+
+      <div class="oauth-actions">
+        <button class="oauth-btn wechat" @click="$emit('oauth-login', 'wechat')">
+          <img :src="wechatIcon" alt="" />
+          微信登录
+        </button>
+        <button class="oauth-btn github" @click="$emit('oauth-login', 'github')">
+          <img :src="githubIcon" alt="" />
+          GitHub 登录
+        </button>
+      </div>
     </section>
   </main>
 </template>
@@ -50,13 +67,15 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { LogIn } from "@lucide/vue";
+import githubIcon from "../assets/github.svg";
+import wechatIcon from "../assets/wechat.svg";
 
 defineProps({
   authMode: { type: String, required: true },
   authForm: { type: Object, required: true },
 });
 
-defineEmits(["update:authMode", "submit-auth"]);
+defineEmits(["update:authMode", "submit-auth", "oauth-login"]);
 
 const titleText = "实时聊天，一起同步观影。";
 const copyText = "房间成员可以聊天、上传视频、同步播放进度，并把历史聊天作为弹幕回放。";

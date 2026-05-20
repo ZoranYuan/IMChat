@@ -137,6 +137,55 @@ select {
   margin-top: 4px;
 }
 
+.oauth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  color: #8f849e;
+  font-size: 12px;
+}
+
+.oauth-divider span {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.oauth-divider em {
+  font-style: normal;
+}
+
+.oauth-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.oauth-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  height: 42px;
+  border: 1px solid rgba(180, 150, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #f6f0ff;
+}
+
+.oauth-btn:hover {
+  background: rgba(124, 77, 255, 0.16);
+}
+
+.oauth-btn img {
+  width: 18px;
+  height: 18px;
+}
+
+.oauth-btn.wechat img {
+  filter: drop-shadow(0 0 10px rgba(7, 193, 96, 0.35));
+}
+
 .app-shell {
   display: grid;
   grid-template-rows: 66px 1fr;
