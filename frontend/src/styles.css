@@ -12,7 +12,7 @@
 
 body {
   margin: 0;
-  min-width: 1180px;
+  min-width: 1040px;
   min-height: 100vh;
   background:
     linear-gradient(135deg, rgba(123, 70, 255, 0.18), transparent 30%),
@@ -56,14 +56,210 @@ select {
   color: #d7cced;
 }
 
-.shell {
+.login-page {
   display: grid;
-  grid-template-columns: 260px 320px minmax(420px, 1fr) 380px;
+  grid-template-columns: minmax(420px, 1fr) 420px;
+  gap: 48px;
+  align-items: center;
+  min-height: 100vh;
+  padding: 64px clamp(48px, 8vw, 120px);
+}
+
+.login-hero {
+  max-width: 680px;
+}
+
+.brand.big {
+  margin-bottom: 42px;
+}
+
+.brand.big .brand-mark {
+  width: 56px;
+  height: 56px;
+  font-size: 19px;
+}
+
+.login-hero h1 {
+  max-width: 620px;
+  font-size: 56px;
+  line-height: 1.04;
+}
+
+.login-hero p {
+  max-width: 520px;
+  margin-top: 20px;
+  color: #b8abc9;
+  font-size: 17px;
+  line-height: 1.8;
+}
+
+.login-card {
+  display: grid;
+  gap: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 26px;
+  background: rgba(20, 14, 29, 0.9);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.36);
+}
+
+.login-card label {
+  display: grid;
+  gap: 8px;
+  color: #b8abc9;
+  font-size: 13px;
+}
+
+.login-submit {
+  margin-top: 4px;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: 66px 1fr;
   height: 100vh;
   overflow: hidden;
 }
 
-.rail,
+.topbar {
+  display: grid;
+  grid-template-columns: 280px 1fr auto;
+  align-items: center;
+  gap: 18px;
+  padding: 0 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(13, 10, 18, 0.94);
+}
+
+.compact-brand {
+  margin-bottom: 0;
+}
+
+.compact-brand .brand-mark {
+  width: 38px;
+  height: 38px;
+}
+
+.mode-tabs {
+  display: inline-flex;
+  gap: 8px;
+  justify-self: center;
+  border: 1px solid rgba(180, 150, 255, 0.14);
+  border-radius: 8px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.mode-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  border-radius: 6px;
+  padding: 0 18px;
+  background: transparent;
+  color: #b9adc9;
+}
+
+.mode-tabs button.active {
+  background: linear-gradient(135deg, #7c4dff, #b44dff);
+  color: white;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.top-actions .ghost {
+  width: auto;
+  padding: 0 14px;
+}
+
+.chat-workspace {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.watch-workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: 430px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.watch-workspace.chat-collapsed {
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+
+.watch-chat-sidebar {
+  position: relative;
+  display: grid;
+  grid-template-rows: 42% 58%;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 11, 21, 0.92);
+}
+
+.watch-workspace.chat-collapsed .watch-chat-sidebar {
+  display: block;
+}
+
+.collapse-tab {
+  position: absolute;
+  top: 12px;
+  right: 8px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(124, 77, 255, 0.22);
+  color: #e8ddff;
+}
+
+.watch-workspace.chat-collapsed .collapse-tab {
+  left: 8px;
+  right: auto;
+}
+
+.watch-chat-sidebar .conversation-pane,
+.watch-chat-sidebar .chat-pane {
+  border-right: 0;
+}
+
+.watch-chat-sidebar .conversation-pane {
+  padding: 18px 14px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.watch-chat-sidebar .chat-pane {
+  grid-template-rows: 58px 1fr 66px;
+}
+
+.watch-chat-sidebar .chat-head {
+  padding: 12px 16px;
+}
+
+.watch-chat-sidebar .messages {
+  padding: 14px;
+}
+
+.watch-chat-sidebar .composer {
+  grid-template-columns: 1fr 74px;
+  padding: 12px;
+}
+
+.watch-chat-sidebar .bubble {
+  max-width: 86%;
+}
+
 .conversation-pane,
 .chat-pane,
 .watch-pane {
@@ -384,6 +580,17 @@ h3 {
   padding: 18px;
   overflow: auto;
   background: rgba(16, 12, 22, 0.94);
+  border-right: 0;
+}
+
+.watch-workspace > .watch-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  align-content: start;
+}
+
+.watch-workspace > .watch-pane .video-card {
+  grid-row: span 3;
 }
 
 .video-card {
@@ -492,13 +699,30 @@ video {
     min-width: 0;
   }
 
-  .shell {
+  .login-page,
+  .chat-workspace,
+  .watch-workspace,
+  .watch-workspace > .watch-pane {
     grid-template-columns: 1fr;
     height: auto;
     min-height: 100vh;
   }
 
-  .rail,
+  .app-shell {
+    height: auto;
+  }
+
+  .topbar {
+    grid-template-columns: 1fr;
+    height: auto;
+    padding: 14px;
+  }
+
+  .mode-tabs,
+  .top-actions {
+    justify-self: stretch;
+  }
+
   .conversation-pane,
   .chat-pane,
   .watch-pane {
@@ -508,5 +732,9 @@ video {
 
   .chat-pane {
     min-height: 640px;
+  }
+
+  .watch-chat-sidebar {
+    grid-template-rows: auto auto;
   }
 }

@@ -132,6 +132,24 @@ export function useImClient() {
     ws.value.onmessage = handleWsMessage;
   }
 
+  function logout() {
+    if (ws.value) {
+      ws.value.close();
+      ws.value = null;
+    }
+    token.value = "";
+    wsConnected.value = false;
+    conversations.value = [];
+    activeConversation.value = null;
+    messages.value = [];
+    activeRoomId.value = "";
+    localStorage.removeItem("im_token");
+    localStorage.removeItem("im_user");
+    for (const key of Object.keys(currentUser)) {
+      delete currentUser[key];
+    }
+  }
+
   function handleWsMessage(event) {
     try {
       const frame = decodeFrame(event.data);
@@ -352,6 +370,7 @@ export function useImClient() {
     selectConversation,
     openManualConversation,
     connectWs,
+    logout,
     sendMessage,
     handleCreateRoom,
     handleJoinRoom,
