@@ -116,3 +116,33 @@ export function uploadFile(token, file) {
 export function getFile(token, fileId) {
   return http.get(`/files/${fileId}`, { token });
 }
+
+export function getFriends(token) {
+  return http.get("/friends", { token });
+}
+
+export function createFriendRequest(token, form) {
+  return http.post(
+    "/friend-requests",
+    {
+      toUserId: form.toUserId,
+      message: form.message || "你好，我想加你为好友",
+    },
+    { token },
+  );
+}
+
+export function getFriendRequests(token) {
+  return http.get("/friend-requests", { token });
+}
+
+export function operateFriendRequest(token, requestId, action) {
+  return http.post(
+    "/friend-requests/actions",
+    {
+      requestId,
+      action,
+    },
+    { token },
+  );
+}

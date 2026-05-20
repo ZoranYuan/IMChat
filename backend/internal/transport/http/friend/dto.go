@@ -8,7 +8,7 @@ type FriendItemRes struct {
 	FriendUserId string `json:"friendUserId"`
 	FriendAvatar string `json:"friendAvatar"`
 	Status       int    `json:"status"`
-	DsipalyName  string `json:"dsipalyName"`
+	DisplayName  string `json:"displayName"`
 }
 
 func toFriendListRes(f []friendapp.FriendAppDTO) []FriendItemRes {
@@ -27,7 +27,7 @@ func toFriendListRes(f []friendapp.FriendAppDTO) []FriendItemRes {
 		res = append(res, FriendItemRes{
 			FriendUserId: i.FriendUserId,
 			FriendAvatar: i.FriendAvatar,
-			DsipalyName:  displayName,
+			DisplayName:  displayName,
 			Status:       i.Status,
 		})
 	}

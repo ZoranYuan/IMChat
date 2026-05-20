@@ -41,16 +41,39 @@
     </header>
 
     <section v-if="viewMode === 'chat'" class="chat-workspace">
-      <ConversationList
-        v-model:manual-conversation-id="manualConversationId"
-        v-model:manual-conv-type="manualConvType"
-        :token="token"
-        :conversations="conversations"
-        :active-conversation="activeConversation"
-        @load-offline="loadOffline"
-        @open-manual="openManualConversation"
-        @select-conversation="selectConversation"
-      />
+      <aside class="chat-directory">
+        <div class="directory-tabs">
+          <button :class="{ active: directoryMode === 'conversations' }" @click="directoryMode = 'conversations'">
+            会话
+          </button>
+          <button :class="{ active: directoryMode === 'friends' }" @click="directoryMode = 'friends'">好友</button>
+        </div>
+
+        <ConversationList
+          v-if="directoryMode === 'conversations'"
+          v-model:manual-conversation-id="manualConversationId"
+          v-model:manual-conv-type="manualConvType"
+          :token="token"
+          :conversations="conversations"
+          :active-conversation="activeConversation"
+          @load-offline="loadOffline"
+          @open-manual="openManualConversation"
+          @select-conversation="selectConversation"
+        />
+
+        <FriendsPanel
+          v-else
+          :token="token"
+          :friends="friends"
+          :friend-requests="friendRequests"
+          :friend-form="friendForm"
+          :format-time="formatTime"
+          @refresh="refreshFriends"
+          @submit-request="submitFriendRequest"
+          @operate-request="handleFriendRequest"
+          @open-chat="openPrivateConversation"
+        />
+      </aside>
 
       <ChatPanel
         v-model:message-text="messageText"
@@ -125,12 +148,14 @@
 import { ref } from "vue";
 import ChatPanel from "./components/ChatPanel.vue";
 import ConversationList from "./components/ConversationList.vue";
+import FriendsPanel from "./components/FriendsPanel.vue";
 import LoginPage from "./components/LoginPage.vue";
 import WatchPanel from "./components/WatchPanel.vue";
 import { useImClient } from "./composables/useImClient";
 import { Film, MessageCircle, PanelLeftClose, PanelLeftOpen, RadioTower } from "@lucide/vue";
 
 const viewMode = ref("chat");
+const directoryMode = ref("conversations");
 const watchChatCollapsed = ref(false);
 
 const {
@@ -139,6 +164,9 @@ const {
   authMode,
   authForm,
   conversations,
+  friends,
+  friendRequests,
+  friendForm,
   activeConversation,
   messages,
   messageText,
@@ -156,8 +184,13 @@ const {
   visibleDanmaku,
   submitAuth,
   loadOffline,
+  loadFriends,
+  loadFriendRequests,
   selectConversation,
   openManualConversation,
+  openPrivateConversation,
+  submitFriendRequest,
+  handleFriendRequest,
   connectWs,
   logout,
   sendMessage,
@@ -172,4 +205,9 @@ const {
   onVideoTimeUpdate,
   formatTime,
 } = useImClient();
+
+function refreshFriends() {
+  loadFriends();
+  loadFriendRequests();
+}
 </script>

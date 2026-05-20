@@ -1,13 +1,17 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
 import {
   createRoom,
+  createFriendRequest,
   getDanmaku,
   getFile,
+  getFriendRequests,
+  getFriends,
   getHistoryMessages,
   getInviteCode,
   getOfflineMessages,
   joinRoom,
   login,
+  operateFriendRequest,
   register,
   uploadFile,
 } from "../api";
@@ -21,6 +25,9 @@ export function useImClient() {
   const conversations = ref([]);
   const activeConversation = ref(null);
   const messages = ref([]);
+  const friends = ref([]);
+  const friendRequests = ref([]);
+  const friendForm = reactive({ toUserId: "", message: "你好，我想加你为好友" });
   const messageText = ref("");
   const manualConversationId = ref("");
   const manualConvType = ref(2);
@@ -66,7 +73,7 @@ export function useImClient() {
       localStorage.setItem("im_token", data.token);
       localStorage.setItem("im_user", JSON.stringify(data));
       showToast("登录成功");
-      await loadOffline();
+      await Promise.all([loadOffline(), loadFriends(), loadFriendRequests()]);
       connectWs();
     } catch (err) {
       showToast(err.message);
@@ -85,6 +92,24 @@ export function useImClient() {
       latestMessage: item.latestMessage,
       convType: item.latestMessage?.convType || 2,
     }));
+  }
+
+  async function loadFriends() {
+    if (!token.value) return;
+    const data = await getFriends(token.value).catch((err) => {
+      showToast(err.message);
+      return [];
+    });
+    friends.value = Array.isArray(data) ? data : [];
+  }
+
+  async function loadFriendRequests() {
+    if (!token.value) return;
+    const data = await getFriendRequests(token.value).catch((err) => {
+      showToast(err.message);
+      return [];
+    });
+    friendRequests.value = Array.isArray(data) ? data : [];
   }
 
   async function selectConversation(item) {
@@ -109,6 +134,43 @@ export function useImClient() {
     };
     conversations.value = [item, ...conversations.value.filter((v) => v.conversationId !== item.conversationId)];
     selectConversation(item);
+  }
+
+  function openPrivateConversation(friend) {
+    const conversationId = friend.friendUserId || friend.toUserId;
+    if (!conversationId) return;
+    const item = {
+      conversationId,
+      unread: 0,
+      latestMessage: { content: friend.displayName || "好友私聊", convType: 1 },
+      convType: 1,
+    };
+    conversations.value = [item, ...conversations.value.filter((v) => v.conversationId !== item.conversationId)];
+    selectConversation(item);
+  }
+
+  async function submitFriendRequest() {
+    if (!friendForm.toUserId) {
+      showToast("请输入用户 ID");
+      return;
+    }
+    try {
+      await createFriendRequest(token.value, friendForm);
+      friendForm.toUserId = "";
+      showToast("好友申请已发送");
+    } catch (err) {
+      showToast(err.message);
+    }
+  }
+
+  async function handleFriendRequest(requestId, action) {
+    try {
+      await operateFriendRequest(token.value, requestId, action);
+      showToast(action === 1 ? "已同意好友申请" : "已拒绝好友申请");
+      await Promise.all([loadFriends(), loadFriendRequests()]);
+    } catch (err) {
+      showToast(err.message);
+    }
   }
 
   function connectWs() {
@@ -140,6 +202,8 @@ export function useImClient() {
     token.value = "";
     wsConnected.value = false;
     conversations.value = [];
+    friends.value = [];
+    friendRequests.value = [];
     activeConversation.value = null;
     messages.value = [];
     activeRoomId.value = "";
@@ -352,6 +416,9 @@ export function useImClient() {
     conversations,
     activeConversation,
     messages,
+    friends,
+    friendRequests,
+    friendForm,
     messageText,
     manualConversationId,
     manualConvType,
@@ -367,8 +434,13 @@ export function useImClient() {
     visibleDanmaku,
     submitAuth,
     loadOffline,
+    loadFriends,
+    loadFriendRequests,
     selectConversation,
     openManualConversation,
+    openPrivateConversation,
+    submitFriendRequest,
+    handleFriendRequest,
     connectWs,
     logout,
     sendMessage,

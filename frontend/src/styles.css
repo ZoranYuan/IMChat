@@ -184,6 +184,34 @@ select {
   overflow: hidden;
 }
 
+.chat-directory {
+  display: grid;
+  grid-template-rows: 50px 1fr;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(18, 13, 25, 0.86);
+}
+
+.directory-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.directory-tabs button {
+  border-radius: 8px;
+  background: transparent;
+  color: #a99db9;
+}
+
+.directory-tabs button.active {
+  background: rgba(124, 77, 255, 0.22);
+  color: #efe8ff;
+}
+
 .watch-workspace {
   position: relative;
   display: grid;
@@ -389,6 +417,19 @@ select {
   background: rgba(22, 16, 29, 0.76);
 }
 
+.chat-directory .conversation-pane {
+  border-right: 0;
+}
+
+.friends-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 22px 16px;
+  overflow: auto;
+  background: rgba(22, 16, 29, 0.76);
+}
+
 .pane-head,
 .chat-head {
   display: flex;
@@ -455,6 +496,66 @@ h3 {
   background: transparent;
   color: #f6f0ff;
   text-align: left;
+}
+
+.friend-form {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 16px;
+}
+
+.friend-section {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #9e91af;
+  font-size: 12px;
+}
+
+.friend-item,
+.request-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 62px;
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f6f0ff;
+  text-align: left;
+}
+
+.friend-item:hover {
+  background: rgba(124, 77, 255, 0.16);
+}
+
+.request-item {
+  justify-content: space-between;
+}
+
+.request-item p,
+.friend-item p,
+.empty-hint {
+  margin-top: 4px;
+  color: #9589a6;
+  font-size: 12px;
+}
+
+.request-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.request-actions .ghost {
+  height: 32px;
+  padding: 0 10px;
 }
 
 .conversation-item.active,
