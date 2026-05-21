@@ -11,6 +11,7 @@ func RegisterRoutes(ug *gin.RouterGroup, uh *UserHandle, auth *middleware.AuthMi
 	ug.POST("/register", uh.Register)
 
 	ug.Use(auth.JWTAuthMiddleware())
+	ug.GET("/resolve", uh.ResolveUser)
 	ug.GET("/:userId", uh.GetUserByID)
 	ug.POST("/logout", uh.Logout)
 }

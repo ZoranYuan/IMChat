@@ -12,6 +12,7 @@ type UserRepository interface {
 	FindUserByPhone(string) (*model.User, error)
 	Create(*model.User) error
 	FindByUserID(userId string) (*model.User, error)
+	FindByUsernameOrPhone(keyword string) (*model.User, error)
 	FindByUserIDs(userIds []string) ([]userentity.User, error)
 	UpdateByUserIDAndPhone(string, string, map[string]interface{}) error
 	WithTx(tx *gorm.DB) UserRepository

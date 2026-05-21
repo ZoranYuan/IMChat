@@ -177,6 +177,21 @@ func (ua *UserApplication) GetUserByID(userId string) (*UserAppDTO, error) {
 	return userApp, nil
 }
 
+func (ua *UserApplication) ResolveUser(keyword string) (*UserAppDTO, error) {
+	userModel, err := ua.userRepository.FindByUsernameOrPhone(keyword)
+	if err != nil {
+		return nil, err
+	}
+
+	return &UserAppDTO{
+		UserId:   userModel.UserId,
+		UserName: userModel.UserName,
+		NickName: userModel.NickName,
+		Phone:    userModel.Phone,
+		Avatar:   userModel.Avatar,
+	}, nil
+}
+
 func (ua *UserApplication) Logout(userId string) error {
 	userModel, err := ua.userRepository.FindByUserID(userId)
 	if err != nil {

@@ -185,3 +185,26 @@ func (uh *UserHandle) GetUserByID(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response.Success(userRes))
 }
+
+func (uh *UserHandle) ResolveUser(c *gin.Context) {
+	keyword := c.Query("keyword")
+	if keyword == "" {
+		c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
+		return
+	}
+
+	userApp, err := uh.app.ResolveUser(keyword)
+	if err != nil {
+		log.Println("failed to resolve user, ", err)
+		c.JSON(http.StatusNotFound, response.Error(201, "用户不存在"))
+		return
+	}
+
+	c.JSON(http.StatusOK, response.Success(UserInfoRes{
+		UserId:   userApp.UserId,
+		UserName: userApp.UserName,
+		NickName: userApp.NickName,
+		Phone:    userApp.Phone,
+		Avatar:   userApp.Avatar,
+	}))
+}

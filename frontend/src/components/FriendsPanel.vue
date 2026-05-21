@@ -11,7 +11,11 @@
     </div>
 
     <div class="friend-form">
-      <input :value="friendForm.toUserId" placeholder="用户 ID" @input="friendForm.toUserId = $event.target.value.trim()" />
+      <input
+        :value="friendForm.keyword"
+        placeholder="用户名 / 手机号"
+        @input="friendForm.keyword = $event.target.value.trim()"
+      />
       <input :value="friendForm.message" placeholder="申请留言" @input="friendForm.message = $event.target.value" />
       <button class="primary wide" :disabled="!token" @click="$emit('submit-request')">
         <UserPlus :size="16" />

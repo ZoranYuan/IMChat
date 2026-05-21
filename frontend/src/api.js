@@ -121,6 +121,13 @@ export function getFriends(token) {
   return http.get("/friends", { token });
 }
 
+export function resolveUser(token, keyword) {
+  return http.get("/users/resolve", {
+    token,
+    params: { keyword },
+  });
+}
+
 export function createFriendRequest(token, form) {
   return http.post(
     "/friend-requests",

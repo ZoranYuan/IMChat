@@ -13,6 +13,7 @@ import {
   login,
   operateFriendRequest,
   register,
+  resolveUser,
   uploadFile,
 } from "../api";
 import { decodeFrame, decodePayload, encodeFrame } from "../wsProto";
@@ -27,7 +28,7 @@ export function useImClient() {
   const messages = ref([]);
   const friends = ref([]);
   const friendRequests = ref([]);
-  const friendForm = reactive({ toUserId: "", message: "你好，我想加你为好友" });
+  const friendForm = reactive({ keyword: "", toUserId: "", message: "你好，我想加你为好友" });
   const messageText = ref("");
   const messageList = ref(null);
   const ws = ref(null);
@@ -148,12 +149,15 @@ export function useImClient() {
   }
 
   async function submitFriendRequest() {
-    if (!friendForm.toUserId) {
-      showToast("请输入用户 ID");
+    if (!friendForm.keyword) {
+      showToast("请输入用户名或手机号");
       return;
     }
     try {
+      const user = await resolveUser(token.value, friendForm.keyword);
+      friendForm.toUserId = user.userId;
       await createFriendRequest(token.value, friendForm);
+      friendForm.keyword = "";
       friendForm.toUserId = "";
       showToast("好友申请已发送");
     } catch (err) {

@@ -55,6 +55,15 @@ func (ur *UserRepository) FindByUserID(userId string) (*model.User, error) {
 	return &user, nil
 }
 
+func (ur *UserRepository) FindByUsernameOrPhone(keyword string) (*model.User, error) {
+	var user = model.User{}
+	if err := ur.db.Where("user_name = ? OR phone = ?", keyword, keyword).First(&user).Error; err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 func (ur *UserRepository) FindByUserIDs(userIds []string) ([]userentity.User, error) {
 	if len(userIds) == 0 {
 		return []userentity.User{}, nil
