@@ -2,7 +2,7 @@
   <section v-if="!activeConversation" class="chat-pane chat-placeholder">
     <div class="empty-chat">
       <MessageCircle :size="54" />
-      <p>选择一个聊天</p>
+      <p>SYCHAT</p>
     </div>
   </section>
 
