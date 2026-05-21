@@ -25,7 +25,9 @@
         <LogIn :size="16" />
         {{ authMode === "login" ? "进入" : "创建账号" }}
       </button>
-      <p class="muted small" v-if="currentUser.userId">当前用户：{{ currentUser.userId }}</p>
+      <p class="muted small" v-if="currentUser.userId">
+        当前用户：{{ currentUser.username || currentUser.userName || "用户" }}
+      </p>
     </section>
 
   </aside>

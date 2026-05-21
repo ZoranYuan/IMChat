@@ -222,7 +222,17 @@ func (fa *FriendApplication) ListFriendRequestsByUserID(userId string) ([]Friend
 
 	friendRequestDTOs := make([]FriendRequestDTO, 0, len(records))
 	for _, r := range records {
-		friendRequestDTOs = append(friendRequestDTOs, toDTO(r))
+		dto := toDTO(r)
+		user, err := fa.userRepository.FindByUserID(r.FromUserId)
+		if err == nil && user != nil {
+			dto.FromUsername = user.UserName
+			if user.NickName != "" {
+				dto.FromDisplayName = user.NickName
+			} else {
+				dto.FromDisplayName = user.UserName
+			}
+		}
+		friendRequestDTOs = append(friendRequestDTOs, dto)
 	}
 
 	return friendRequestDTOs, nil

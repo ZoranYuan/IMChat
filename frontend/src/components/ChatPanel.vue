@@ -9,7 +9,7 @@
   <section v-else class="chat-pane">
     <header class="chat-head">
       <div>
-        <h2>{{ activeConversation.displayName || activeConversation.conversationId }}</h2>
+        <h2>{{ activeConversation.displayName || "会话" }}</h2>
       </div>
       <span class="pill">{{ activeConversation.convType === 2 ? "群聊" : "私聊" }}</span>
     </header>
@@ -22,7 +22,7 @@
       >
         <div class="bubble">
           <div v-if="showSenderName(msg)" class="bubble-meta">
-            <span>{{ msg.senderUsername || msg.username || msg.senderId }}</span>
+            <span>{{ msg.senderUsername || msg.username || "成员" }}</span>
           </div>
           <p>{{ msg.content }}</p>
         </div>

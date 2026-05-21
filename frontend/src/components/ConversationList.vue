@@ -47,6 +47,6 @@ defineProps({
 defineEmits(["load-offline", "select-conversation"]);
 
 function displayName(item) {
-  return item.displayName || item.latestMessage?.displayName || item.conversationId || "会话";
+  return item.displayName || item.latestMessage?.displayName || "会话";
 }
 </script>

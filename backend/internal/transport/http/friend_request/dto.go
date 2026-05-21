@@ -13,11 +13,14 @@ const (
 )
 
 type FriendRequestRes struct {
-	RequestId string `json:"requestId"`
-	ToUserId  string `json:"toUserId"`
-	Message   string `json:"message"`
-	Status    int    `json:"status"`
-	ApplyTime int64  `json:"applyTime"`
+	RequestId       string `json:"requestId"`
+	FromUserId      string `json:"fromUserId"`
+	FromUsername    string `json:"fromUsername"`
+	FromDisplayName string `json:"fromDisplayName"`
+	ToUserId        string `json:"toUserId"`
+	Message         string `json:"message"`
+	Status          int    `json:"status"`
+	ApplyTime       int64  `json:"applyTime"`
 }
 
 type OperateRequestReq struct {

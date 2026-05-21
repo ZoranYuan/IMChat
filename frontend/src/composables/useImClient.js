@@ -93,7 +93,7 @@ export function useImClient() {
     });
     conversations.value = (Array.isArray(data) ? data : []).map((item) => ({
       conversationId: item.conversationId,
-      displayName: item.displayName || item.latestMessage?.displayName || item.conversationId,
+      displayName: item.displayName || item.latestMessage?.displayName || "会话",
       unread: item.unread,
       latestMessage: item.latestMessage,
       convType: item.latestMessage?.convType || 2,
@@ -148,7 +148,7 @@ export function useImClient() {
     if (!conversationId) return;
     const item = {
       conversationId,
-      displayName: friend.displayName || friend.username || friend.friendUserId || conversationId,
+      displayName: friend.displayName || friend.friendUsername || friend.username || "好友",
       unread: 0,
       latestMessage: { content: friend.displayName || "好友私聊", convType: 1 },
       convType: 1,

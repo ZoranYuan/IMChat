@@ -102,10 +102,13 @@ func (fh *FriendRequestHandle) List(c *gin.Context) {
 	res := make([]FriendRequestRes, 0, len(requestListApp))
 	for _, r := range requestListApp {
 		res = append(res, FriendRequestRes{
-			RequestId: r.RequestId,
-			ToUserId:  r.ToUserId,
-			Status:    r.Status,
-			ApplyTime: r.ApplyTime,
+			RequestId:       r.RequestId,
+			FromUserId:      r.FromUserId,
+			FromUsername:    r.FromUsername,
+			FromDisplayName: r.FromDisplayName,
+			ToUserId:        r.ToUserId,
+			Status:          r.Status,
+			ApplyTime:       r.ApplyTime,
 		})
 	}
 

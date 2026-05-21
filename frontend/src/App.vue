@@ -13,7 +13,7 @@
         <div class="brand-mark">SY</div>
         <div>
           <strong>SYCHAT</strong>
-          <span>{{ currentUser.userId }}</span>
+          <span>{{ currentUser.username || currentUser.userName || "用户" }}</span>
         </div>
       </div>
 

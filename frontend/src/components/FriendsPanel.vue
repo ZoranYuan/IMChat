@@ -32,7 +32,7 @@
         <div class="avatar">{{ displayName(friend).slice(0, 2).toUpperCase() }}</div>
         <div class="item-main">
           <strong>{{ displayName(friend) }}</strong>
-          <p>{{ friend.friendUserId }}</p>
+          <p>{{ friend.friendUsername || displayName(friend) }}</p>
         </div>
         <MessageCircle :size="17" />
       </button>
@@ -46,7 +46,7 @@
       </div>
       <article v-for="request in pendingRequests" :key="request.requestId" class="request-item">
         <div>
-          <strong>{{ request.toUserId }}</strong>
+          <strong>{{ request.fromDisplayName || request.fromUsername || "用户" }}</strong>
           <p>{{ formatTime(request.applyTime) }}</p>
         </div>
         <div class="request-actions">
@@ -76,6 +76,6 @@ defineEmits(["refresh", "submit-request", "operate-request", "open-chat"]);
 const pendingRequests = computed(() => props.friendRequests.filter((request) => request.status === 1));
 
 function displayName(friend) {
-  return friend.displayName || friend.friendUserId || "好友";
+  return friend.displayName || friend.friendUsername || "好友";
 }
 </script>

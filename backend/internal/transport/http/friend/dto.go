@@ -5,10 +5,11 @@ import (
 )
 
 type FriendItemRes struct {
-	FriendUserId string `json:"friendUserId"`
-	FriendAvatar string `json:"friendAvatar"`
-	Status       int    `json:"status"`
-	DisplayName  string `json:"displayName"`
+	FriendUserId   string `json:"friendUserId"`
+	FriendUsername string `json:"friendUsername"`
+	FriendAvatar   string `json:"friendAvatar"`
+	Status         int    `json:"status"`
+	DisplayName    string `json:"displayName"`
 }
 
 func toFriendListRes(f []friendapp.FriendAppDTO) []FriendItemRes {
@@ -25,10 +26,11 @@ func toFriendListRes(f []friendapp.FriendAppDTO) []FriendItemRes {
 		}
 
 		res = append(res, FriendItemRes{
-			FriendUserId: i.FriendUserId,
-			FriendAvatar: i.FriendAvatar,
-			DisplayName:  displayName,
-			Status:       i.Status,
+			FriendUserId:   i.FriendUserId,
+			FriendUsername: i.FriendUserName,
+			FriendAvatar:   i.FriendAvatar,
+			DisplayName:    displayName,
+			Status:         i.Status,
 		})
 	}
 

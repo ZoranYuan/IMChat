@@ -5,12 +5,14 @@ import (
 )
 
 type FriendRequestDTO struct {
-	RequestId  string `json:"requestId"`
-	FromUserId string `json:"fromUserId"`
-	ToUserId   string `json:"toUserId"`
-	Message    string `json:"message"`
-	Status     int    `json:"status"`
-	ApplyTime  int64  `json:"applyTime"`
+	RequestId       string `json:"requestId"`
+	FromUserId      string `json:"fromUserId"`
+	FromUsername    string `json:"fromUsername"`
+	FromDisplayName string `json:"fromDisplayName"`
+	ToUserId        string `json:"toUserId"`
+	Message         string `json:"message"`
+	Status          int    `json:"status"`
+	ApplyTime       int64  `json:"applyTime"`
 }
 
 func toDTO(fr *friendrequestentity.FriendRequest) FriendRequestDTO {
