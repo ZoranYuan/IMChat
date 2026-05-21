@@ -31,7 +31,7 @@
       <div class="top-actions">
         <div class="status-line">
           <span :class="['dot', wsConnected ? 'ok' : '']"></span>
-          <span>{{ wsConnected ? "实时在线" : "未连接" }}</span>
+          <span>{{ wsConnected ? "在线" : "未连接到服务器" }}</span>
         </div>
         <button class="ghost" @click="connectWs">
           <RadioTower :size="16" />
