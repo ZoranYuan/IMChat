@@ -115,8 +115,8 @@
         :room-form="roomForm"
         :upload-name="uploadName"
         :video="video"
-        :video-ref="videoRef"
         :visible-danmaku="visibleDanmaku"
+        @update:video-el="setVideoElement"
         @watch-control="sendWatchControl"
         @seek-by="seekBy"
         @video-time-update="onVideoTimeUpdate"
@@ -171,7 +171,6 @@ const {
   fileIdInput,
   uploadName,
   video,
-  videoRef,
   visibleDanmaku,
   submitAuth,
   loadOffline,
@@ -193,6 +192,7 @@ const {
   sendWatchControl,
   seekBy,
   onVideoTimeUpdate,
+  setVideoElement,
   formatTime,
 } = useImClient();
 

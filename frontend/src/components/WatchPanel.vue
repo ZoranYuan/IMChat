@@ -12,7 +12,7 @@
       </div>
 
       <div class="video-wrap">
-        <video :ref="setVideoRef" :src="video.url" controls @timeupdate="$emit('video-time-update')"></video>
+        <video ref="localVideoRef" :src="video.url" controls @timeupdate="$emit('video-time-update')"></video>
         <div class="danmaku-layer">
           <span
             v-for="item in visibleDanmaku"
@@ -77,6 +77,7 @@
 </template>
 
 <script setup>
+import { onBeforeUnmount, ref, watch } from "vue";
 import { Film, Pause, Play, RotateCw, SkipBack, SkipForward, Upload } from "@lucide/vue";
 
 const props = defineProps({
@@ -86,11 +87,11 @@ const props = defineProps({
   fileIdInput: { type: String, default: "" },
   uploadName: { type: String, default: "" },
   video: { type: Object, required: true },
-  videoRef: { type: Object, required: true },
   visibleDanmaku: { type: Array, default: () => [] },
 });
 
-defineEmits([
+const localVideoRef = ref(null);
+const emit = defineEmits([
   "watch-control",
   "seek-by",
   "video-time-update",
@@ -101,9 +102,10 @@ defineEmits([
   "load-file",
   "load-video",
   "update:fileIdInput",
+  "update:videoEl",
 ]);
 
-function setVideoRef(el) {
-  props.videoRef.value = el;
-}
+watch(localVideoRef, (el) => emit("update:videoEl", el), { immediate: true });
+
+onBeforeUnmount(() => emit("update:videoEl", null));
 </script>

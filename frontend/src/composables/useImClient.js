@@ -457,6 +457,10 @@ export function useImClient() {
     currentVideoTime.value = videoRef.value?.currentTime || 0;
   }
 
+  function setVideoElement(el) {
+    videoRef.value = el;
+  }
+
   function scrollToBottom() {
     nextTick(() => {
       if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight;
@@ -523,6 +527,7 @@ export function useImClient() {
     sendWatchControl,
     seekBy,
     onVideoTimeUpdate,
+    setVideoElement,
     formatTime,
   };
 }
