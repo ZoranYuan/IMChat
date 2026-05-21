@@ -13,17 +13,17 @@
         <div class="brand-mark">SY</div>
         <div>
           <strong>SYCHAT</strong>
-          <span>{{ currentUser.username || currentUser.userName || "用户" }}</span>
+          <span>{{ currentUser.username || "用户" }}</span>
         </div>
       </div>
 
-      <nav class="mode-tabs">
+      <nav class="mode-tabs" style="padding: 10px;">
         <button :class="{ active: viewMode === 'chat' }" @click="viewMode = 'chat'">
-          <MessageCircle :size="17" />
+          <MessageCircle :size="13" />
           聊天
         </button>
         <button :class="{ active: viewMode === 'watch' }" @click="viewMode = 'watch'">
-          <Film :size="17" />
+          <Film :size="13" />
           一起看
         </button>
       </nav>
@@ -80,12 +80,18 @@
       />
     </section>
 
-    <section v-else :class="['watch-workspace', { 'chat-collapsed': watchChatCollapsed }]">
+    <section
+      v-else
+      :class="['watch-workspace', { 'chat-collapsed': watchChatCollapsed }]"
+      :style="{ gridTemplateColumns: watchChatCollapsed ? '44px minmax(0, 1fr)' : `${watchSidebarWidth}px minmax(0, 1fr)` }"
+    >
       <aside class="watch-chat-sidebar">
         <button class="collapse-tab" @click="watchChatCollapsed = !watchChatCollapsed">
           <PanelLeftClose v-if="!watchChatCollapsed" :size="18" />
           <PanelLeftOpen v-else :size="18" />
         </button>
+
+        <div v-if="!watchChatCollapsed" class="watch-resize-handle" @pointerdown="startWatchSidebarResize"></div>
 
         <template v-if="!watchChatCollapsed">
           <ConversationList
@@ -134,7 +140,7 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import ChatPanel from "./components/ChatPanel.vue";
 import ConversationList from "./components/ConversationList.vue";
 import FriendsPanel from "./components/FriendsPanel.vue";
@@ -146,6 +152,11 @@ import { Film, MessageCircle, PanelLeftClose, PanelLeftOpen } from "@lucide/vue"
 const viewMode = ref("chat");
 const directoryMode = ref("conversations");
 const watchChatCollapsed = ref(false);
+const watchSidebarWidth = ref(430);
+const watchSidebarMinWidth = 320;
+const watchSidebarMaxWidth = 560;
+let watchSidebarResizeStartX = 0;
+let watchSidebarResizeStartWidth = 0;
 let oauthToastTimer = 0;
 
 const {
@@ -195,6 +206,28 @@ const {
   setVideoElement,
   formatTime,
 } = useImClient();
+
+
+function startWatchSidebarResize(event) {
+  if (watchChatCollapsed.value) return;
+  watchSidebarResizeStartX = event.clientX;
+  watchSidebarResizeStartWidth = watchSidebarWidth.value;
+  window.addEventListener("pointermove", resizeWatchSidebar);
+  window.addEventListener("pointerup", stopWatchSidebarResize, { once: true });
+}
+
+function resizeWatchSidebar(event) {
+  const nextWidth = watchSidebarResizeStartWidth + event.clientX - watchSidebarResizeStartX;
+  watchSidebarWidth.value = Math.min(watchSidebarMaxWidth, Math.max(watchSidebarMinWidth, nextWidth));
+}
+
+function stopWatchSidebarResize() {
+  window.removeEventListener("pointermove", resizeWatchSidebar);
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener("pointermove", resizeWatchSidebar);
+});
 
 function handleOAuthLogin(provider) {
   const providerName = provider === "wechat" ? "微信" : "GitHub";
