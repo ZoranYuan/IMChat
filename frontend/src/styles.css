@@ -251,6 +251,17 @@ select {
   padding: 0 14px;
 }
 
+.status-action {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.status-action:not(:disabled):hover {
+  color: #f5edff;
+}
+
 .chat-workspace {
   display: grid;
   grid-template-columns: 330px minmax(0, 1fr);
@@ -482,6 +493,16 @@ select {
 .dot.ok {
   background: #2fe39a;
   box-shadow: 0 0 14px rgba(47, 227, 154, 0.65);
+}
+
+.dot.warn {
+  background: #f0c85a;
+  box-shadow: 0 0 14px rgba(240, 200, 90, 0.55);
+}
+
+.dot.fail {
+  background: #ff5f7a;
+  box-shadow: 0 0 14px rgba(255, 95, 122, 0.55);
 }
 
 .conversation-pane {

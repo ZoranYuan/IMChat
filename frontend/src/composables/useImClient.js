@@ -33,7 +33,13 @@ export function useImClient() {
   const messageList = ref(null);
   const ws = ref(null);
   const wsConnected = ref(false);
+  const wsReconnecting = ref(false);
+  const wsReconnectFailed = ref(false);
   const toast = ref("");
+  const maxWsReconnectAttempts = 5;
+  const wsReconnectAttempts = ref(0);
+  let wsReconnectTimer = 0;
+  let wsManualClose = false;
 
   const roomForm = reactive({ roomName: "一起看房间", inviteCode: "", inviteCodeDisplay: "" });
   const activeRoomId = ref("");
@@ -178,33 +184,89 @@ export function useImClient() {
     }
   }
 
-  function connectWs() {
+  const wsStatusText = computed(() => {
+    if (wsConnected.value) return "在线";
+    if (wsReconnecting.value) return "重连中";
+    if (wsReconnectFailed.value) return "连接失败";
+    return "未连接到服务器";
+  });
+
+  function clearWsReconnectTimer() {
+    window.clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = 0;
+  }
+
+  function connectWs(resetReconnect = false) {
     if (!token.value) {
       showToast("请先登录");
       return;
     }
-    if (ws.value) ws.value.close();
+    if (resetReconnect) {
+      wsReconnectAttempts.value = 0;
+      wsReconnectFailed.value = false;
+    }
+    clearWsReconnectTimer();
+    wsManualClose = true;
+    if (ws.value) {
+      ws.value.onclose = null;
+      ws.value.close();
+    }
+    wsManualClose = false;
+
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const url = `${protocol}://${window.location.host}/api/v1/ws?token=${encodeURIComponent(token.value)}`;
     ws.value = new WebSocket(url);
     ws.value.binaryType = "arraybuffer";
     ws.value.onopen = () => {
       wsConnected.value = true;
+      wsReconnecting.value = false;
+      wsReconnectFailed.value = false;
+      wsReconnectAttempts.value = 0;
     };
     ws.value.onclose = () => {
       wsConnected.value = false;
+      if (!wsManualClose && token.value) scheduleWsReconnect();
     };
-    ws.value.onerror = () => showToast("WebSocket 连接异常");
+    ws.value.onerror = () => {
+      wsConnected.value = false;
+    };
     ws.value.onmessage = handleWsMessage;
   }
 
+  function scheduleWsReconnect() {
+    if (wsReconnectAttempts.value >= maxWsReconnectAttempts) {
+      wsReconnecting.value = false;
+      wsReconnectFailed.value = true;
+      showToast("实时通道连接失败，请点击状态点重试");
+      return;
+    }
+
+    wsReconnectAttempts.value += 1;
+    wsReconnecting.value = true;
+    wsReconnectFailed.value = false;
+    const delay = Math.min(1000 * wsReconnectAttempts.value, 5000);
+    clearWsReconnectTimer();
+    wsReconnectTimer = window.setTimeout(() => connectWs(false), delay);
+  }
+
+  function retryWsConnection() {
+    if (wsConnected.value || wsReconnecting.value) return;
+    connectWs(true);
+  }
+
   function logout() {
+    clearWsReconnectTimer();
+    wsManualClose = true;
     if (ws.value) {
+      ws.value.onclose = null;
       ws.value.close();
       ws.value = null;
     }
     token.value = "";
     wsConnected.value = false;
+    wsReconnecting.value = false;
+    wsReconnectFailed.value = false;
+    wsReconnectAttempts.value = 0;
     conversations.value = [];
     friends.value = [];
     friendRequests.value = [];
@@ -407,7 +469,12 @@ export function useImClient() {
   }
 
   onBeforeUnmount(() => {
-    if (ws.value) ws.value.close();
+    clearWsReconnectTimer();
+    wsManualClose = true;
+    if (ws.value) {
+      ws.value.onclose = null;
+      ws.value.close();
+    }
   });
 
   return {
@@ -424,6 +491,9 @@ export function useImClient() {
     messageText,
     messageList,
     wsConnected,
+    wsReconnecting,
+    wsReconnectFailed,
+    wsStatusText,
     toast,
     roomForm,
     activeRoomId,
@@ -441,6 +511,7 @@ export function useImClient() {
     submitFriendRequest,
     handleFriendRequest,
     connectWs,
+    retryWsConnection,
     logout,
     sendMessage,
     handleCreateRoom,

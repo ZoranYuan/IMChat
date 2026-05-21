@@ -29,13 +29,9 @@
       </nav>
 
       <div class="top-actions">
-        <div class="status-line">
-          <span :class="['dot', wsConnected ? 'ok' : '']"></span>
-          <span>{{ wsConnected ? "在线" : "未连接到服务器" }}</span>
-        </div>
-        <button class="ghost" @click="connectWs">
-          <RadioTower :size="16" />
-          连接
+        <button class="status-line status-action" :title="wsStatusText" @click="retryWsConnection">
+          <span :class="['dot', { ok: wsConnected, warn: wsReconnecting, fail: wsReconnectFailed }]"></span>
+          <span>{{ wsStatusText }}</span>
         </button>
         <button class="ghost" @click="logout">退出</button>
       </div>
@@ -145,7 +141,7 @@ import FriendsPanel from "./components/FriendsPanel.vue";
 import LoginPage from "./components/LoginPage.vue";
 import WatchPanel from "./components/WatchPanel.vue";
 import { useImClient } from "./composables/useImClient";
-import { Film, MessageCircle, PanelLeftClose, PanelLeftOpen, RadioTower } from "@lucide/vue";
+import { Film, MessageCircle, PanelLeftClose, PanelLeftOpen } from "@lucide/vue";
 
 const viewMode = ref("chat");
 const directoryMode = ref("conversations");
@@ -166,6 +162,9 @@ const {
   messageText,
   messageList,
   wsConnected,
+  wsReconnecting,
+  wsReconnectFailed,
+  wsStatusText,
   toast,
   roomForm,
   activeRoomId,
@@ -182,7 +181,7 @@ const {
   openPrivateConversation,
   submitFriendRequest,
   handleFriendRequest,
-  connectWs,
+  retryWsConnection,
   logout,
   sendMessage,
   handleCreateRoom,
