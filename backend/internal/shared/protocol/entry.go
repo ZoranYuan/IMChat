@@ -64,6 +64,7 @@ type MessageEvent struct {
 	MessageId      string   `json:"messageId"`
 	ConversationId string   `json:"conversationId"`
 	SendId         string   `json:"sendId"`
+	SenderUsername string   `json:"senderUsername"`
 	RecvId         string   `json:"recvId"`
 	Seq            int64    `json:"seq"`
 	ConvType       ConvType `json:"convType"`

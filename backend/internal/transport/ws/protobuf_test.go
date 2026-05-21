@@ -14,6 +14,7 @@ func TestEncodeWebSocketPayloadMessageEvent(t *testing.T) {
 		MessageId:      "msg-1",
 		ConversationId: "conv-1",
 		SendId:         "u1",
+		SenderUsername: "alice",
 		RecvId:         "u2",
 		Seq:            12,
 		ConvType:       protocol.RoomChat,
@@ -37,10 +38,11 @@ func TestEncodeWebSocketPayloadMessageEvent(t *testing.T) {
 	}
 	if got.GetMessageId() != event.MessageId ||
 		got.GetConversationId() != event.ConversationId ||
+		got.GetSenderUsername() != event.SenderUsername ||
 		got.GetConvType() != int32(event.ConvType) ||
 		got.GetContent() != event.Content {
-		t.Fatalf("unexpected protobuf event: messageId=%q conversationId=%q convType=%d content=%q",
-			got.GetMessageId(), got.GetConversationId(), got.GetConvType(), got.GetContent())
+		t.Fatalf("unexpected protobuf event: messageId=%q conversationId=%q senderUsername=%q convType=%d content=%q",
+			got.GetMessageId(), got.GetConversationId(), got.GetSenderUsername(), got.GetConvType(), got.GetContent())
 	}
 }
 

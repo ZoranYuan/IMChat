@@ -59,6 +59,7 @@ func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
 		MessageId:      event.MessageId,
 		ConversationId: event.ConversationId,
 		SendId:         event.SendId,
+		SenderUsername: event.SenderUsername,
 		RecvId:         event.RecvId,
 		Seq:            event.Seq,
 		ConvType:       int32(event.ConvType),

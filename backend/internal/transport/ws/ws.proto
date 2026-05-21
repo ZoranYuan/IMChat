@@ -48,6 +48,7 @@ message MessageEvent {
   int32 c_type = 7;
   string content = 8;
   int64 send_time = 9;
+  string sender_username = 10;
 }
 
 message WatchVideoControl {

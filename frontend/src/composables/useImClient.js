@@ -222,6 +222,7 @@ export function useImClient() {
             messageId: msg.messageId,
             conversationId: msg.conversationId,
             senderId: msg.sendId,
+            senderUsername: msg.senderUsername,
             content: msg.content,
             seq: msg.seq,
             convType: msg.convType,
@@ -270,6 +271,7 @@ export function useImClient() {
     messages.value.push({
       clientMsgId,
       senderId: currentUser.userId,
+      senderUsername: currentUser.username || currentUser.userName,
       content,
       sendTime: Date.now(),
       convType: activeConversation.value.convType,

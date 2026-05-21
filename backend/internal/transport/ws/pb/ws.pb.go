@@ -364,6 +364,7 @@ type MessageEvent struct {
 	CType          int32                  `protobuf:"varint,7,opt,name=c_type,json=cType,proto3" json:"c_type,omitempty"`
 	Content        string                 `protobuf:"bytes,8,opt,name=content,proto3" json:"content,omitempty"`
 	SendTime       int64                  `protobuf:"varint,9,opt,name=send_time,json=sendTime,proto3" json:"send_time,omitempty"`
+	SenderUsername string                 `protobuf:"bytes,10,opt,name=sender_username,json=senderUsername,proto3" json:"sender_username,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -459,6 +460,13 @@ func (x *MessageEvent) GetSendTime() int64 {
 		return x.SendTime
 	}
 	return 0
+}
+
+func (x *MessageEvent) GetSenderUsername() string {
+	if x != nil {
+		return x.SenderUsername
+	}
+	return ""
 }
 
 type WatchVideoControl struct {
@@ -733,7 +741,7 @@ const file_ws_proto_rawDesc = "" +
 	"\x13MessageReadAckEvent\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\"\n" +
-	"\rlast_read_seq\x18\x03 \x01(\x03R\vlastReadSeq\"\x85\x02\n" +
+	"\rlast_read_seq\x18\x03 \x01(\x03R\vlastReadSeq\"\xae\x02\n" +
 	"\fMessageEvent\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12'\n" +
@@ -744,7 +752,9 @@ const file_ws_proto_rawDesc = "" +
 	"\tconv_type\x18\x06 \x01(\x05R\bconvType\x12\x15\n" +
 	"\x06c_type\x18\a \x01(\x05R\x05cType\x12\x18\n" +
 	"\acontent\x18\b \x01(\tR\acontent\x12\x1b\n" +
-	"\tsend_time\x18\t \x01(\x03R\bsendTime\"\xa4\x02\n" +
+	"\tsend_time\x18\t \x01(\x03R\bsendTime\x12'\n" +
+	"\x0fsender_username\x18\n" +
+	" \x01(\tR\x0esenderUsername\"\xa4\x02\n" +
 	"\x11WatchVideoControl\x12\x17\n" +
 	"\aroom_id\x18\x01 \x01(\tR\x06roomId\x12\x16\n" +
 	"\x06action\x18\x02 \x01(\tR\x06action\x12\x19\n" +

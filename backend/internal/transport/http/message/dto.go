@@ -18,13 +18,14 @@ type DanmakuReq struct {
 }
 
 type Message struct {
-	MessageId string `json:"messageId"`
-	SenderId  string `json:"senderId"`
-	Seq       int64  `json:"seq"`
-	ConvType  int    `json:"convType"` // 单聊/群聊
-	CType     int    `json:"cType"`    // 消息类型（文本/图片等）
-	Content   string `json:"content"`
-	SendTime  int64  `json:"sendTime"`
+	MessageId      string `json:"messageId"`
+	SenderId       string `json:"senderId"`
+	SenderUsername string `json:"senderUsername"`
+	Seq            int64  `json:"seq"`
+	ConvType       int    `json:"convType"` // 单聊/群聊
+	CType          int    `json:"cType"`    // 消息类型（文本/图片等）
+	Content        string `json:"content"`
+	SendTime       int64  `json:"sendTime"`
 }
 
 type OfflineMessageRes struct {
@@ -57,13 +58,14 @@ func toHistoryMessageRes(messages []messageapp.MessageAppeDTO, nextCursor int64,
 
 	for _, m := range messages {
 		message := Message{
-			MessageId: m.MessageId,
-			SenderId:  m.SendId,
-			Seq:       m.Seq,
-			ConvType:  m.ConvType,
-			CType:     m.CType,
-			Content:   m.Content,
-			SendTime:  m.SendTime,
+			MessageId:      m.MessageId,
+			SenderId:       m.SendId,
+			SenderUsername: m.SenderUsername,
+			Seq:            m.Seq,
+			ConvType:       m.ConvType,
+			CType:          m.CType,
+			Content:        m.Content,
+			SendTime:       m.SendTime,
 		}
 
 		ms = append(ms, message)
@@ -94,13 +96,14 @@ func toDanmakuRes(items []messageapp.DanmakuDTO) (res DanmakuRes) {
 func toOfflineMessageRes(messages []messageapp.MessageAppeDTO, unreadMap map[string]int64) (res []OfflineMessageRes) {
 	for _, m := range messages {
 		latestMessage := Message{
-			MessageId: m.MessageId,
-			SenderId:  m.SendId,
-			Seq:       m.Seq,
-			ConvType:  m.ConvType,
-			CType:     m.CType,
-			Content:   m.Content,
-			SendTime:  m.SendTime,
+			MessageId:      m.MessageId,
+			SenderId:       m.SendId,
+			SenderUsername: m.SenderUsername,
+			Seq:            m.Seq,
+			ConvType:       m.ConvType,
+			CType:          m.CType,
+			Content:        m.Content,
+			SendTime:       m.SendTime,
 		}
 
 		om := OfflineMessageRes{

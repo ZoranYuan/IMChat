@@ -79,7 +79,6 @@
         :messages="messages"
         :current-user="currentUser"
         :ws-connected="wsConnected"
-        :format-time="formatTime"
         :message-list-ref="messageList"
         @send-message="sendMessage"
       />
@@ -107,7 +106,6 @@
             :messages="messages"
             :current-user="currentUser"
             :ws-connected="wsConnected"
-            :format-time="formatTime"
             :message-list-ref="messageList"
             @send-message="sendMessage"
           />

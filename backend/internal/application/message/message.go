@@ -7,6 +7,7 @@ import (
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
+	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
@@ -31,6 +32,7 @@ type MessageApplication struct {
 	userConversationRepository messagerepo.UserConversationRepository
 	conversationRepository     messagerepo.ConversationRepository
 	friendRepository           friendrepo.FriendRepository
+	userRepository             userrepo.UserRepository
 	roomUserRepository         roomrepo.RoomUserRepository
 	roomRepository             roomrepo.RoomRepository
 	taskManager                mqport.TaskManager
@@ -45,6 +47,7 @@ func NewMessageApplication(
 	userConversationRepository messagerepo.UserConversationRepository,
 	conversationRepository messagerepo.ConversationRepository,
 	friendRepository friendrepo.FriendRepository,
+	userRepository userrepo.UserRepository,
 	messageRepository messagerepo.MessageRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
 	roomRepository roomrepo.RoomRepository,
@@ -57,6 +60,7 @@ func NewMessageApplication(
 		messageRepository:          messageRepository,
 		conversationRepository:     conversationRepository,
 		userConversationRepository: userConversationRepository,
+		userRepository:             userRepository,
 		roomRepository:             roomRepository,
 		roomUserRepository:         roomUserRepository,
 		friendRepository:           friendRepository,
@@ -317,10 +321,12 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		return nil, ErrUnknown
 	}
 
+	senderUsername := ma.getUsername(dto.SendId)
 	messageEvent := protocol.MessageEvent{
 		MessageId:      messageId,
 		ConversationId: conversationId,
 		SendId:         dto.SendId,
+		SenderUsername: senderUsername,
 		RecvId:         dto.RecvId,
 		Seq:            seq,
 		ConvType:       protocol.ConvType(dto.ConvType),
@@ -342,9 +348,10 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	}()
 
 	return &MessageAppeDTO{
-		ClientMsgId: dto.ClientMsgId,
-		MessageId:   messageId,
-		Status:      string(protocol.AckStatusSent),
+		ClientMsgId:    dto.ClientMsgId,
+		MessageId:      messageId,
+		SenderUsername: senderUsername,
+		Status:         string(protocol.AckStatusSent),
 	}, nil
 }
 
@@ -396,6 +403,7 @@ func (ma *MessageApplication) GetHistoryMessages(
 	}
 
 	msgsApp := toMessagesAppDTO(msgs)
+	ma.fillSenderUsernames(msgsApp)
 
 	sort.Slice(msgsApp, func(i, j int) bool {
 		return msgsApp[i].Seq < msgsApp[j].Seq
@@ -413,6 +421,46 @@ func (ma *MessageApplication) GetHistoryMessages(
 	}
 
 	return msgsApp, nextCursor, hasMore, nil
+}
+
+func (ma *MessageApplication) getUsername(userId string) string {
+	if userId == "" || ma.userRepository == nil {
+		return ""
+	}
+	user, err := ma.userRepository.FindByUserID(userId)
+	if err != nil || user == nil {
+		return ""
+	}
+	return user.UserName
+}
+
+func (ma *MessageApplication) fillSenderUsernames(messages []MessageAppeDTO) {
+	if len(messages) == 0 || ma.userRepository == nil {
+		return
+	}
+	seen := make(map[string]struct{}, len(messages))
+	userIds := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		if msg.SendId == "" {
+			continue
+		}
+		if _, ok := seen[msg.SendId]; ok {
+			continue
+		}
+		seen[msg.SendId] = struct{}{}
+		userIds = append(userIds, msg.SendId)
+	}
+	users, err := ma.userRepository.FindByUserIDs(userIds)
+	if err != nil {
+		return
+	}
+	usernameById := make(map[string]string, len(users))
+	for _, user := range users {
+		usernameById[user.UserId] = user.UserName
+	}
+	for i := range messages {
+		messages[i].SenderUsername = usernameById[messages[i].SendId]
+	}
 }
 
 func (ma *MessageApplication) GetRoomDanmaku(
@@ -538,5 +586,7 @@ func (ma *MessageApplication) GetOfflineMessages(
 		}(syncItems)
 	}
 
-	return toMessagesAppDTO(msgs), unreadMap, nil
+	msgsApp := toMessagesAppDTO(msgs)
+	ma.fillSenderUsernames(msgsApp)
+	return msgsApp, unreadMap, nil
 }

@@ -21,9 +21,8 @@
         :class="['bubble-row', msg.senderId === currentUser.userId ? 'mine' : '']"
       >
         <div class="bubble">
-          <div class="bubble-meta">
-            <span>{{ msg.senderId || "me" }}</span>
-            <time>{{ formatTime(msg.sendTime) }}</time>
+          <div v-if="showSenderName(msg)" class="bubble-meta">
+            <span>{{ msg.senderUsername || msg.username || msg.senderId }}</span>
           </div>
           <p>{{ msg.content }}</p>
         </div>
@@ -55,7 +54,6 @@ const props = defineProps({
   currentUser: { type: Object, required: true },
   messageText: { type: String, default: "" },
   wsConnected: { type: Boolean, default: false },
-  formatTime: { type: Function, required: true },
   messageListRef: { type: Object, required: true },
 });
 
@@ -63,5 +61,9 @@ defineEmits(["update:messageText", "send-message"]);
 
 function setMessageList(el) {
   props.messageListRef.value = el;
+}
+
+function showSenderName(msg) {
+  return props.activeConversation?.convType === 2 && msg.senderId !== props.currentUser.userId;
 }
 </script>
