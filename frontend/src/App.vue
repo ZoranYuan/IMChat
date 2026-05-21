@@ -1,23 +1,17 @@
 <template>
-  <LoginPage
-    v-if="!token"
-    v-model:auth-mode="authMode"
-    :auth-form="authForm"
-    @submit-auth="submitAuth"
-    @oauth-login="handleOAuthLogin"
-  />
+  <LoginPage v-if="!token" v-model:auth-mode="authMode" :auth-form="authForm" @submit-auth="submitAuth"
+    @oauth-login="handleOAuthLogin" />
 
   <main v-else class="app-shell">
-    <header class="topbar">
+    <header class="topbar" :style="{ padding: 10 }">
       <div class="brand compact-brand">
         <div class="brand-mark">SY</div>
         <div>
-          <strong>SYCHAT</strong>
-          <span>{{ currentUser.username || "用户" }}</span>
+          <span>hello，{{ currentUser.username || "用户" }}</span>
         </div>
       </div>
 
-      <nav class="mode-tabs" style="padding: 10px;">
+      <nav class="mode-tabs">
         <button :class="{ active: viewMode === 'chat' }" @click="viewMode = 'chat'">
           <MessageCircle :size="13" />
           聊天
@@ -47,45 +41,23 @@
           <button :class="{ active: directoryMode === 'friends' }" @click="directoryMode = 'friends'">好友</button>
         </div>
 
-        <ConversationList
-          v-if="directoryMode === 'conversations'"
-          :token="token"
-          :conversations="conversations"
-          :active-conversation="activeConversation"
-          @load-offline="loadOffline"
-          @select-conversation="selectConversation"
-        />
+        <ConversationList v-if="directoryMode === 'conversations'" :token="token" :conversations="conversations"
+          :active-conversation="activeConversation" @load-offline="loadOffline"
+          @select-conversation="selectConversation" />
 
-        <FriendsPanel
-          v-else
-          :token="token"
-          :friends="friends"
-          :friend-requests="friendRequests"
-          :friend-form="friendForm"
-          :format-time="formatTime"
-          @refresh="refreshFriends"
-          @submit-request="submitFriendRequest"
-          @operate-request="handleFriendRequest"
-          @open-chat="openPrivateConversation"
-        />
+        <FriendsPanel v-else :token="token" :friends="friends" :friend-requests="friendRequests"
+          :friend-form="friendForm" :format-time="formatTime" @refresh="refreshFriends"
+          @submit-request="submitFriendRequest" @operate-request="handleFriendRequest"
+          @open-chat="openPrivateConversation" />
       </aside>
 
-      <ChatPanel
-        v-model:message-text="messageText"
-        :active-conversation="activeConversation"
-        :messages="messages"
-        :current-user="currentUser"
-        :ws-connected="wsConnected"
-        :message-list-ref="messageList"
-        @send-message="sendMessage"
-      />
+      <ChatPanel v-model:message-text="messageText" :active-conversation="activeConversation" :messages="messages"
+        :current-user="currentUser" :ws-connected="wsConnected" :message-list-ref="messageList"
+        @send-message="sendMessage" />
     </section>
 
-    <section
-      v-else
-      :class="['watch-workspace', { 'chat-collapsed': watchChatCollapsed }]"
-      :style="{ gridTemplateColumns: watchChatCollapsed ? '44px minmax(0, 1fr)' : `${watchSidebarWidth}px minmax(0, 1fr)` }"
-    >
+    <section v-else :class="['watch-workspace', { 'chat-collapsed': watchChatCollapsed }]"
+      :style="{ gridTemplateColumns: watchChatCollapsed ? '44px minmax(0, 1fr)' : `${watchSidebarWidth}px minmax(0, 1fr)` }">
       <aside class="watch-chat-sidebar">
         <button class="collapse-tab" @click="watchChatCollapsed = !watchChatCollapsed">
           <PanelLeftClose v-if="!watchChatCollapsed" :size="18" />
@@ -95,45 +67,23 @@
         <div v-if="!watchChatCollapsed" class="watch-resize-handle" @pointerdown="startWatchSidebarResize"></div>
 
         <template v-if="!watchChatCollapsed">
-          <ConversationList
-            :token="token"
-            :conversations="conversations"
-            :active-conversation="activeConversation"
-            @load-offline="loadOffline"
-            @select-conversation="selectConversation"
-          />
+          <div class="watch-room-chat-head">
+            <span>房间聊天</span>
+            <strong>{{ activeRoomName || "未进入房间" }}</strong>
+          </div>
 
-          <ChatPanel
-            v-model:message-text="messageText"
-            :active-conversation="activeConversation"
-            :messages="messages"
-            :current-user="currentUser"
-            :ws-connected="wsConnected"
-            :message-list-ref="messageList"
-            @send-message="sendMessage"
-          />
+          <ChatPanel v-model:message-text="messageText" :active-conversation="watchConversation" :messages="watchMessages"
+            :current-user="currentUser" :ws-connected="wsConnected" :message-list-ref="messageList"
+            @send-message="sendWatchMessage" />
         </template>
       </aside>
 
-      <WatchPanel
-        v-model:file-id-input="fileIdInput"
-        :token="token"
-        :active-room-id="activeRoomId"
-        :room-form="roomForm"
-        :upload-name="uploadName"
-        :video="video"
-        :visible-danmaku="visibleDanmaku"
-        @update:video-el="setVideoElement"
-        @watch-control="sendWatchControl"
-        @seek-by="seekBy"
-        @video-time-update="onVideoTimeUpdate"
-        @create-room="handleCreateRoom"
-        @join-room="handleJoinRoom"
-        @invite="handleInvite"
-        @upload="handleUpload"
-        @load-file="loadFile"
-        @load-video="loadVideoToRoom"
-      />
+      <WatchPanel v-model:file-id-input="fileIdInput" :token="token" :active-room-id="activeRoomId"
+        :active-room-name="activeRoomName" :can-control-video="canControlWatchVideo" :room-form="roomForm"
+        :upload-name="uploadName" :video="video" :visible-danmaku="visibleDanmaku"
+        @update:video-el="setVideoElement" @watch-control="sendWatchControl" @seek-by="seekBy"
+        @video-time-update="onVideoTimeUpdate" @create-room="handleCreateRoom" @join-room="handleJoinRoom"
+        @invite="handleInvite" @upload="handleUpload" @load-file="loadFile" @load-video="loadVideoToRoom" />
     </section>
   </main>
 
@@ -141,7 +91,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import ChatPanel from "./components/ChatPanel.vue";
 import ConversationList from "./components/ConversationList.vue";
 import FriendsPanel from "./components/FriendsPanel.vue";
@@ -213,6 +163,45 @@ const {
   formatTime,
 } = useImClient();
 
+const activeRoomName = computed(() => {
+  if (!activeRoomId.value) return "";
+  const roomConversation = conversations.value.find((item) => item.conversationId === activeRoomId.value);
+  return roomConversation?.displayName || roomForm.roomName || "一起看房间";
+});
+
+const watchConversation = computed(() => {
+  if (!activeRoomId.value) return null;
+  return (
+    conversations.value.find((item) => item.conversationId === activeRoomId.value) || {
+      conversationId: activeRoomId.value,
+      displayName: activeRoomName.value,
+      convType: 2,
+    }
+  );
+});
+
+const watchMessages = computed(() => {
+  if (activeConversation.value?.conversationId !== activeRoomId.value) return [];
+  return messages.value;
+});
+
+const canControlWatchVideo = computed(() => Boolean(activeRoomId.value && video.url));
+
+function focusWatchRoomConversation() {
+  if (!activeRoomId.value) return Promise.resolve();
+  if (activeConversation.value?.conversationId === activeRoomId.value) return Promise.resolve();
+  return selectConversation(watchConversation.value);
+}
+
+watch(viewMode, (mode) => {
+  if (mode === "watch") focusWatchRoomConversation();
+});
+
+async function sendWatchMessage() {
+  await focusWatchRoomConversation();
+  if (activeConversation.value?.conversationId !== activeRoomId.value) return;
+  sendMessage();
+}
 
 function startChatSidebarResize(event) {
   chatSidebarResizeStartX = event.clientX;

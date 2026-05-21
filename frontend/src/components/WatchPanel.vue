@@ -3,10 +3,10 @@
     <section class="watch-card video-card">
       <div class="pane-head compact">
         <div>
-          <p class="eyebrow">Watch Together</p>
-          <h2>一起看</h2>
+          <p class="eyebrow">Watch Room</p>
+          <h2>{{ activeRoomName || "进入房间后一起看" }}</h2>
         </div>
-        <button class="icon-btn" :disabled="!activeRoomId" title="同步状态" @click="$emit('watch-control', 'get_state')">
+        <button class="icon-btn" :disabled="!activeRoomId" title="同步房间播放状态" @click="$emit('watch-control', 'get_state')">
           <RotateCw :size="18" />
         </button>
       </div>
@@ -26,16 +26,16 @@
       </div>
 
       <div class="watch-controls">
-        <button class="icon-btn" :disabled="!activeRoomId" title="后退 10 秒" @click="$emit('seek-by', -10000)">
+        <button class="icon-btn" :disabled="!canControlVideo" title="后退 10 秒" @click="$emit('seek-by', -10000)">
           <SkipBack :size="18" />
         </button>
-        <button class="icon-btn strong" :disabled="!activeRoomId" title="播放" @click="$emit('watch-control', 'play')">
+        <button class="icon-btn strong" :disabled="!canControlVideo" title="播放" @click="$emit('watch-control', 'play')">
           <Play :size="18" />
         </button>
-        <button class="icon-btn" :disabled="!activeRoomId" title="暂停" @click="$emit('watch-control', 'pause')">
+        <button class="icon-btn" :disabled="!canControlVideo" title="暂停" @click="$emit('watch-control', 'pause')">
           <Pause :size="18" />
         </button>
-        <button class="icon-btn" :disabled="!activeRoomId" title="前进 10 秒" @click="$emit('seek-by', 10000)">
+        <button class="icon-btn" :disabled="!canControlVideo" title="前进 10 秒" @click="$emit('seek-by', 10000)">
           <SkipForward :size="18" />
         </button>
       </div>
@@ -43,34 +43,39 @@
 
     <section class="watch-card">
       <h3>房间</h3>
-      <input :value="roomForm.roomName" placeholder="房间名称" @input="roomForm.roomName = $event.target.value" />
+      <div class="room-state">
+        <span :class="['dot', activeRoomId ? 'ok' : '']"></span>
+        <strong>{{ activeRoomName || "未进入房间" }}</strong>
+      </div>
+      <input :value="roomForm.roomName" placeholder="创建房间名称" @input="roomForm.roomName = $event.target.value" />
       <div class="split">
-        <button class="ghost" :disabled="!token" @click="$emit('create-room')">创建</button>
-        <button class="ghost" :disabled="!activeRoomId" @click="$emit('invite')">邀请码</button>
+        <button class="ghost" :disabled="!token || !roomForm.roomName" @click="$emit('create-room')">创建房间</button>
+        <button class="ghost" :disabled="!activeRoomId" @click="$emit('invite')">生成邀请码</button>
       </div>
       <div class="split">
-        <input :value="roomForm.inviteCode" placeholder="输入邀请码" @input="roomForm.inviteCode = $event.target.value.trim()" />
-        <button class="ghost" :disabled="!token" @click="$emit('join-room')">加入</button>
+        <input :value="roomForm.inviteCode" placeholder="输入邀请码加入房间" @input="roomForm.inviteCode = $event.target.value.trim()" />
+        <button class="ghost" :disabled="!token || !roomForm.inviteCode" @click="$emit('join-room')">加入</button>
       </div>
-      <p class="muted small">当前房间：{{ activeRoomId || "未选择" }}</p>
       <p v-if="roomForm.inviteCodeDisplay" class="code-box">{{ roomForm.inviteCodeDisplay }}</p>
     </section>
 
     <section class="watch-card">
       <h3>视频</h3>
+      <p class="muted small">先进入房间，再把视频同步给房间成员。</p>
       <label class="file-box">
         <Upload :size="18" />
         <span>{{ uploadName || "上传视频文件" }}</span>
         <input type="file" accept="video/*" @change="$emit('upload', $event)" />
       </label>
       <div class="split">
-        <input :value="fileIdInput" placeholder="fileId" @input="$emit('update:fileIdInput', $event.target.value.trim())" />
-        <button class="ghost" :disabled="!fileIdInput" @click="$emit('load-file')">加载</button>
+        <input :value="fileIdInput" placeholder="输入视频 fileId" @input="$emit('update:fileIdInput', $event.target.value.trim())" />
+        <button class="ghost" :disabled="!fileIdInput" @click="$emit('load-file')">加载视频</button>
       </div>
       <input :value="video.url" placeholder="视频 URL" @input="video.url = $event.target.value.trim()" />
+      <p v-if="video.fileName || video.fileId" class="muted small">当前视频：{{ video.fileName || video.fileId }}</p>
       <button class="primary wide" :disabled="!activeRoomId || !video.url" @click="$emit('load-video')">
         <Film :size="16" />
-        同步到房间
+        同步给房间
       </button>
     </section>
   </aside>
@@ -83,6 +88,8 @@ import { Film, Pause, Play, RotateCw, SkipBack, SkipForward, Upload } from "@luc
 const props = defineProps({
   token: { type: String, default: "" },
   activeRoomId: { type: String, default: "" },
+  activeRoomName: { type: String, default: "" },
+  canControlVideo: { type: Boolean, default: false },
   roomForm: { type: Object, required: true },
   fileIdInput: { type: String, default: "" },
   uploadName: { type: String, default: "" },

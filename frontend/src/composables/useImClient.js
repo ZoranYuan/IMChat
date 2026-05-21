@@ -352,7 +352,8 @@ export function useImClient() {
     try {
       const data = await createRoom(token.value, roomForm);
       activeRoomId.value = data.roomId;
-      openConversation(data.roomId, 2, "一起看房间");
+      roomForm.roomName = data.roomName || roomForm.roomName;
+      openConversation(data.roomId, 2, data.roomName || "一起看房间");
       roomForm.inviteCodeDisplay = data.inviteCode || "";
       showToast("房间已创建");
     } catch (err) {
@@ -364,8 +365,9 @@ export function useImClient() {
     try {
       const data = await joinRoom(token.value, roomForm.inviteCode);
       activeRoomId.value = data.room?.roomId || data.roomId || "";
+      roomForm.roomName = data.room?.roomName || data.roomName || roomForm.roomName;
       if (activeRoomId.value) {
-        openConversation(activeRoomId.value, 2, "一起看房间");
+        openConversation(activeRoomId.value, 2, roomForm.roomName || "一起看房间");
       }
       showToast("已加入房间");
     } catch (err) {
@@ -388,7 +390,7 @@ export function useImClient() {
     uploadName.value = file.name;
     try {
       const data = await uploadFile(token.value, file);
-      Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey });
+      Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
       fileIdInput.value = data.fileId;
       showToast("视频上传完成");
     } catch (err) {
@@ -399,7 +401,7 @@ export function useImClient() {
   async function loadFile() {
     try {
       const data = await getFile(token.value, fileIdInput.value);
-      Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey });
+      Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
       showToast("视频已加载");
     } catch (err) {
       showToast(err.message);
@@ -407,12 +409,24 @@ export function useImClient() {
   }
 
   function loadVideoToRoom() {
+    if (!activeRoomId.value) {
+      showToast("请先进入房间");
+      return;
+    }
+    if (!video.url) {
+      showToast("请先加载视频");
+      return;
+    }
     sendWatchControl("load", { positionMs: 0 });
   }
 
   function sendWatchControl(action, patch = {}) {
     if (!activeRoomId.value) {
       showToast("请先进入房间");
+      return;
+    }
+    if (action !== "get_state" && !video.url) {
+      showToast("请先加载视频");
       return;
     }
     const current = videoRef.value ? Math.floor(videoRef.value.currentTime * 1000) : 0;
@@ -436,6 +450,7 @@ export function useImClient() {
 
   function applyWatchState(state) {
     if (state.roomId && state.roomId !== activeRoomId.value) return;
+    if (state.videoId) video.fileId = state.videoId;
     if (state.videoUrl) video.url = state.videoUrl;
     nextTick(() => {
       if (!videoRef.value) return;

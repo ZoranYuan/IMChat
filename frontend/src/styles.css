@@ -200,7 +200,7 @@ select {
   grid-template-columns: 280px 1fr auto;
   align-items: center;
   gap: 18px;
-  padding: 0 20px;
+  padding: 10px 20px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(13, 10, 18, 0.94);
 }
@@ -397,6 +397,25 @@ select {
 .watch-chat-sidebar .conversation-pane,
 .watch-chat-sidebar .chat-pane {
   border-right: 0;
+}
+
+.watch-room-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #9e91af;
+  font-size: 12px;
+}
+
+.watch-room-chat-head strong {
+  overflow: hidden;
+  color: #f6f0ff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .watch-chat-sidebar .conversation-pane {
@@ -946,6 +965,20 @@ video {
 
 .file-box input {
   display: none;
+}
+
+.room-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  color: #d7cced;
+}
+
+.room-state strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .code-box {
