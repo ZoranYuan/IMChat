@@ -140,9 +140,9 @@
         @load-video="loadVideoToRoom"
       />
     </section>
-
-    <div v-if="toast" class="toast">{{ toast }}</div>
   </main>
+
+  <div v-if="toast" class="toast">{{ toast }}</div>
 </template>
 
 <script setup>
@@ -158,6 +158,7 @@ import { Film, MessageCircle, PanelLeftClose, PanelLeftOpen, RadioTower } from "
 const viewMode = ref("chat");
 const directoryMode = ref("conversations");
 const watchChatCollapsed = ref(false);
+let oauthToastTimer = 0;
 
 const {
   token,
@@ -210,6 +211,10 @@ const {
 function handleOAuthLogin(provider) {
   const providerName = provider === "wechat" ? "微信" : "GitHub";
   toast.value = `${providerName} 登录后端接口待接入`;
+  window.clearTimeout(oauthToastTimer);
+  oauthToastTimer = window.setTimeout(() => {
+    toast.value = "";
+  }, 2400);
 }
 
 function refreshFriends() {
