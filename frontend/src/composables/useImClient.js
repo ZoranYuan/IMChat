@@ -29,8 +29,6 @@ export function useImClient() {
   const friendRequests = ref([]);
   const friendForm = reactive({ toUserId: "", message: "你好，我想加你为好友" });
   const messageText = ref("");
-  const manualConversationId = ref("");
-  const manualConvType = ref(2);
   const messageList = ref(null);
   const ws = ref(null);
   const wsConnected = ref(false);
@@ -124,13 +122,13 @@ export function useImClient() {
     if (item.convType === 2) loadDanmaku();
   }
 
-  function openManualConversation() {
-    if (!manualConversationId.value) return;
+  function openConversation(conversationId, convType, content = "暂无消息") {
+    if (!conversationId) return;
     const item = {
-      conversationId: manualConversationId.value,
+      conversationId,
       unread: 0,
-      latestMessage: { content: "手动打开", convType: manualConvType.value },
-      convType: manualConvType.value,
+      latestMessage: { content, convType },
+      convType,
     };
     conversations.value = [item, ...conversations.value.filter((v) => v.conversationId !== item.conversationId)];
     selectConversation(item);
@@ -284,9 +282,7 @@ export function useImClient() {
     try {
       const data = await createRoom(token.value, roomForm);
       activeRoomId.value = data.roomId;
-      manualConversationId.value = data.roomId;
-      manualConvType.value = 2;
-      openManualConversation();
+      openConversation(data.roomId, 2, "一起看房间");
       roomForm.inviteCodeDisplay = data.inviteCode || "";
       showToast("房间已创建");
     } catch (err) {
@@ -299,9 +295,7 @@ export function useImClient() {
       const data = await joinRoom(token.value, roomForm.inviteCode);
       activeRoomId.value = data.room?.roomId || data.roomId || "";
       if (activeRoomId.value) {
-        manualConversationId.value = activeRoomId.value;
-        manualConvType.value = 2;
-        openManualConversation();
+        openConversation(activeRoomId.value, 2, "一起看房间");
       }
       showToast("已加入房间");
     } catch (err) {
@@ -420,8 +414,6 @@ export function useImClient() {
     friendRequests,
     friendForm,
     messageText,
-    manualConversationId,
-    manualConvType,
     messageList,
     wsConnected,
     toast,
@@ -437,7 +429,6 @@ export function useImClient() {
     loadFriends,
     loadFriendRequests,
     selectConversation,
-    openManualConversation,
     openPrivateConversation,
     submitFriendRequest,
     handleFriendRequest,

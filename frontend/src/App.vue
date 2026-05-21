@@ -52,13 +52,10 @@
 
         <ConversationList
           v-if="directoryMode === 'conversations'"
-          v-model:manual-conversation-id="manualConversationId"
-          v-model:manual-conv-type="manualConvType"
           :token="token"
           :conversations="conversations"
           :active-conversation="activeConversation"
           @load-offline="loadOffline"
-          @open-manual="openManualConversation"
           @select-conversation="selectConversation"
         />
 
@@ -97,13 +94,10 @@
 
         <template v-if="!watchChatCollapsed">
           <ConversationList
-            v-model:manual-conversation-id="manualConversationId"
-            v-model:manual-conv-type="manualConvType"
             :token="token"
             :conversations="conversations"
             :active-conversation="activeConversation"
             @load-offline="loadOffline"
-            @open-manual="openManualConversation"
             @select-conversation="selectConversation"
           />
 
@@ -172,8 +166,6 @@ const {
   activeConversation,
   messages,
   messageText,
-  manualConversationId,
-  manualConvType,
   messageList,
   wsConnected,
   toast,
@@ -189,7 +181,6 @@ const {
   loadFriends,
   loadFriendRequests,
   selectConversation,
-  openManualConversation,
   openPrivateConversation,
   submitFriendRequest,
   handleFriendRequest,

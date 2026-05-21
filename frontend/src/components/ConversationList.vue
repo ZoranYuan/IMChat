@@ -2,7 +2,6 @@
   <section class="conversation-pane">
     <div class="pane-head">
       <div>
-        <p class="eyebrow">Conversations</p>
         <h1>消息</h1>
       </div>
       <button class="icon-btn" :disabled="!token" title="刷新会话" @click="$emit('load-offline')">
@@ -10,20 +9,13 @@
       </button>
     </div>
 
-    <div class="quick-form">
-      <input
-        :value="manualConversationId"
-        placeholder="会话 / 房间 ID"
-        @input="$emit('update:manualConversationId', $event.target.value.trim())"
-      />
-      <select :value="manualConvType" @change="$emit('update:manualConvType', Number($event.target.value))">
-        <option :value="1">私聊</option>
-        <option :value="2">群聊</option>
-      </select>
-      <button class="ghost" @click="$emit('open-manual')">打开</button>
+    <div class="conversation-search">
+      <Search :size="16" />
+      <input placeholder="搜索" />
     </div>
 
     <div class="conversation-list">
+      <div v-if="!conversations.length" class="list-empty">暂无会话</div>
       <button
         v-for="item in conversations"
         :key="item.conversationId"
@@ -44,21 +36,13 @@
 </template>
 
 <script setup>
-import { RefreshCcw } from "@lucide/vue";
+import { RefreshCcw, Search } from "@lucide/vue";
 
 defineProps({
   token: { type: String, default: "" },
   conversations: { type: Array, default: () => [] },
   activeConversation: { type: Object, default: null },
-  manualConversationId: { type: String, default: "" },
-  manualConvType: { type: Number, default: 2 },
 });
 
-defineEmits([
-  "load-offline",
-  "open-manual",
-  "select-conversation",
-  "update:manualConversationId",
-  "update:manualConvType",
-]);
+defineEmits(["load-offline", "select-conversation"]);
 </script>
