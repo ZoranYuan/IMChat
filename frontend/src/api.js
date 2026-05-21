@@ -1,12 +1,46 @@
 import axios from "axios";
 
 export class ApiError extends Error {
-  constructor(message, code, raw) {
+  constructor(message, { code = 0, status = 0, data = null, raw = null } = {}) {
     super(message);
     this.name = "ApiError";
     this.code = code;
+    this.status = status;
+    this.data = data;
     this.raw = raw;
   }
+}
+
+function isSuccessCode(code) {
+  return code === 200 || code === 0;
+}
+
+function toApiError(error, fallback = "请求失败") {
+  const response = error?.response;
+  const payload = response?.data;
+
+  if (payload && typeof payload === "object") {
+    const message = payload.message || payload.msg || fallback;
+    return new ApiError(message, {
+      code: payload.code ?? response?.status ?? 0,
+      status: response?.status ?? 0,
+      data: payload.data ?? null,
+      raw: payload,
+    });
+  }
+
+  if (response) {
+    return new ApiError(response.statusText || fallback, {
+      code: response.status,
+      status: response.status,
+      raw: response,
+    });
+  }
+
+  return new ApiError(error?.message || "网络异常", {
+    code: error?.code || 0,
+    raw: error,
+  });
 }
 
 export const http = axios.create({
@@ -27,19 +61,20 @@ http.interceptors.response.use(
   (response) => {
     const payload = response.data;
     if (payload && typeof payload === "object" && "code" in payload) {
-      if (payload.code !== 200) {
-        throw new ApiError(payload.message || "请求失败", payload.code, payload);
+      if (!isSuccessCode(payload.code)) {
+        throw new ApiError(payload.message || payload.msg || "请求失败", {
+          code: payload.code,
+          status: response.status,
+          data: payload.data ?? null,
+          raw: payload,
+        });
       }
       return payload.data ?? payload;
     }
     return payload;
   },
   (error) => {
-    const payload = error.response?.data;
-    if (payload && typeof payload === "object") {
-      throw new ApiError(payload.message || error.message, payload.code || error.response?.status, payload);
-    }
-    throw new ApiError(error.message || "网络异常", error.response?.status, error);
+    throw toApiError(error);
   },
 );
 
