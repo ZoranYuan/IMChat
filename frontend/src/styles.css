@@ -273,12 +273,37 @@ select {
 }
 
 .chat-directory {
+  position: relative;
   display: grid;
   grid-template-rows: 50px 1fr;
   min-width: 0;
   min-height: 0;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(18, 13, 25, 0.86);
+}
+
+.chat-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 8;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.chat-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 3px;
+  width: 1px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.chat-resize-handle:hover::after {
+  background: rgba(180, 150, 255, 0.55);
 }
 
 .directory-tabs {

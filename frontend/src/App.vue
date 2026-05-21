@@ -37,8 +37,9 @@
       </div>
     </header>
 
-    <section v-if="viewMode === 'chat'" class="chat-workspace">
+    <section v-if="viewMode === 'chat'" class="chat-workspace" :style="{ gridTemplateColumns: `${chatSidebarWidth}px minmax(0, 1fr)` }">
       <aside class="chat-directory">
+        <div class="chat-resize-handle" @pointerdown="startChatSidebarResize"></div>
         <div class="directory-tabs">
           <button :class="{ active: directoryMode === 'conversations' }" @click="directoryMode = 'conversations'">
             会话
@@ -151,6 +152,11 @@ import { Film, MessageCircle, PanelLeftClose, PanelLeftOpen } from "@lucide/vue"
 
 const viewMode = ref("chat");
 const directoryMode = ref("conversations");
+const chatSidebarWidth = ref(330);
+const chatSidebarMinWidth = 280;
+const chatSidebarMaxWidth = 520;
+let chatSidebarResizeStartX = 0;
+let chatSidebarResizeStartWidth = 0;
 const watchChatCollapsed = ref(false);
 const watchSidebarWidth = ref(430);
 const watchSidebarMinWidth = 320;
@@ -208,6 +214,22 @@ const {
 } = useImClient();
 
 
+function startChatSidebarResize(event) {
+  chatSidebarResizeStartX = event.clientX;
+  chatSidebarResizeStartWidth = chatSidebarWidth.value;
+  window.addEventListener("pointermove", resizeChatSidebar);
+  window.addEventListener("pointerup", stopChatSidebarResize, { once: true });
+}
+
+function resizeChatSidebar(event) {
+  const nextWidth = chatSidebarResizeStartWidth + event.clientX - chatSidebarResizeStartX;
+  chatSidebarWidth.value = Math.min(chatSidebarMaxWidth, Math.max(chatSidebarMinWidth, nextWidth));
+}
+
+function stopChatSidebarResize() {
+  window.removeEventListener("pointermove", resizeChatSidebar);
+}
+
 function startWatchSidebarResize(event) {
   if (watchChatCollapsed.value) return;
   watchSidebarResizeStartX = event.clientX;
@@ -226,6 +248,7 @@ function stopWatchSidebarResize() {
 }
 
 onBeforeUnmount(() => {
+  window.removeEventListener("pointermove", resizeChatSidebar);
   window.removeEventListener("pointermove", resizeWatchSidebar);
 });
 
