@@ -463,6 +463,68 @@ func (ma *MessageApplication) fillSenderUsernames(messages []MessageAppeDTO) {
 	}
 }
 
+func (ma *MessageApplication) fillConversationDisplayNames(
+	messages []MessageAppeDTO,
+	conversations []*messageentity.Conversation,
+	userId string,
+) {
+	if len(messages) == 0 || len(conversations) == 0 {
+		return
+	}
+
+	conversationById := make(map[string]*messageentity.Conversation, len(conversations))
+	for _, conv := range conversations {
+		if conv == nil {
+			continue
+		}
+		conversationById[conv.ConversationId] = conv
+	}
+
+	for i := range messages {
+		conv := conversationById[messages[i].ConversationID]
+		if conv == nil {
+			continue
+		}
+
+		messages[i].ConvType = int(conv.Convtype)
+		switch conv.Convtype {
+		case messagevo.PrivateChat:
+			peerId := conv.UserId1
+			if peerId == userId {
+				peerId = conv.UserId2
+			}
+			messages[i].DisplayName = ma.getUserDisplayName(peerId)
+		case messagevo.RoomChat:
+			messages[i].DisplayName = ma.getRoomDisplayName(conv.RoomId)
+		}
+	}
+}
+
+func (ma *MessageApplication) getUserDisplayName(userId string) string {
+	if userId == "" || ma.userRepository == nil {
+		return ""
+	}
+	user, err := ma.userRepository.FindByUserID(userId)
+	if err != nil || user == nil {
+		return ""
+	}
+	if user.NickName != "" {
+		return user.NickName
+	}
+	return user.UserName
+}
+
+func (ma *MessageApplication) getRoomDisplayName(roomId string) string {
+	if roomId == "" || ma.roomRepository == nil {
+		return ""
+	}
+	room, err := ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
+	if err != nil || room == nil {
+		return ""
+	}
+	return room.RoomName
+}
+
 func (ma *MessageApplication) GetRoomDanmaku(
 	ctx context.Context,
 	roomId string,
@@ -588,5 +650,6 @@ func (ma *MessageApplication) GetOfflineMessages(
 
 	msgsApp := toMessagesAppDTO(msgs)
 	ma.fillSenderUsernames(msgsApp)
+	ma.fillConversationDisplayNames(msgsApp, convs, userId)
 	return msgsApp, unreadMap, nil
 }

@@ -194,6 +194,8 @@ select {
 }
 
 .topbar {
+  position: relative;
+  z-index: 30;
   display: grid;
   grid-template-columns: 280px 1fr auto;
   align-items: center;

@@ -8,6 +8,7 @@ type MessageAppeDTO struct {
 	SenderUsername string `json:"senderUsername"`   // 发送者用户名
 	RecvId         string `json:"recvId,omitempty"` // 接收者ID（单聊是用户ID，群聊是群ID）
 	ConversationID string `json:"conversation"`
+	DisplayName    string `json:"displayName"`
 	MessageId      string `json:"messageId"`
 	Status         string `json:"status"`
 	Seq            int64  `json:"seq"`

@@ -22,10 +22,10 @@
         :class="['conversation-item', activeConversation?.conversationId === item.conversationId ? 'active' : '']"
         @click="$emit('select-conversation', item)"
       >
-        <div class="avatar">{{ item.conversationId.slice(-2).toUpperCase() }}</div>
+        <div class="avatar">{{ displayName(item).slice(0, 2).toUpperCase() }}</div>
         <div class="item-main">
           <div class="item-row">
-            <strong>{{ item.conversationId }}</strong>
+            <strong>{{ displayName(item) }}</strong>
             <span v-if="item.unread" class="badge">{{ item.unread }}</span>
           </div>
           <p>{{ item.latestMessage?.content || "暂无消息" }}</p>
@@ -45,4 +45,8 @@ defineProps({
 });
 
 defineEmits(["load-offline", "select-conversation"]);
+
+function displayName(item) {
+  return item.displayName || item.latestMessage?.displayName || item.conversationId || "会话";
+}
 </script>

@@ -9,7 +9,7 @@
   <section v-else class="chat-pane">
     <header class="chat-head">
       <div>
-        <h2>{{ activeConversation.conversationId }}</h2>
+        <h2>{{ activeConversation.displayName || activeConversation.conversationId }}</h2>
       </div>
       <span class="pill">{{ activeConversation.convType === 2 ? "群聊" : "私聊" }}</span>
     </header>

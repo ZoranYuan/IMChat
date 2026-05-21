@@ -87,6 +87,7 @@ export function useImClient() {
     });
     conversations.value = (Array.isArray(data) ? data : []).map((item) => ({
       conversationId: item.conversationId,
+      displayName: item.displayName || item.latestMessage?.displayName || item.conversationId,
       unread: item.unread,
       latestMessage: item.latestMessage,
       convType: item.latestMessage?.convType || 2,
@@ -127,6 +128,7 @@ export function useImClient() {
     if (!conversationId) return;
     const item = {
       conversationId,
+      displayName: content,
       unread: 0,
       latestMessage: { content, convType },
       convType,
@@ -140,6 +142,7 @@ export function useImClient() {
     if (!conversationId) return;
     const item = {
       conversationId,
+      displayName: friend.displayName || friend.username || friend.friendUserId || conversationId,
       unread: 0,
       latestMessage: { content: friend.displayName || "好友私聊", convType: 1 },
       convType: 1,
@@ -187,7 +190,6 @@ export function useImClient() {
     ws.value.binaryType = "arraybuffer";
     ws.value.onopen = () => {
       wsConnected.value = true;
-      showToast("实时通道已连接");
     };
     ws.value.onclose = () => {
       wsConnected.value = false;
