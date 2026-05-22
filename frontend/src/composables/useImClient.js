@@ -333,7 +333,7 @@ export function useImClient() {
       cType: 1,
       content,
       videoTime,
-      hasVideoTime: Boolean(activeRoomId.value && video.url),
+      hasVideoTime: Boolean(activeRoomId.value && video.fileId && video.url),
     });
     if (!ok) return;
     messages.value.push({
@@ -435,7 +435,7 @@ export function useImClient() {
     sendFrame("watch_video_control", "watchControl", {
       roomId: activeRoomId.value,
       action,
-      videoId: video.fileId || activeRoomId.value,
+      videoId: video.fileId,
       videoUrl: video.url,
       positionMs: current,
       durationMs: videoRef.value ? Math.floor((videoRef.value.duration || 0) * 1000) : 0,
@@ -453,9 +453,9 @@ export function useImClient() {
   function applyWatchState(state) {
     if (state.roomId && state.roomId !== activeRoomId.value) return;
     const previousVideoId = video.fileId;
-    if (state.videoId) video.fileId = state.videoId;
+    if (state.action === "load" || state.videoUrl) video.fileId = state.videoId || "";
     if (state.videoUrl) video.url = state.videoUrl;
-    if (state.videoId && state.videoId !== previousVideoId) loadDanmaku();
+    if (video.fileId !== previousVideoId) loadDanmaku();
     nextTick(() => {
       if (!videoRef.value) return;
       const target = (state.positionMs || 0) / 1000;
@@ -467,7 +467,10 @@ export function useImClient() {
   }
 
   async function loadDanmaku() {
-    if (!video.fileId || !token.value) return;
+    if (!video.fileId || !token.value) {
+      danmakuItems.value = [];
+      return;
+    }
     const data = await getDanmaku(token.value, video.fileId).catch(() => ({ items: [] }));
     danmakuItems.value = data.items || [];
   }

@@ -224,7 +224,9 @@ func (g *Gateway) UpsertWatchVideoState(req WatchVideoControlReq, userId string)
 	state.UpdatedAtMs = time.Now().UnixMilli()
 	state.ClientTimeMs = req.ClientTimeMs
 
-	if req.VideoId != "" {
+	if req.Action == "load" {
+		state.VideoId = req.VideoId
+	} else if req.VideoId != "" {
 		state.VideoId = req.VideoId
 	}
 	if req.VideoURL != "" {
