@@ -68,6 +68,8 @@ func (mh *MessageHandle) GetVideoDanmaku(c *gin.Context) {
 
 	items, err := mh.app.GetVideoDanmaku(
 		c.Request.Context(),
+		req.RoomId,
+		userId,
 		req.VideoId,
 		req.StartTime,
 		req.EndTime,

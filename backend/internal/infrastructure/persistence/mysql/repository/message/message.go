@@ -40,7 +40,7 @@ func (r *MessageRepository) GetHistoryMessage(
 	var models []*model.Message
 
 	err := r.db.WithContext(ctx).
-		Where("conversation_id = ? AND seq < ?", conversationId, maxSeq).
+		Where("conversation_id = ? AND seq < ? AND (video_id = '' OR video_id IS NULL)", conversationId, maxSeq).
 		Order("seq DESC").
 		Limit(limit).
 		Find(&models).Error
@@ -88,8 +88,9 @@ func (r *MessageRepository) GetMessagesBySendTime(
 	return result, nil
 }
 
-func (r *MessageRepository) GetDanmakuByVideo(
+func (r *MessageRepository) GetDanmakuByRoomVideo(
 	ctx context.Context,
+	conversationId string,
 	videoId string,
 	startTime int64,
 	endTime int64,
@@ -98,7 +99,7 @@ func (r *MessageRepository) GetDanmakuByVideo(
 	var models []*model.Message
 
 	query := r.db.WithContext(ctx).
-		Where("video_id = ? AND video_time IS NOT NULL AND video_time >= ?", videoId, startTime)
+		Where("conversation_id = ? AND video_id = ? AND video_time IS NOT NULL AND video_time >= ?", conversationId, videoId, startTime)
 	if endTime > 0 {
 		query = query.Where("video_time <= ?", endTime)
 	}

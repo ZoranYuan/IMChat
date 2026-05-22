@@ -322,12 +322,13 @@ export function useImClient() {
     return true;
   }
 
-  function sendMessage() {
+  function sendMessage(options = {}) {
     const content = messageText.value.trim();
     if (!content || !activeConversation.value) return;
     const clientMsgId = crypto.randomUUID();
     const videoTime = videoRef.value ? Math.floor(videoRef.value.currentTime * 1000) : 0;
     const isWatchRoomMessage = Boolean(
+      options.withVideoContext &&
       activeConversation.value.convType === 2 &&
         activeConversation.value.conversationId === activeRoomId.value &&
         video.fileId &&
@@ -476,11 +477,11 @@ export function useImClient() {
   }
 
   async function loadDanmaku() {
-    if (!video.fileId || !token.value) {
+    if (!activeRoomId.value || !video.fileId || !token.value) {
       danmakuItems.value = [];
       return;
     }
-    const data = await getDanmaku(token.value, video.fileId).catch(() => ({ items: [] }));
+    const data = await getDanmaku(token.value, activeRoomId.value, video.fileId).catch(() => ({ items: [] }));
     danmakuItems.value = data.items || [];
   }
 

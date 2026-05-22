@@ -25,8 +25,9 @@ type MessageRepository interface {
 		limit int,
 	) ([]*messageentity.Message, error)
 
-	GetDanmakuByVideo(
+	GetDanmakuByRoomVideo(
 		ctx context.Context,
+		conversationId string,
 		videoId string,
 		startTime int64,
 		endTime int64,

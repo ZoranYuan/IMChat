@@ -203,7 +203,7 @@ watch(viewMode, (mode) => {
 async function sendWatchMessage() {
   await focusWatchRoomConversation();
   if (activeConversation.value?.conversationId !== activeRoomId.value) return;
-  sendMessage();
+  sendMessage({ withVideoContext: true });
 }
 
 function showConversations() {

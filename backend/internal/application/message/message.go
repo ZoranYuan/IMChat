@@ -528,11 +528,17 @@ func (ma *MessageApplication) getRoomDisplayName(roomId string) string {
 
 func (ma *MessageApplication) GetVideoDanmaku(
 	ctx context.Context,
+	roomId string,
+	userId string,
 	videoId string,
 	startTime int64,
 	endTime int64,
 	limit int,
 ) ([]DanmakuDTO, error) {
+	if err := ma.CheckRoomMember(ctx, userId, roomId); err != nil {
+		return nil, err
+	}
+
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
@@ -540,7 +546,7 @@ func (ma *MessageApplication) GetVideoDanmaku(
 		startTime = 0
 	}
 
-	msgs, err := ma.messageRepository.GetDanmakuByVideo(ctx, videoId, startTime, endTime, limit)
+	msgs, err := ma.messageRepository.GetDanmakuByRoomVideo(ctx, roomId, videoId, startTime, endTime, limit)
 	if err != nil {
 		return nil, err
 	}
