@@ -12,7 +12,17 @@
       </div>
 
       <div class="video-wrap">
-        <video ref="localVideoRef" :src="video.url" controls @timeupdate="$emit('video-time-update')"></video>
+        <video
+          ref="localVideoRef"
+          :src="video.url"
+          controls
+          @timeupdate="$emit('video-time-update')"
+          @play="emitNativeVideoControl('play')"
+          @pause="emitNativeVideoControl('pause')"
+          @seeked="emitNativeVideoControl('seek')"
+          @ratechange="emitNativeVideoControl('ratechange')"
+          @ended="emitNativeVideoControl('ended')"
+        ></video>
         <div class="danmaku-layer">
           <span
             v-for="item in visibleDanmaku"
@@ -24,7 +34,6 @@
           </span>
         </div>
       </div>
-
       <div class="watch-controls">
         <button class="icon-btn" :disabled="!canControlVideo" title="后退 10 秒" @click="$emit('seek-by', -10000)">
           <SkipBack :size="18" />
@@ -97,6 +106,7 @@ const props = defineProps({
   activeRoomId: { type: String, default: "" },
   activeRoomName: { type: String, default: "" },
   canControlVideo: { type: Boolean, default: false },
+  suppressNativeControls: { type: Boolean, default: false },
   roomForm: { type: Object, required: true },
   fileIdInput: { type: String, default: "" },
   uploadName: { type: String, default: "" },
@@ -116,6 +126,7 @@ const emit = defineEmits([
   "upload",
   "load-file",
   "load-video",
+  "native-video-control",
   "update:fileIdInput",
   "update:videoEl",
 ]);
@@ -123,6 +134,11 @@ const emit = defineEmits([
 watch(localVideoRef, (el) => emit("update:videoEl", el), { immediate: true });
 
 onBeforeUnmount(() => emit("update:videoEl", null));
+
+function emitNativeVideoControl(action) {
+  if (!props.canControlVideo || props.suppressNativeControls) return;
+  emit("native-video-control", action);
+}
 
 const uploadStatusText = computed(() => {
   if (!props.chunkUpload) return "";

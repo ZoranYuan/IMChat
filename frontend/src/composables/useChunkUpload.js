@@ -4,6 +4,7 @@ import { completeMultipartUpload, initMultipartUpload, uploadMultipartPart } fro
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 const DEFAULT_CONCURRENCY = 3;
 const MAX_RETRIES = 3;
+const FINGERPRINT_SAMPLE_SIZE = 2 * 1024 * 1024;
 
 export function useChunkUpload(options = {}) {
   const chunkSize = options.chunkSize || DEFAULT_CHUNK_SIZE;
@@ -25,7 +26,7 @@ export function useChunkUpload(options = {}) {
 
     status.value = "hashing";
     totalBytes.value = file.size;
-    const fileHash = await hashBlob(file);
+    const fileHash = await createFileFingerprint(file);
     const totalChunks = Math.ceil(file.size / chunkSize);
 
     status.value = "initializing";
@@ -163,9 +164,48 @@ function uploadedUploadedBytes(file, uploadedSet, totalChunks, chunkSize) {
   return bytes;
 }
 
+async function createFileFingerprint(file) {
+  const samples = sampleFileChunks(file);
+  const buffers = [];
+  let totalLength = 0;
+  for (const sample of samples) {
+    const buffer = await sample.arrayBuffer();
+    buffers.push(new Uint8Array(buffer));
+    totalLength += buffer.byteLength;
+    await sleep(0);
+  }
+
+  const meta = new TextEncoder().encode([file.name, file.size, file.type, file.lastModified].join("|"));
+  const payload = new Uint8Array(meta.byteLength + totalLength);
+  payload.set(meta, 0);
+  let offset = meta.byteLength;
+  for (const buffer of buffers) {
+    payload.set(buffer, offset);
+    offset += buffer.byteLength;
+  }
+
+  return digestBuffer(payload);
+}
+
+function sampleFileChunks(file) {
+  if (file.size <= FINGERPRINT_SAMPLE_SIZE * 3) {
+    return [file];
+  }
+
+  const middleStart = Math.max(0, Math.floor(file.size / 2 - FINGERPRINT_SAMPLE_SIZE / 2));
+  return [
+    file.slice(0, FINGERPRINT_SAMPLE_SIZE),
+    file.slice(middleStart, middleStart + FINGERPRINT_SAMPLE_SIZE),
+    file.slice(file.size - FINGERPRINT_SAMPLE_SIZE, file.size),
+  ];
+}
+
 async function hashBlob(blob) {
-  const data = await blob.arrayBuffer();
-  const digest = await crypto.subtle.digest("SHA-256", data);
+  return digestBuffer(await blob.arrayBuffer());
+}
+
+async function digestBuffer(buffer) {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
   return Array.from(new Uint8Array(digest))
     .map((item) => item.toString(16).padStart(2, "0"))
     .join("");

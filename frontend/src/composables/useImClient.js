@@ -50,6 +50,7 @@ export function useImClient() {
   const danmakuItems = ref([]);
   const currentVideoTime = ref(0);
   const chunkUpload = useChunkUpload();
+  const applyingWatchState = ref(false);
 
   const visibleDanmaku = computed(() => {
     const nowMs = currentVideoTime.value * 1000;
@@ -456,23 +457,36 @@ export function useImClient() {
   }
 
   function seekBy(deltaMs) {
-    if (videoRef.value) videoRef.value.currentTime = Math.max(0, videoRef.value.currentTime + deltaMs / 1000);
+    if (videoRef.value) {
+      applyingWatchState.value = true;
+      videoRef.value.currentTime = Math.max(0, videoRef.value.currentTime + deltaMs / 1000);
+      window.setTimeout(() => {
+        applyingWatchState.value = false;
+      }, 300);
+    }
     sendWatchControl(deltaMs > 0 ? "forward" : "backward", { deltaMs: Math.abs(deltaMs) });
   }
 
   function applyWatchState(state) {
     if (state.roomId && state.roomId !== activeRoomId.value) return;
+    applyingWatchState.value = true;
     const previousVideoId = video.fileId;
     if (state.action === "load" || state.videoUrl) video.fileId = state.videoId || "";
     if (state.videoUrl) video.url = state.videoUrl;
     if (video.fileId !== previousVideoId) loadDanmaku();
     nextTick(() => {
-      if (!videoRef.value) return;
+      if (!videoRef.value) {
+        applyingWatchState.value = false;
+        return;
+      }
       const target = (state.positionMs || 0) / 1000;
       if (Math.abs(videoRef.value.currentTime - target) > 1.2) videoRef.value.currentTime = target;
       videoRef.value.playbackRate = state.playbackRate || 1;
       if (state.isPlaying) videoRef.value.play().catch(() => {});
       else videoRef.value.pause();
+      window.setTimeout(() => {
+        applyingWatchState.value = false;
+      }, 300);
     });
   }
 
@@ -537,6 +551,7 @@ export function useImClient() {
     uploadName,
     chunkUpload,
     video,
+    applyingWatchState,
     videoRef,
     visibleDanmaku,
     submitAuth,
