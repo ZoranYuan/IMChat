@@ -14,9 +14,9 @@ import {
   operateFriendRequest,
   register,
   resolveUser,
-  uploadFile,
 } from "../api";
 import { decodeFrame, decodePayload, encodeFrame } from "../wsProto";
+import { useChunkUpload } from "./useChunkUpload";
 
 export function useImClient() {
   const token = ref(localStorage.getItem("im_token") || "");
@@ -49,6 +49,7 @@ export function useImClient() {
   const videoRef = ref(null);
   const danmakuItems = ref([]);
   const currentVideoTime = ref(0);
+  const chunkUpload = useChunkUpload();
 
   const visibleDanmaku = computed(() => {
     const nowMs = currentVideoTime.value * 1000;
@@ -397,7 +398,7 @@ export function useImClient() {
     if (!file) return;
     uploadName.value = file.name;
     try {
-      const data = await uploadFile(token.value, file);
+      const data = await chunkUpload.upload(token.value, file);
       Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
       fileIdInput.value = data.fileId;
       loadDanmaku();
@@ -533,6 +534,7 @@ export function useImClient() {
     activeRoomId,
     fileIdInput,
     uploadName,
+    chunkUpload,
     video,
     videoRef,
     visibleDanmaku,

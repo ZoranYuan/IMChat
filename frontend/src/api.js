@@ -148,6 +148,21 @@ export function uploadFile(token, file) {
   return http.post("/files", form, { token });
 }
 
+export function initMultipartUpload(token, payload) {
+  return http.post("/files/multipart/init", payload, { token });
+}
+
+export function uploadMultipartPart(token, uploadId, partNumber, chunk, chunkHash = "") {
+  const form = new FormData();
+  form.append("chunk", chunk);
+  form.append("chunkHash", chunkHash);
+  return http.put(`/files/multipart/${uploadId}/parts/${partNumber}`, form, { token });
+}
+
+export function completeMultipartUpload(token, uploadId) {
+  return http.post(`/files/multipart/${uploadId}/complete`, {}, { token });
+}
+
 export function getFile(token, fileId) {
   return http.get(`/files/${fileId}`, { token });
 }

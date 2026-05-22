@@ -82,7 +82,7 @@
 
       <WatchPanel v-model:file-id-input="fileIdInput" :token="token" :active-room-id="activeRoomId"
         :active-room-name="activeRoomName" :can-control-video="canControlWatchVideo" :room-form="roomForm"
-        :upload-name="uploadName" :video="video" :visible-danmaku="visibleDanmaku"
+        :upload-name="uploadName" :chunk-upload="chunkUpload" :video="video" :visible-danmaku="visibleDanmaku"
         @update:video-el="setVideoElement" @watch-control="sendWatchControl" @seek-by="seekBy"
         @video-time-update="onVideoTimeUpdate" @create-room="handleCreateRoom" @join-room="handleJoinRoom"
         @invite="handleInvite" @upload="handleUpload" @load-file="loadFile" @load-video="loadVideoToRoom" />
@@ -139,6 +139,7 @@ const {
   activeRoomId,
   fileIdInput,
   uploadName,
+  chunkUpload,
   video,
   visibleDanmaku,
   submitAuth,

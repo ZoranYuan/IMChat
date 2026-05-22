@@ -2,6 +2,7 @@ package file
 
 import (
 	"IM_backend/configs"
+	filecache "IM_backend/internal/application/ports/persistence/cache/file"
 	fileentity "IM_backend/internal/domain/file/entity"
 	"bytes"
 	"context"
@@ -55,6 +56,46 @@ func (c *fakeFileCache) Get(ctx context.Context, fileId string) (*fileentity.Fil
 		return nil, c.err
 	}
 	return c.file, nil
+}
+
+func (c *fakeFileCache) SetMultipartUpload(ctx context.Context, meta filecache.MultipartUploadMeta, ttl time.Duration) error {
+	return c.err
+}
+
+func (c *fakeFileCache) GetMultipartUpload(ctx context.Context, uploadId string) (*filecache.MultipartUploadMeta, error) {
+	return nil, c.err
+}
+
+func (c *fakeFileCache) AddMultipartPart(ctx context.Context, uploadId string, part filecache.MultipartUploadPart, ttl time.Duration) error {
+	return c.err
+}
+
+func (c *fakeFileCache) ListMultipartParts(ctx context.Context, uploadId string) ([]filecache.MultipartUploadPart, error) {
+	return nil, c.err
+}
+
+func (c *fakeFileCache) DeleteMultipartUpload(ctx context.Context, uploadId string) error {
+	return c.err
+}
+
+func (c *fakeFileCache) SetActiveUpload(ctx context.Context, fileHash string, uploadId string, ttl time.Duration) error {
+	return c.err
+}
+
+func (c *fakeFileCache) GetActiveUploadId(ctx context.Context, fileHash string) (string, error) {
+	return "", c.err
+}
+
+func (c *fakeFileCache) DeleteActiveUpload(ctx context.Context, fileHash string) error {
+	return c.err
+}
+
+func (c *fakeFileCache) SetFileHash(ctx context.Context, fileHash string, fileId string, ttl time.Duration) error {
+	return c.err
+}
+
+func (c *fakeFileCache) GetFileIdByHash(ctx context.Context, fileHash string) (string, error) {
+	return "", c.err
 }
 
 type fakeObjectStorage struct {

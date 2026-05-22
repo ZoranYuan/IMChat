@@ -14,6 +14,30 @@ type FileRes struct {
 	CreatedAt   int64  `json:"createdAt"`
 }
 
+type MultipartInitReq struct {
+	FileName    string `json:"fileName" binding:"required"`
+	ContentType string `json:"contentType"`
+	Size        int64  `json:"size" binding:"required"`
+	FileHash    string `json:"fileHash" binding:"required"`
+	ChunkSize   int64  `json:"chunkSize" binding:"required"`
+	TotalChunks int    `json:"totalChunks" binding:"required"`
+}
+
+type MultipartInitRes struct {
+	UploadId      string   `json:"uploadId"`
+	FileId        string   `json:"fileId"`
+	ObjectKey     string   `json:"objectKey"`
+	UploadedParts []int    `json:"uploadedParts"`
+	Completed     bool     `json:"completed"`
+	File          *FileRes `json:"file,omitempty"`
+}
+
+type MultipartPartRes struct {
+	UploadId      string `json:"uploadId"`
+	PartNumber    int    `json:"partNumber"`
+	UploadedParts []int  `json:"uploadedParts"`
+}
+
 func toFileRes(dto *fileapp.FileDTO) FileRes {
 	return FileRes{
 		FileId:      dto.FileId,
@@ -25,5 +49,21 @@ func toFileRes(dto *fileapp.FileDTO) FileRes {
 		Size:        dto.Size,
 		URL:         dto.URL,
 		CreatedAt:   dto.CreatedAt,
+	}
+}
+
+func toMultipartInitRes(dto *fileapp.MultipartInitResDTO) MultipartInitRes {
+	var file *FileRes
+	if dto.File != nil {
+		res := toFileRes(dto.File)
+		file = &res
+	}
+	return MultipartInitRes{
+		UploadId:      dto.UploadId,
+		FileId:        dto.FileId,
+		ObjectKey:     dto.ObjectKey,
+		UploadedParts: dto.UploadedParts,
+		Completed:     dto.Completed,
+		File:          file,
 	}
 }

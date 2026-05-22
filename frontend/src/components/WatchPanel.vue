@@ -67,6 +67,13 @@
         <span>{{ uploadName || "上传视频文件" }}</span>
         <input type="file" accept="video/*" @change="$emit('upload', $event)" />
       </label>
+      <div v-if="showUploadProgress" class="upload-progress">
+        <div>
+          <span>{{ uploadStatusText }}</span>
+          <strong>{{ uploadProgress }}%</strong>
+        </div>
+        <progress :value="uploadProgress" max="100"></progress>
+      </div>
       <div class="split">
         <input :value="fileIdInput" placeholder="输入视频 fileId" @input="$emit('update:fileIdInput', $event.target.value.trim())" />
         <button class="ghost" :disabled="!fileIdInput" @click="$emit('load-file')">加载视频</button>
@@ -82,7 +89,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { Film, Pause, Play, RotateCw, SkipBack, SkipForward, Upload } from "@lucide/vue";
 
 const props = defineProps({
@@ -93,6 +100,7 @@ const props = defineProps({
   roomForm: { type: Object, required: true },
   fileIdInput: { type: String, default: "" },
   uploadName: { type: String, default: "" },
+  chunkUpload: { type: Object, default: null },
   video: { type: Object, required: true },
   visibleDanmaku: { type: Array, default: () => [] },
 });
@@ -115,4 +123,23 @@ const emit = defineEmits([
 watch(localVideoRef, (el) => emit("update:videoEl", el), { immediate: true });
 
 onBeforeUnmount(() => emit("update:videoEl", null));
+
+const uploadStatusText = computed(() => {
+  if (!props.chunkUpload) return "";
+  const status = props.chunkUpload.status?.value || props.chunkUpload.status;
+  if (status === "hashing") return "计算文件指纹";
+  if (status === "initializing") return "初始化上传";
+  if (status === "uploading") return "分片上传中";
+  if (status === "completing") return "合并文件";
+  if (status === "completed") return "上传完成";
+  return "准备上传";
+});
+
+const uploadProgress = computed(() => props.chunkUpload?.progress?.value || props.chunkUpload?.progress || 0);
+
+const showUploadProgress = computed(() => {
+  if (!props.chunkUpload) return false;
+  const status = props.chunkUpload.status?.value || props.chunkUpload.status;
+  return ["hashing", "initializing", "uploading", "completing", "completed"].includes(status);
+});
 </script>
