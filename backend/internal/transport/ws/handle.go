@@ -63,6 +63,13 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 	}
 	req := messageReqFromPB(&pb)
 
+	videoId := ""
+	if req.ConvType == 2 && req.VideoTime != nil {
+		if state, ok := wh.gateway.GetWatchVideoState(req.RecvId); ok {
+			videoId = state.VideoId
+		}
+	}
+
 	messageApp, err := wh.app.HandleMessage(ctx, messageapp.MessageAppeDTO{
 		SendId:      c.userId,
 		ClientMsgId: req.ClientMsgId,
@@ -70,6 +77,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 		ConvType:    req.ConvType,
 		CType:       req.CType,
 		Content:     req.Content,
+		VideoId:     videoId,
 		VideoTime:   req.VideoTime,
 	})
 	if messageApp == nil {

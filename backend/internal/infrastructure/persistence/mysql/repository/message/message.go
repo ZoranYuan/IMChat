@@ -88,6 +88,37 @@ func (r *MessageRepository) GetMessagesBySendTime(
 	return result, nil
 }
 
+func (r *MessageRepository) GetDanmakuByVideo(
+	ctx context.Context,
+	videoId string,
+	startTime int64,
+	endTime int64,
+	limit int,
+) ([]*messageentity.Message, error) {
+	var models []*model.Message
+
+	query := r.db.WithContext(ctx).
+		Where("video_id = ? AND video_time IS NOT NULL AND video_time >= ?", videoId, startTime)
+	if endTime > 0 {
+		query = query.Where("video_time <= ?", endTime)
+	}
+
+	err := query.
+		Order("video_time ASC").
+		Limit(limit).
+		Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*messageentity.Message, 0, len(models))
+	for _, m := range models {
+		result = append(result, toMessageDomain(m))
+	}
+
+	return result, nil
+}
+
 func (r *MessageRepository) GetLatestMessagesByConversationIDs(
 	ctx context.Context,
 	conversationIDs []string,

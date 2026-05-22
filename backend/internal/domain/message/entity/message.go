@@ -12,12 +12,13 @@ type Message struct {
 	Seq            int64
 	Type           messagevo.CType
 	Content        string
+	VideoId        string
 	VideoTime      *int64
 	Status         messagevo.Status
 	SendTime       int64
 }
 
-func BuildMessage(messageId, conversationId, sendId string, seq int64, content string, videoTime *int64,
+func BuildMessage(messageId, conversationId, sendId string, seq int64, content string, videoId string, videoTime *int64,
 	cType messagevo.CType,
 ) *Message {
 	return &Message{
@@ -26,6 +27,7 @@ func BuildMessage(messageId, conversationId, sendId string, seq int64, content s
 		Seq:            seq,
 		Type:           cType,
 		Content:        content,
+		VideoId:        videoId,
 		VideoTime:      videoTime,
 		Status:         messagevo.Normal,
 		SendId:         sendId,

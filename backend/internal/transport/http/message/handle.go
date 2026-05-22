@@ -53,7 +53,7 @@ func (mh *MessageHandle) GetOfflineMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, response.Success(toOfflineMessageRes(messagesApp, unreadMap)))
 }
 
-func (mh *MessageHandle) GetRoomDanmaku(c *gin.Context) {
+func (mh *MessageHandle) GetVideoDanmaku(c *gin.Context) {
 	userId := c.GetString("userId")
 	if userId == "" {
 		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
@@ -66,10 +66,9 @@ func (mh *MessageHandle) GetRoomDanmaku(c *gin.Context) {
 		return
 	}
 
-	items, err := mh.app.GetRoomDanmaku(
+	items, err := mh.app.GetVideoDanmaku(
 		c.Request.Context(),
-		req.RoomId,
-		userId,
+		req.VideoId,
 		req.StartTime,
 		req.EndTime,
 		req.Limit,

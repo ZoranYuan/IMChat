@@ -11,7 +11,7 @@ type MessageHistoryReq struct {
 }
 
 type DanmakuReq struct {
-	RoomId    string `form:"roomId" binding:"required"`
+	VideoId   string `form:"videoId" binding:"required"`
 	StartTime int64  `form:"startTime"`
 	EndTime   int64  `form:"endTime"`
 	Limit     int    `form:"limit"`

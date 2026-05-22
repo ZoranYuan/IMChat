@@ -110,11 +110,11 @@ export function getHistoryMessages(token, conversationId, cursor = 0, limit = 30
   });
 }
 
-export function getDanmaku(token, roomId, startTime = 0, endTime = Date.now(), limit = 200) {
+export function getDanmaku(token, videoId, startTime = 0, endTime = 0, limit = 200) {
   return http.get("/messages/danmaku", {
     token,
     params: {
-      roomId,
+      videoId,
       startTime,
       endTime,
       limit,

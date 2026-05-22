@@ -392,6 +392,7 @@ export function useImClient() {
       const data = await uploadFile(token.value, file);
       Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
       fileIdInput.value = data.fileId;
+      loadDanmaku();
       showToast("视频上传完成");
     } catch (err) {
       showToast(err.message);
@@ -402,6 +403,7 @@ export function useImClient() {
     try {
       const data = await getFile(token.value, fileIdInput.value);
       Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
+      loadDanmaku();
       showToast("视频已加载");
     } catch (err) {
       showToast(err.message);
@@ -450,8 +452,10 @@ export function useImClient() {
 
   function applyWatchState(state) {
     if (state.roomId && state.roomId !== activeRoomId.value) return;
+    const previousVideoId = video.fileId;
     if (state.videoId) video.fileId = state.videoId;
     if (state.videoUrl) video.url = state.videoUrl;
+    if (state.videoId && state.videoId !== previousVideoId) loadDanmaku();
     nextTick(() => {
       if (!videoRef.value) return;
       const target = (state.positionMs || 0) / 1000;
@@ -463,8 +467,8 @@ export function useImClient() {
   }
 
   async function loadDanmaku() {
-    if (!activeRoomId.value || !token.value) return;
-    const data = await getDanmaku(token.value, activeRoomId.value).catch(() => ({ items: [] }));
+    if (!video.fileId || !token.value) return;
+    const data = await getDanmaku(token.value, video.fileId).catch(() => ({ items: [] }));
     danmakuItems.value = data.items || [];
   }
 

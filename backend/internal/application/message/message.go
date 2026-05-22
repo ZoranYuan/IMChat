@@ -262,6 +262,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		dto.SendId,
 		seq,
 		dto.Content,
+		dto.VideoId,
 		dto.VideoTime,
 		messagevo.CType(dto.CType),
 	)
@@ -525,18 +526,13 @@ func (ma *MessageApplication) getRoomDisplayName(roomId string) string {
 	return room.RoomName
 }
 
-func (ma *MessageApplication) GetRoomDanmaku(
+func (ma *MessageApplication) GetVideoDanmaku(
 	ctx context.Context,
-	roomId string,
-	userId string,
+	videoId string,
 	startTime int64,
 	endTime int64,
 	limit int,
 ) ([]DanmakuDTO, error) {
-	if err := ma.CheckRoomMember(ctx, userId, roomId); err != nil {
-		return nil, err
-	}
-
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
@@ -544,7 +540,7 @@ func (ma *MessageApplication) GetRoomDanmaku(
 		startTime = 0
 	}
 
-	msgs, err := ma.messageRepository.GetMessagesBySendTime(ctx, roomId, startTime, endTime, limit)
+	msgs, err := ma.messageRepository.GetDanmakuByVideo(ctx, videoId, startTime, endTime, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -552,27 +548,18 @@ func (ma *MessageApplication) GetRoomDanmaku(
 		return []DanmakuDTO{}, nil
 	}
 
-	baseTime := startTime
-	if baseTime == 0 {
-		baseTime = msgs[0].SendTime
-	}
-
 	res := make([]DanmakuDTO, 0, len(msgs))
 	for _, msg := range msgs {
-		if msg == nil || msg.Type != messagevo.Text {
+		if msg == nil || msg.Type != messagevo.Text || msg.VideoTime == nil {
 			continue
 		}
 
-		offset := msg.SendTime - baseTime
-		if offset < 0 {
-			offset = 0
-		}
 		res = append(res, DanmakuDTO{
 			MessageId: msg.MessageId,
 			SenderId:  msg.SendId,
 			Content:   msg.Content,
 			Seq:       msg.Seq,
-			TimeMs:    offset,
+			TimeMs:    *msg.VideoTime,
 			SendTime:  msg.SendTime,
 		})
 	}

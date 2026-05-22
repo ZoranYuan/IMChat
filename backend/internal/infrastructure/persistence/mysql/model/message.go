@@ -11,7 +11,8 @@ type Message struct {
 	Type    int8   `gorm:"not null;comment:1=text 2=image 3=video" json:"type"`
 	Content string `gorm:"type:text" json:"content"`
 	// 消息状态
-	VideoTime *int64 `gorm:"comment:video progress(ms)" json:"videoTime,omitempty"`
+	VideoId   string `gorm:"size:64;index:idx_video_time,priority:1;comment:video file id" json:"videoId,omitempty"`
+	VideoTime *int64 `gorm:"index:idx_video_time,priority:2;comment:video progress(ms)" json:"videoTime,omitempty"`
 	Status    int8   `gorm:"default:1;comment:1=normal 2=recall" json:"status"`
 	SendTime  int64  `gorm:"not null;index:idx_send_time" json:"sendTime"`
 }
