@@ -3,43 +3,45 @@
     @oauth-login="handleOAuthLogin" />
 
   <main v-else class="app-shell">
-    <header class="topbar" :style="{ padding: 10 }">
-      <div class="brand compact-brand">
+    <aside class="app-menu">
+      <div class="menu-user">
         <div class="brand-mark">SY</div>
-        <div>
-          <span>hello，{{ currentUser.username || "用户" }}</span>
-        </div>
+        <span>{{ currentUser.username || "用户" }}</span>
       </div>
 
-      <nav class="mode-tabs">
-        <button :class="{ active: viewMode === 'chat' }" @click="viewMode = 'chat'">
-          <MessageCircle :size="13" />
-          聊天
+      <nav class="menu-nav">
+        <button
+          :class="{ active: viewMode === 'chat' && directoryMode === 'conversations' }"
+          title="会话"
+          @click="showConversations"
+        >
+          <MessageCircle :size="22" />
         </button>
-        <button :class="{ active: viewMode === 'watch' }" @click="viewMode = 'watch'">
-          <Film :size="13" />
-          一起看
+        <button
+          :class="{ active: viewMode === 'chat' && directoryMode === 'friends' }"
+          title="好友"
+          @click="showFriends"
+        >
+          <Users :size="22" />
+        </button>
+        <button :class="{ active: viewMode === 'watch' }" title="一起看" @click="viewMode = 'watch'">
+          <Film :size="22" />
         </button>
       </nav>
 
-      <div class="top-actions">
-        <button class="status-line status-action" :title="wsStatusText" @click="retryWsConnection">
+      <div class="menu-actions">
+        <button class="menu-status" :title="wsStatusText" @click="retryWsConnection">
           <span :class="['dot', { ok: wsConnected, warn: wsReconnecting, fail: wsReconnectFailed }]"></span>
-          <span>{{ wsStatusText }}</span>
         </button>
-        <button class="ghost" @click="logout">退出</button>
+        <button class="menu-icon" title="退出登录" @click="logout">
+          <LogOut :size="20" />
+        </button>
       </div>
-    </header>
+    </aside>
 
     <section v-if="viewMode === 'chat'" class="chat-workspace" :style="{ gridTemplateColumns: `${chatSidebarWidth}px minmax(0, 1fr)` }">
       <aside class="chat-directory">
         <div class="chat-resize-handle" @pointerdown="startChatSidebarResize"></div>
-        <div class="directory-tabs">
-          <button :class="{ active: directoryMode === 'conversations' }" @click="directoryMode = 'conversations'">
-            会话
-          </button>
-          <button :class="{ active: directoryMode === 'friends' }" @click="directoryMode = 'friends'">好友</button>
-        </div>
 
         <ConversationList v-if="directoryMode === 'conversations'" :token="token" :conversations="conversations"
           :active-conversation="activeConversation" @load-offline="loadOffline"
@@ -98,7 +100,7 @@ import FriendsPanel from "./components/FriendsPanel.vue";
 import LoginPage from "./components/LoginPage.vue";
 import WatchPanel from "./components/WatchPanel.vue";
 import { useImClient } from "./composables/useImClient";
-import { Film, MessageCircle, PanelLeftClose, PanelLeftOpen } from "@lucide/vue";
+import { Film, LogOut, MessageCircle, PanelLeftClose, PanelLeftOpen, Users } from "@lucide/vue";
 
 const viewMode = ref("chat");
 const directoryMode = ref("conversations");
@@ -201,6 +203,16 @@ async function sendWatchMessage() {
   await focusWatchRoomConversation();
   if (activeConversation.value?.conversationId !== activeRoomId.value) return;
   sendMessage();
+}
+
+function showConversations() {
+  viewMode.value = "chat";
+  directoryMode.value = "conversations";
+}
+
+function showFriends() {
+  viewMode.value = "chat";
+  directoryMode.value = "friends";
 }
 
 function startChatSidebarResize(event) {

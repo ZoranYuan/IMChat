@@ -188,9 +188,88 @@ select {
 
 .app-shell {
   display: grid;
-  grid-template-rows: 66px 1fr;
+  grid-template-columns: 72px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
+}
+
+.app-menu {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: start;
+  justify-items: center;
+  gap: 18px;
+  min-width: 0;
+  padding: 16px 10px;
+  border-right: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(12, 9, 17, 0.98);
+}
+
+.menu-user {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: 100%;
+  color: #bdb1cc;
+  font-size: 12px;
+}
+
+.menu-user span {
+  overflow: hidden;
+  max-width: 54px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-menu .brand-mark {
+  width: 40px;
+  height: 40px;
+  font-size: 13px;
+}
+
+.menu-nav,
+.menu-actions {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  width: 100%;
+}
+
+.menu-nav {
+  align-self: start;
+  padding-top: 12px;
+}
+
+.menu-actions {
+  align-self: end;
+}
+
+.menu-nav button,
+.menu-icon,
+.menu-status {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  background: transparent;
+  color: #9285a3;
+}
+
+.menu-nav button:hover,
+.menu-icon:hover,
+.menu-status:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f4edff;
+}
+
+.menu-nav button.active {
+  background: rgba(124, 77, 255, 0.24);
+  color: #ffffff;
+}
+
+.menu-status {
+  height: 40px;
 }
 
 .topbar {
@@ -275,7 +354,7 @@ select {
 .chat-directory {
   position: relative;
   display: grid;
-  grid-template-rows: 50px 1fr;
+  grid-template-rows: 1fr;
   min-width: 0;
   min-height: 0;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
