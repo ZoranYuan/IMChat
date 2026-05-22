@@ -3,6 +3,7 @@ package file
 import (
 	"IM_backend/configs"
 	filecache "IM_backend/internal/application/ports/persistence/cache/file"
+	objectstorage "IM_backend/internal/application/ports/storage/object"
 	fileentity "IM_backend/internal/domain/file/entity"
 	"bytes"
 	"context"
@@ -104,6 +105,8 @@ type fakeObjectStorage struct {
 	putSize    int64
 	putType    string
 	putContent string
+	uploadId   string
+	parts      []filecache.MultipartUploadPart
 	presignKey string
 	presignTTL time.Duration
 	putErr     error
@@ -122,6 +125,39 @@ func (s *fakeObjectStorage) PutObject(ctx context.Context, objectKey string, rea
 	s.putSize = size
 	s.putType = contentType
 	s.putContent = string(data)
+	return nil
+}
+
+func (s *fakeObjectStorage) CreateMultipartUpload(ctx context.Context, objectKey string, contentType string) (string, error) {
+	if s.uploadId == "" {
+		s.uploadId = "upload-1"
+	}
+	return s.uploadId, s.putErr
+}
+
+func (s *fakeObjectStorage) UploadMultipartPart(ctx context.Context, objectKey string, uploadId string, partNumber int, reader io.Reader, size int64) (string, error) {
+	if s.putErr != nil {
+		return "", s.putErr
+	}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", err
+	}
+	s.putContent += string(data)
+	etag := "etag-" + string(rune('0'+partNumber))
+	s.parts = append(s.parts, filecache.MultipartUploadPart{PartNumber: partNumber, ETag: etag, Size: size})
+	return etag, nil
+}
+
+func (s *fakeObjectStorage) CompleteMultipartUpload(ctx context.Context, objectKey string, uploadId string, parts []objectstorage.MultipartPart) error {
+	if s.putErr != nil {
+		return s.putErr
+	}
+	s.putKey = objectKey
+	return nil
+}
+
+func (s *fakeObjectStorage) AbortMultipartUpload(ctx context.Context, objectKey string, uploadId string) error {
 	return nil
 }
 

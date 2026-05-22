@@ -23,6 +23,7 @@ type MultipartUploadMeta struct {
 
 type MultipartUploadPart struct {
 	PartNumber int    `json:"partNumber"`
+	ETag       string `json:"etag"`
 	Size       int64  `json:"size"`
 	ChunkHash  string `json:"chunkHash"`
 }

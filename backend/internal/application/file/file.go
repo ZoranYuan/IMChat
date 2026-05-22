@@ -8,12 +8,8 @@ import (
 	fileentity "IM_backend/internal/domain/file/entity"
 	"IM_backend/internal/infrastructure/id/snow"
 	"context"
-	"io"
-	"os"
 	"path"
-	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -123,7 +119,8 @@ func (a *Application) InitMultipartUpload(ctx context.Context, dto MultipartInit
 	if err != nil {
 		return nil, err
 	}
-	uploadId, err := snow.GenerateSnowID(int(a.config.App.MachineID))
+	objectKey := a.buildObjectKey(dto.UploaderId, fileId, dto.FileName)
+	uploadId, err := a.storage.CreateMultipartUpload(ctx, objectKey, dto.ContentType)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +130,7 @@ func (a *Application) InitMultipartUpload(ctx context.Context, dto MultipartInit
 		FileId:      fileId,
 		UploaderId:  dto.UploaderId,
 		Bucket:      a.storage.Bucket(),
-		ObjectKey:   a.buildObjectKey(dto.UploaderId, fileId, dto.FileName),
+		ObjectKey:   objectKey,
 		FileName:    dto.FileName,
 		ContentType: dto.ContentType,
 		Size:        dto.Size,
@@ -144,9 +141,12 @@ func (a *Application) InitMultipartUpload(ctx context.Context, dto MultipartInit
 	}
 
 	if err := a.cache.SetMultipartUpload(ctx, meta, a.multipartTTL()); err != nil {
+		_ = a.storage.AbortMultipartUpload(ctx, meta.ObjectKey, uploadId)
 		return nil, err
 	}
 	if err := a.cache.SetActiveUpload(ctx, dto.FileHash, uploadId, a.multipartTTL()); err != nil {
+		_ = a.storage.AbortMultipartUpload(ctx, meta.ObjectKey, uploadId)
+		_ = a.cache.DeleteMultipartUpload(ctx, uploadId)
 		return nil, err
 	}
 
@@ -174,28 +174,14 @@ func (a *Application) UploadMultipartPart(ctx context.Context, dto MultipartPart
 		return nil, ErrInvalidPart
 	}
 
-	partPath := a.multipartPartPath(meta.UploadId, dto.PartNumber)
-	if err := os.MkdirAll(filepath.Dir(partPath), 0755); err != nil {
-		return nil, err
-	}
-	partFile, err := os.Create(partPath)
+	etag, err := a.storage.UploadMultipartPart(ctx, meta.ObjectKey, meta.UploadId, dto.PartNumber, dto.Reader, dto.Size)
 	if err != nil {
 		return nil, err
-	}
-	written, copyErr := io.Copy(partFile, dto.Reader)
-	closeErr := partFile.Close()
-	if copyErr != nil {
-		return nil, copyErr
-	}
-	if closeErr != nil {
-		return nil, closeErr
-	}
-	if written != dto.Size {
-		return nil, ErrInvalidPart
 	}
 
 	if err := a.cache.AddMultipartPart(ctx, meta.UploadId, filecache.MultipartUploadPart{
 		PartNumber: dto.PartNumber,
+		ETag:       etag,
 		Size:       dto.Size,
 		ChunkHash:  dto.ChunkHash,
 	}, a.multipartTTL()); err != nil {
@@ -233,42 +219,18 @@ func (a *Application) CompleteMultipartUpload(ctx context.Context, uploadId stri
 		}
 	}
 
-	mergedPath := a.multipartMergedPath(uploadId)
-	if err := os.MkdirAll(filepath.Dir(mergedPath), 0755); err != nil {
-		return nil, err
-	}
-	merged, err := os.Create(mergedPath)
-	if err != nil {
-		return nil, err
-	}
+	completeParts := make([]objectstorage.MultipartPart, 0, len(parts))
 	for _, part := range parts {
-		partFile, err := os.Open(a.multipartPartPath(uploadId, part.PartNumber))
-		if err != nil {
-			_ = merged.Close()
-			return nil, err
+		if part.ETag == "" {
+			return nil, ErrUploadNotCompleted
 		}
-		_, copyErr := io.Copy(merged, partFile)
-		closeErr := partFile.Close()
-		if copyErr != nil {
-			_ = merged.Close()
-			return nil, copyErr
-		}
-		if closeErr != nil {
-			_ = merged.Close()
-			return nil, closeErr
-		}
-	}
-	if err := merged.Close(); err != nil {
-		return nil, err
+		completeParts = append(completeParts, objectstorage.MultipartPart{
+			PartNumber: part.PartNumber,
+			ETag:       part.ETag,
+		})
 	}
 
-	file, err := os.Open(mergedPath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	if err := a.storage.PutObject(ctx, meta.ObjectKey, file, meta.Size, meta.ContentType); err != nil {
+	if err := a.storage.CompleteMultipartUpload(ctx, meta.ObjectKey, meta.UploadId, completeParts); err != nil {
 		return nil, err
 	}
 	url, err := a.storage.PresignedGetURL(ctx, meta.ObjectKey, a.urlTTL())
@@ -284,7 +246,6 @@ func (a *Application) CompleteMultipartUpload(ctx context.Context, uploadId stri
 	_ = a.cache.SetFileHash(ctx, meta.FileHash, meta.FileId, a.multipartTTL())
 	_ = a.cache.DeleteMultipartUpload(ctx, uploadId)
 	_ = a.cache.DeleteActiveUpload(ctx, meta.FileHash)
-	_ = os.RemoveAll(a.multipartRoot(uploadId))
 
 	return toDTO(entity), nil
 }
@@ -342,18 +303,6 @@ func (a *Application) buildObjectKey(uploaderId string, fileId string, fileName 
 
 func (a *Application) multipartTTL() time.Duration {
 	return 24 * time.Hour
-}
-
-func (a *Application) multipartRoot(uploadId string) string {
-	return filepath.Join(os.TempDir(), "im_uploads", uploadId)
-}
-
-func (a *Application) multipartPartPath(uploadId string, partNumber int) string {
-	return filepath.Join(a.multipartRoot(uploadId), "parts", strconv.Itoa(partNumber))
-}
-
-func (a *Application) multipartMergedPath(uploadId string) string {
-	return filepath.Join(a.multipartRoot(uploadId), "merged")
 }
 
 func (a *Application) cacheTTL() time.Duration {
