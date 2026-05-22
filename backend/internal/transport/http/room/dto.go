@@ -25,6 +25,6 @@ type JoinRoomRes struct {
 	RoomName    string `json:"roomName"`
 	Avatar      string `json:"avatar"`
 	MemberCount int    `json:"memberCount"`
-	Role        int
-	JoinTime    int64
+	Role        int    `json:"role"`
+	JoinTime    int64  `json:"joinTime"`
 }

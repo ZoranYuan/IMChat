@@ -326,6 +326,12 @@ export function useImClient() {
     if (!content || !activeConversation.value) return;
     const clientMsgId = crypto.randomUUID();
     const videoTime = videoRef.value ? Math.floor(videoRef.value.currentTime * 1000) : 0;
+    const isWatchRoomMessage = Boolean(
+      activeConversation.value.convType === 2 &&
+        activeConversation.value.conversationId === activeRoomId.value &&
+        video.fileId &&
+        video.url,
+    );
     const ok = sendFrame("msg", "messageReq", {
       clientMsgId,
       recvId: activeConversation.value.conversationId,
@@ -333,7 +339,7 @@ export function useImClient() {
       cType: 1,
       content,
       videoTime,
-      hasVideoTime: Boolean(activeRoomId.value && video.fileId && video.url),
+      hasVideoTime: isWatchRoomMessage,
     });
     if (!ok) return;
     messages.value.push({
@@ -343,6 +349,8 @@ export function useImClient() {
       content,
       sendTime: Date.now(),
       convType: activeConversation.value.convType,
+      videoId: isWatchRoomMessage ? video.fileId : "",
+      videoTime: isWatchRoomMessage ? videoTime : null,
     });
     messageText.value = "";
     scrollToBottom();
@@ -364,8 +372,8 @@ export function useImClient() {
   async function handleJoinRoom() {
     try {
       const data = await joinRoom(token.value, roomForm.inviteCode);
-      activeRoomId.value = data.room?.roomId || data.roomId || "";
-      roomForm.roomName = data.room?.roomName || data.roomName || roomForm.roomName;
+      activeRoomId.value = data.roomId || "";
+      roomForm.roomName = data.roomName || roomForm.roomName;
       if (activeRoomId.value) {
         openConversation(activeRoomId.value, 2, roomForm.roomName || "一起看房间");
       }

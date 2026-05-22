@@ -2,7 +2,6 @@ package friendrequest
 
 import (
 	friendrequestapp "IM_backend/internal/application/friend_request"
-	friendrequestentity "IM_backend/internal/domain/friend_request/entity"
 	"IM_backend/internal/transport/http/response"
 	"errors"
 	"log"
@@ -39,8 +38,8 @@ func (fh *FriendRequestHandle) Create(c *gin.Context) {
 	friendRequestApp, err := fh.app.CreateFriendRequest(userId, newFriendRequest.ToUserId, newFriendRequest.Message)
 
 	if err != nil {
-		if errors.Is(err, friendrequestentity.ErrRequestSentTooFrequently) {
-			c.JSON(http.StatusOK, response.Error(http.StatusOK, err.Error()))
+		if errors.Is(err, friendrequestapp.ErrRequestSentTooFrequently) {
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
 		} else {
 			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "网络错误"))
 		}
@@ -107,6 +106,7 @@ func (fh *FriendRequestHandle) List(c *gin.Context) {
 			FromUsername:    r.FromUsername,
 			FromDisplayName: r.FromDisplayName,
 			ToUserId:        r.ToUserId,
+			Message:         r.Message,
 			Status:          r.Status,
 			ApplyTime:       r.ApplyTime,
 		})

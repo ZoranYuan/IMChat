@@ -26,6 +26,8 @@ type Message struct {
 	CType          int    `json:"cType"`    // 消息类型（文本/图片等）
 	Content        string `json:"content"`
 	SendTime       int64  `json:"sendTime"`
+	VideoId        string `json:"videoId,omitempty"`
+	VideoTime      *int64 `json:"videoTime,omitempty"`
 }
 
 type OfflineMessageRes struct {
@@ -67,6 +69,8 @@ func toHistoryMessageRes(messages []messageapp.MessageAppeDTO, nextCursor int64,
 			CType:          m.CType,
 			Content:        m.Content,
 			SendTime:       m.SendTime,
+			VideoId:        m.VideoId,
+			VideoTime:      m.VideoTime,
 		}
 
 		ms = append(ms, message)
@@ -105,6 +109,8 @@ func toOfflineMessageRes(messages []messageapp.MessageAppeDTO, unreadMap map[str
 			CType:          m.CType,
 			Content:        m.Content,
 			SendTime:       m.SendTime,
+			VideoId:        m.VideoId,
+			VideoTime:      m.VideoTime,
 		}
 
 		om := OfflineMessageRes{
