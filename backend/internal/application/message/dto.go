@@ -29,6 +29,14 @@ type DanmakuDTO struct {
 	SendTime  int64  `json:"sendTime"`
 }
 
+type RoomVideoHistoryDTO struct {
+	VideoId        string `json:"videoId"`
+	FileName       string `json:"fileName"`
+	LatestSendTime int64  `json:"latestSendTime"`
+	VideoTime      *int64 `json:"videoTime,omitempty"`
+	MessageCount   int64  `json:"messageCount"`
+}
+
 func toMessagesAppDTO(ms []*messageentity.Message) []MessageAppeDTO {
 	if len(ms) == 0 {
 		return nil

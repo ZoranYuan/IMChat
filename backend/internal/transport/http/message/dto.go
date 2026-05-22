@@ -18,6 +18,11 @@ type DanmakuReq struct {
 	Limit     int    `form:"limit"`
 }
 
+type RoomVideoHistoryReq struct {
+	RoomId string `form:"roomId" binding:"required"`
+	Limit  int    `form:"limit"`
+}
+
 type Message struct {
 	MessageId      string `json:"messageId"`
 	SenderId       string `json:"senderId"`
@@ -57,6 +62,18 @@ type DanmakuRes struct {
 	Items []Danmaku `json:"items"`
 }
 
+type RoomVideoHistoryItem struct {
+	VideoId        string `json:"videoId"`
+	FileName       string `json:"fileName"`
+	LatestSendTime int64  `json:"latestSendTime"`
+	VideoTime      *int64 `json:"videoTime,omitempty"`
+	MessageCount   int64  `json:"messageCount"`
+}
+
+type RoomVideoHistoryRes struct {
+	Items []RoomVideoHistoryItem `json:"items"`
+}
+
 func toHistoryMessageRes(messages []messageapp.MessageAppeDTO, nextCursor int64, hashMore bool) (res MessageHistoryRes) {
 	ms := make([]Message, 0, len(messages))
 
@@ -94,6 +111,20 @@ func toDanmakuRes(items []messageapp.DanmakuDTO) (res DanmakuRes) {
 			Seq:       item.Seq,
 			TimeMs:    item.TimeMs,
 			SendTime:  item.SendTime,
+		})
+	}
+	return res
+}
+
+func toRoomVideoHistoryRes(items []messageapp.RoomVideoHistoryDTO) (res RoomVideoHistoryRes) {
+	res.Items = make([]RoomVideoHistoryItem, 0, len(items))
+	for _, item := range items {
+		res.Items = append(res.Items, RoomVideoHistoryItem{
+			VideoId:        item.VideoId,
+			FileName:       item.FileName,
+			LatestSendTime: item.LatestSendTime,
+			VideoTime:      item.VideoTime,
+			MessageCount:   item.MessageCount,
 		})
 	}
 	return res

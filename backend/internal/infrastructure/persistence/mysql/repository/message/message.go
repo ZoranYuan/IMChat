@@ -120,6 +120,55 @@ func (r *MessageRepository) GetDanmakuByRoomVideo(
 	return result, nil
 }
 
+func (r *MessageRepository) GetRoomVideoHistory(
+	ctx context.Context,
+	conversationId string,
+	limit int,
+) ([]*messageentity.Message, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	subQuery := r.db.WithContext(ctx).
+		Table("messages").
+		Select("video_id, MAX(seq) AS latest_seq").
+		Where("conversation_id = ? AND video_id <> '' AND video_time IS NOT NULL", conversationId).
+		Group("video_id").
+		Order("latest_seq DESC").
+		Limit(limit)
+
+	var models []*model.Message
+	err := r.db.WithContext(ctx).
+		Table("messages AS m").
+		Joins("JOIN (?) AS t ON m.video_id = t.video_id AND m.seq = t.latest_seq", subQuery).
+		Where("m.conversation_id = ? AND m.video_id <> '' AND m.video_time IS NOT NULL", conversationId).
+		Order("m.seq DESC").
+		Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*messageentity.Message, 0, len(models))
+	for _, m := range models {
+		result = append(result, toMessageDomain(m))
+	}
+
+	return result, nil
+}
+
+func (r *MessageRepository) CountRoomVideoMessages(
+	ctx context.Context,
+	conversationId string,
+	videoId string,
+) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&model.Message{}).
+		Where("conversation_id = ? AND video_id = ? AND video_time IS NOT NULL", conversationId, videoId).
+		Count(&count).Error
+	return count, err
+}
+
 func (r *MessageRepository) GetLatestMessagesByConversationIDs(
 	ctx context.Context,
 	conversationIDs []string,

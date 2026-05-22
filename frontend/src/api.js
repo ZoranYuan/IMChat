@@ -123,6 +123,16 @@ export function getDanmaku(token, roomId, videoId, startTime = 0, endTime = 0, l
   });
 }
 
+export function getRoomVideoHistory(token, roomId, limit = 20) {
+  return http.get("/messages/videos", {
+    token,
+    params: {
+      roomId,
+      limit,
+    },
+  });
+}
+
 export function createRoom(token, form) {
   return http.post(
     "/rooms",

@@ -34,6 +34,18 @@ type MessageRepository interface {
 		limit int,
 	) ([]*messageentity.Message, error)
 
+	GetRoomVideoHistory(
+		ctx context.Context,
+		conversationId string,
+		limit int,
+	) ([]*messageentity.Message, error)
+
+	CountRoomVideoMessages(
+		ctx context.Context,
+		conversationId string,
+		videoId string,
+	) (int64, error)
+
 	GetLatestMessagesByConversationIDs(
 		ctx context.Context,
 		conversationIDs []string,

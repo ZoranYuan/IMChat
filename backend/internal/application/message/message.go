@@ -4,6 +4,7 @@ import (
 	"IM_backend/configs"
 	mqport "IM_backend/internal/application/ports/mq"
 	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
+	filerepo "IM_backend/internal/application/ports/persistence/repository/file"
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
@@ -32,6 +33,7 @@ type MessageApplication struct {
 	userConversationRepository messagerepo.UserConversationRepository
 	conversationRepository     messagerepo.ConversationRepository
 	friendRepository           friendrepo.FriendRepository
+	fileRepository             filerepo.FileRepository
 	userRepository             userrepo.UserRepository
 	roomUserRepository         roomrepo.RoomUserRepository
 	roomRepository             roomrepo.RoomRepository
@@ -47,6 +49,7 @@ func NewMessageApplication(
 	userConversationRepository messagerepo.UserConversationRepository,
 	conversationRepository messagerepo.ConversationRepository,
 	friendRepository friendrepo.FriendRepository,
+	fileRepository filerepo.FileRepository,
 	userRepository userrepo.UserRepository,
 	messageRepository messagerepo.MessageRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
@@ -64,6 +67,7 @@ func NewMessageApplication(
 		roomRepository:             roomRepository,
 		roomUserRepository:         roomUserRepository,
 		friendRepository:           friendRepository,
+		fileRepository:             fileRepository,
 	}
 }
 
@@ -567,6 +571,52 @@ func (ma *MessageApplication) GetVideoDanmaku(
 			Seq:       msg.Seq,
 			TimeMs:    *msg.VideoTime,
 			SendTime:  msg.SendTime,
+		})
+	}
+
+	return res, nil
+}
+
+func (ma *MessageApplication) GetRoomVideoHistory(
+	ctx context.Context,
+	roomId string,
+	userId string,
+	limit int,
+) ([]RoomVideoHistoryDTO, error) {
+	if err := ma.CheckRoomMember(ctx, userId, roomId); err != nil {
+		return nil, err
+	}
+
+	items, err := ma.messageRepository.GetRoomVideoHistory(ctx, roomId, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return []RoomVideoHistoryDTO{}, nil
+	}
+
+	res := make([]RoomVideoHistoryDTO, 0, len(items))
+	for _, item := range items {
+		if item == nil || item.VideoId == "" {
+			continue
+		}
+
+		videoTime := item.VideoTime
+		fileName := item.VideoId
+		messageCount, err := ma.messageRepository.CountRoomVideoMessages(ctx, roomId, item.VideoId)
+		if err != nil {
+			return nil, err
+		}
+		if file, err := ma.fileRepository.GetByID(ctx, item.VideoId); err == nil && file != nil && file.FileName != "" {
+			fileName = file.FileName
+		}
+
+		res = append(res, RoomVideoHistoryDTO{
+			VideoId:        item.VideoId,
+			FileName:       fileName,
+			LatestSendTime: item.SendTime,
+			VideoTime:      videoTime,
+			MessageCount:   messageCount,
 		})
 	}
 

@@ -165,6 +165,7 @@ func main() {
 		userConversationRepository,
 		conversationRepository,
 		friendRepository,
+		fileRepository,
 		userRepository,
 		messageRepository,
 		roomUserRepository,

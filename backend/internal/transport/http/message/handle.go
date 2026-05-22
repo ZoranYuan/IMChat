@@ -82,3 +82,25 @@ func (mh *MessageHandle) GetVideoDanmaku(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response.Success(toDanmakuRes(items)))
 }
+
+func (mh *MessageHandle) GetRoomVideoHistory(c *gin.Context) {
+	userId := c.GetString("userId")
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		return
+	}
+
+	var req RoomVideoHistoryReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+
+	items, err := mh.app.GetRoomVideoHistory(c.Request.Context(), req.RoomId, userId, req.Limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取历史视频失败，请稍后再试"))
+		return
+	}
+
+	c.JSON(http.StatusOK, response.Success(toRoomVideoHistoryRes(items)))
+}

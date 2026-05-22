@@ -9,6 +9,7 @@ import {
   getHistoryMessages,
   getInviteCode,
   getOfflineMessages,
+  getRoomVideoHistory,
   joinRoom,
   login,
   operateFriendRequest,
@@ -48,6 +49,7 @@ export function useImClient() {
   const video = reactive({ fileId: "", url: "", objectKey: "" });
   const videoRef = ref(null);
   const danmakuItems = ref([]);
+  const roomVideoHistory = ref([]);
   const currentVideoTime = ref(0);
   const chunkUpload = useChunkUpload();
   const applyingWatchState = ref(false);
@@ -129,7 +131,12 @@ export function useImClient() {
     });
     messages.value = history.messages || [];
     scrollToBottom();
-    if (item.convType === 2) loadDanmaku();
+    if (item.convType === 2) {
+      loadDanmaku();
+      loadRoomVideoHistory();
+    } else {
+      roomVideoHistory.value = [];
+    }
   }
 
   function openConversation(conversationId, convType, content = "暂无消息") {
@@ -275,6 +282,9 @@ export function useImClient() {
     activeConversation.value = null;
     messages.value = [];
     activeRoomId.value = "";
+    roomVideoHistory.value = [];
+    danmakuItems.value = [];
+    Object.assign(video, { fileId: "", url: "", objectKey: "", fileName: "" });
     localStorage.removeItem("im_token");
     localStorage.removeItem("im_user");
     for (const key of Object.keys(currentUser)) {
@@ -366,6 +376,7 @@ export function useImClient() {
       roomForm.roomName = data.roomName || roomForm.roomName;
       openConversation(data.roomId, 2, data.roomName || "一起看房间");
       roomForm.inviteCodeDisplay = data.inviteCode || "";
+      loadRoomVideoHistory();
       showToast("房间已创建");
     } catch (err) {
       showToast(err.message);
@@ -379,6 +390,7 @@ export function useImClient() {
       roomForm.roomName = data.roomName || roomForm.roomName;
       if (activeRoomId.value) {
         openConversation(activeRoomId.value, 2, roomForm.roomName || "一起看房间");
+        loadRoomVideoHistory();
       }
       showToast("已加入房间");
     } catch (err) {
@@ -499,6 +511,33 @@ export function useImClient() {
     danmakuItems.value = data.items || [];
   }
 
+  async function loadRoomVideoHistory() {
+    if (!activeRoomId.value || !token.value) {
+      roomVideoHistory.value = [];
+      return;
+    }
+    const data = await getRoomVideoHistory(token.value, activeRoomId.value).catch(() => ({ items: [] }));
+    roomVideoHistory.value = Array.isArray(data.items) ? data.items : [];
+  }
+
+  async function selectRoomVideo(item) {
+    if (!item?.videoId || !token.value) return;
+    try {
+      const data = await getFile(token.value, item.videoId);
+      Object.assign(video, {
+        fileId: data.fileId,
+        url: data.url,
+        objectKey: data.objectKey,
+        fileName: data.fileName,
+      });
+      fileIdInput.value = data.fileId;
+      await loadDanmaku();
+      showToast(`已切换到 ${data.fileName || data.fileId}`);
+    } catch (err) {
+      showToast(err.message);
+    }
+  }
+
   function onVideoTimeUpdate() {
     currentVideoTime.value = videoRef.value?.currentTime || 0;
   }
@@ -554,6 +593,7 @@ export function useImClient() {
     applyingWatchState,
     videoRef,
     visibleDanmaku,
+    roomVideoHistory,
     submitAuth,
     loadOffline,
     loadFriends,
@@ -572,6 +612,8 @@ export function useImClient() {
     handleUpload,
     loadFile,
     loadVideoToRoom,
+    loadRoomVideoHistory,
+    selectRoomVideo,
     sendWatchControl,
     seekBy,
     onVideoTimeUpdate,

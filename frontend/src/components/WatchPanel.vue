@@ -94,6 +94,37 @@
         同步给房间
       </button>
     </section>
+
+    <section class="watch-card history-card">
+      <div class="pane-head compact">
+        <div>
+          <p class="eyebrow">History</p>
+          <h3>房间历史视频</h3>
+        </div>
+        <button class="icon-btn" :disabled="!activeRoomId" title="刷新历史视频" @click="$emit('refresh-history')">
+          <RotateCw :size="16" />
+        </button>
+      </div>
+      <p v-if="!activeRoomId" class="muted small">进入房间后会显示该房间的历史视频。</p>
+      <div v-else class="history-list">
+        <button
+          v-for="item in roomVideoHistory"
+          :key="item.videoId"
+          :class="['history-item', { active: item.videoId === video.fileId }]"
+          @click="$emit('select-history-video', item)"
+        >
+          <div class="avatar">{{ (item.fileName || item.videoId || 'V').slice(0, 1).toUpperCase() }}</div>
+          <div class="item-main">
+            <div class="item-row">
+              <strong>{{ item.fileName || item.videoId }}</strong>
+              <span class="badge">{{ item.messageCount || 0 }} 条</span>
+            </div>
+            <p>{{ formatHistoryTime(item.latestSendTime) }}</p>
+          </div>
+        </button>
+        <p v-if="!roomVideoHistory.length" class="empty-hint">这个房间还没有视频回放记录。</p>
+      </div>
+    </section>
   </aside>
 </template>
 
@@ -112,6 +143,7 @@ const props = defineProps({
   uploadName: { type: String, default: "" },
   chunkUpload: { type: Object, default: null },
   video: { type: Object, required: true },
+  roomVideoHistory: { type: Array, default: () => [] },
   visibleDanmaku: { type: Array, default: () => [] },
 });
 
@@ -126,6 +158,8 @@ const emit = defineEmits([
   "upload",
   "load-file",
   "load-video",
+  "select-history-video",
+  "refresh-history",
   "native-video-control",
   "update:fileIdInput",
   "update:videoEl",
@@ -158,4 +192,14 @@ const showUploadProgress = computed(() => {
   const status = props.chunkUpload.status?.value || props.chunkUpload.status;
   return ["hashing", "initializing", "uploading", "completing", "completed"].includes(status);
 });
+
+function formatHistoryTime(ts) {
+  if (!ts) return "刚刚";
+  return new Date(ts).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 </script>
