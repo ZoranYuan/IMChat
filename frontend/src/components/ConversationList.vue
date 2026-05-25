@@ -26,8 +26,8 @@
         <div class="item-main">
           <div class="item-row">
             <strong>{{ displayName(item) }}</strong>
-            <span v-if="item.unread" class="badge">{{ item.unread }}</span>
           </div>
+          <span v-if="item.unread" class="badge unread-badge">{{ item.unread }}</span>
           <p>{{ item.latestMessage?.content || "暂无消息" }}</p>
         </div>
       </button>
@@ -106,6 +106,7 @@ function displayName(item) {
 }
 
 .conversation-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -128,15 +129,24 @@ function displayName(item) {
 }
 
 .item-main {
+  position: relative;
   min-width: 0;
   flex: 1;
+  padding-right: 44px;
 }
 
 .item-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+}
+
+.unread-badge {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  min-width: 22px;
+  padding: 2px 7px;
 }
 
 .item-row strong,

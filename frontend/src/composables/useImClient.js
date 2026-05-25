@@ -55,6 +55,61 @@ export function useImClient() {
   const chunkUpload = useChunkUpload();
   const applyingWatchState = ref(false);
 
+  function getConversationIndex(conversationId) {
+    return conversations.value.findIndex((item) => item.conversationId === conversationId);
+  }
+
+  function upsertConversationPreview(conversationId, patch = {}, moveToTop = false) {
+    if (!conversationId) return null;
+
+    const index = getConversationIndex(conversationId);
+    const existing = index >= 0 ? conversations.value[index] : null;
+    const nextUnread = (() => {
+      if (typeof patch.unread === "number") return Math.max(0, patch.unread);
+      if (typeof patch.unreadDelta === "number") return Math.max(0, (existing?.unread || 0) + patch.unreadDelta);
+      if (patch.resetUnread) return 0;
+      return existing?.unread || 0;
+    })();
+
+    const nextItem = {
+      conversationId,
+      displayName:
+        patch.displayName ??
+        existing?.displayName ??
+        patch.latestMessage?.displayName ??
+        existing?.latestMessage?.displayName ??
+        "会话",
+      unread: nextUnread,
+      latestMessage: patch.latestMessage ?? existing?.latestMessage ?? null,
+      convType: patch.convType ?? existing?.convType ?? patch.latestMessage?.convType ?? 2,
+    };
+
+    if (existing) {
+      Object.assign(existing, nextItem);
+      conversations.value = moveToTop
+        ? [existing, ...conversations.value.filter((item) => item.conversationId !== conversationId)]
+        : conversations.value.map((item) => (item.conversationId === conversationId ? existing : item));
+      if (activeConversation.value?.conversationId === conversationId) {
+        activeConversation.value = existing;
+      }
+      return existing;
+    }
+
+    conversations.value = moveToTop ? [nextItem, ...conversations.value] : [...conversations.value, nextItem];
+    if (activeConversation.value?.conversationId === conversationId) {
+      activeConversation.value = nextItem;
+    }
+    return nextItem;
+  }
+
+  function sendReadAck(conversationId, lastReadSeq) {
+    if (!conversationId || !lastReadSeq || !ws.value || ws.value.readyState !== WebSocket.OPEN) return;
+    sendFrame("msg_read_ack", "readAck", {
+      conversationId,
+      lastReadSeq,
+    });
+  }
+
   const visibleDanmaku = computed(() => {
     const nowMs = currentVideoTime.value * 1000;
     return danmakuItems.value
@@ -67,11 +122,11 @@ export function useImClient() {
       }));
   });
 
-  function showToast(nextMessage, type = "danger") {
+  function showMessage(nextMessage, type = "danger") {
     message.value = nextMessage;
     messageType.value = type;
-    window.clearTimeout(showToast.timer);
-    showToast.timer = window.setTimeout(() => {
+    window.clearTimeout(showMessage.timer);
+    showMessage.timer = window.setTimeout(() => {
       message.value = "";
       messageType.value = "info";
     }, 2400);
@@ -84,33 +139,37 @@ export function useImClient() {
       Object.assign(currentUser, data);
       localStorage.setItem("im_token", data.token);
       localStorage.setItem("im_user", JSON.stringify(data));
-      showToast("登录成功", "success");
+      showMessage("登录成功", "success");
       await Promise.all([loadOffline(), loadFriends(), loadFriendRequests()]);
       connectWs();
     } catch (err) {
-      showToast(err.message);
+      showMessage(err.message);
     }
   }
 
   async function loadOffline() {
     if (!token.value) return;
     const data = await getOfflineMessages(token.value).catch((err) => {
-      showToast(err.message);
+      showMessage(err.message);
       return [];
     });
     conversations.value = (Array.isArray(data) ? data : []).map((item) => ({
       conversationId: item.conversationId,
       displayName: item.displayName || item.latestMessage?.displayName || "会话",
-      unread: item.unread,
+      unread: Number(item.unread) || 0,
       latestMessage: item.latestMessage,
       convType: item.latestMessage?.convType || 2,
     }));
+    if (activeConversation.value?.conversationId) {
+      const current = conversations.value.find((item) => item.conversationId === activeConversation.value.conversationId);
+      if (current) activeConversation.value = current;
+    }
   }
 
   async function loadFriends() {
     if (!token.value) return;
     const data = await getFriends(token.value).catch((err) => {
-      showToast(err.message);
+      showMessage(err.message);
       return [];
     });
     friends.value = Array.isArray(data) ? data : [];
@@ -119,22 +178,33 @@ export function useImClient() {
   async function loadFriendRequests() {
     if (!token.value) return;
     const data = await getFriendRequests(token.value).catch((err) => {
-      showToast(err.message);
+      showMessage(err.message);
       return [];
     });
     friendRequests.value = Array.isArray(data) ? data : [];
   }
 
   async function selectConversation(item) {
-    activeConversation.value = item;
-    if (item.convType === 2) activeRoomId.value = item.conversationId;
+    const current = upsertConversationPreview(item.conversationId, {
+      displayName: item.displayName,
+      convType: item.convType,
+      unread: 0,
+      resetUnread: true,
+      latestMessage: item.latestMessage || null,
+    });
+    activeConversation.value = current || item;
+    if (activeConversation.value.convType === 2) activeRoomId.value = activeConversation.value.conversationId;
     const history = await getHistoryMessages(token.value, item.conversationId).catch((err) => {
-      showToast(err.message);
+      showMessage(err.message);
       return { messages: [] };
     });
     messages.value = history.messages || [];
-    scrollToBottom();
     if (item.convType === 2) {
+      const lastSeq = history.messages?.at(-1)?.seq || 0;
+      sendReadAck(item.conversationId, lastSeq);
+    }
+    scrollToBottom();
+    if (activeConversation.value.convType === 2) {
       loadDanmaku();
       loadRoomVideoHistory();
     } else {
@@ -144,34 +214,40 @@ export function useImClient() {
 
   function openConversation(conversationId, convType, content = "暂无消息") {
     if (!conversationId) return;
-    const item = {
+    const item = upsertConversationPreview(
       conversationId,
-      displayName: content,
-      unread: 0,
-      latestMessage: { content, convType },
-      convType,
-    };
-    conversations.value = [item, ...conversations.value.filter((v) => v.conversationId !== item.conversationId)];
+      {
+        displayName: content,
+        unread: 0,
+        resetUnread: true,
+        latestMessage: { content, convType },
+        convType,
+      },
+      true,
+    );
     selectConversation(item);
   }
 
   function openPrivateConversation(friend) {
     const conversationId = friend.friendUserId || friend.toUserId;
     if (!conversationId) return;
-    const item = {
+    const item = upsertConversationPreview(
       conversationId,
-      displayName: friend.displayName || friend.friendUsername || friend.username || "好友",
-      unread: 0,
-      latestMessage: { content: friend.displayName || "好友私聊", convType: 1 },
-      convType: 1,
-    };
-    conversations.value = [item, ...conversations.value.filter((v) => v.conversationId !== item.conversationId)];
+      {
+        displayName: friend.displayName || friend.friendUsername || friend.username || "好友",
+        unread: 0,
+        resetUnread: true,
+        latestMessage: { content: friend.displayName || "好友私聊", convType: 1 },
+        convType: 1,
+      },
+      true,
+    );
     selectConversation(item);
   }
 
   async function submitFriendRequest() {
     if (!friendForm.keyword) {
-      showToast("请输入用户名或手机号");
+      showMessage("请输入用户名或手机号");
       return;
     }
     try {
@@ -180,19 +256,19 @@ export function useImClient() {
       await createFriendRequest(token.value, friendForm);
       friendForm.keyword = "";
       friendForm.toUserId = "";
-      showToast("好友申请已发送", "success");
+      showMessage("好友申请已发送", "success");
     } catch (err) {
-      showToast(err.message);
+      showMessage(err.message);
     }
   }
 
   async function handleFriendRequest(requestId, action) {
     try {
       await operateFriendRequest(token.value, requestId, action);
-      showToast(action === 1 ? "已同意好友申请" : "已拒绝好友申请", action === 1 ? "success" : "warning");
+      showMessage(action === 1 ? "已同意好友申请" : "已拒绝好友申请", action === 1 ? "success" : "warning");
       await Promise.all([loadFriends(), loadFriendRequests()]);
     } catch (err) {
-      showToast(err.message);
+      showMessage(err.message);
     }
   }
 
@@ -210,7 +286,7 @@ export function useImClient() {
 
   function connectWs(resetReconnect = false) {
     if (!token.value) {
-      showToast("请先登录");
+      showMessage("请先登录");
       return;
     }
     if (resetReconnect) {
@@ -249,7 +325,7 @@ export function useImClient() {
     if (wsReconnectAttempts.value >= maxWsReconnectAttempts) {
       wsReconnecting.value = false;
       wsReconnectFailed.value = true;
-      showToast("实时通道连接失败，请点击状态点重试");
+      showMessage("实时通道连接失败，请点击状态点重试");
       return;
     }
 
@@ -300,7 +376,23 @@ export function useImClient() {
       const frame = decodeFrame(event.data);
       if (frame.op === "msg") {
         const msg = decodePayload("messageEvent", frame.data);
-        if (activeConversation.value?.conversationId === msg.conversationId) {
+        const isActiveConversation = activeConversation.value?.conversationId === msg.conversationId;
+        upsertConversationPreview(
+          msg.conversationId,
+          {
+            latestMessage: {
+              content: msg.content,
+              convType: msg.convType,
+              senderUsername: msg.senderUsername,
+              sendTime: msg.sendTime || Date.now(),
+            },
+            unread: isActiveConversation ? 0 : undefined,
+            unreadDelta: isActiveConversation ? 0 : 1,
+            convType: msg.convType,
+          },
+          true,
+        );
+        if (isActiveConversation) {
           messages.value.push({
             messageId: msg.messageId,
             conversationId: msg.conversationId,
@@ -313,23 +405,24 @@ export function useImClient() {
             sendTime: msg.sendTime || Date.now(),
           });
           scrollToBottom();
+          sendReadAck(msg.conversationId, msg.seq);
         }
       }
       if (frame.op === "msg_ack") {
         const ack = decodePayload("messageAck", frame.data);
-        if (ack.status === "failed") showToast(ack.extra || "消息发送失败");
+        if (ack.status === "failed") showMessage(ack.extra || "消息发送失败");
       }
       if (frame.op === "watch_video_sync") {
         applyWatchState(decodePayload("watchState", frame.data));
       }
     } catch (err) {
-      showToast(`消息解析失败：${err.message}`);
+      showMessage(`消息解析失败：${err.message}`);
     }
   }
 
   function sendFrame(op, typeName, payload) {
     if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
-      showToast("WebSocket 未连接");
+      showMessage("WebSocket 未连接");
       return false;
     }
     ws.value.send(encodeFrame(op, typeName, payload));
@@ -368,6 +461,22 @@ export function useImClient() {
       videoId: isWatchRoomMessage ? video.fileId : "",
       videoTime: isWatchRoomMessage ? videoTime : null,
     });
+    upsertConversationPreview(
+      activeConversation.value.conversationId,
+      {
+        displayName: activeConversation.value.displayName,
+        unread: 0,
+        resetUnread: true,
+        latestMessage: {
+          content,
+          convType: activeConversation.value.convType,
+          senderUsername: currentUser.username,
+          sendTime: Date.now(),
+        },
+        convType: activeConversation.value.convType,
+      },
+      true,
+    );
     messageText.value = "";
     scrollToBottom();
   }
@@ -380,9 +489,9 @@ export function useImClient() {
       openConversation(data.roomId, 2, data.roomName || "一起看房间");
       roomForm.inviteCodeDisplay = data.inviteCode || "";
       loadRoomVideoHistory();
-      showToast("房间已创建", "success");
+      showMessage("房间已创建", "success");
     } catch (err) {
-      showToast(err.message);
+      showMessage(err.message);
     }
   }
 
@@ -395,9 +504,9 @@ export function useImClient() {
         openConversation(activeRoomId.value, 2, roomForm.roomName || "一起看房间");
         loadRoomVideoHistory();
       }
-      showToast("已加入房间", "success");
+      showMessage("已加入房间", "success");
     } catch (err) {
-      showToast(err.message);
+      showMessage(err.message);
     }
   }
 
@@ -406,7 +515,7 @@ export function useImClient() {
       const data = await getInviteCode(token.value, activeRoomId.value);
       roomForm.inviteCodeDisplay = typeof data === "string" ? data : data.inviteCode;
     } catch (err) {
-      showToast(err.message);
+      showMessage(err.message);
     }
   }
 
@@ -419,9 +528,9 @@ export function useImClient() {
       Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
       fileIdInput.value = data.fileId;
       loadDanmaku();
-      showToast("视频上传完成", "success");
+      showMessage("视频上传完成", "success");
     } catch (err) {
-      showToast(err.message);
+      showMessage(err.message);
     }
   }
 
@@ -430,19 +539,19 @@ export function useImClient() {
       const data = await getFile(token.value, fileIdInput.value);
       Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
       loadDanmaku();
-      showToast("视频已加载", "success");
+      showMessage("视频已加载", "success");
     } catch (err) {
-      showToast(err.message);
+      showMessage(err.message);
     }
   }
 
   function loadVideoToRoom() {
     if (!activeRoomId.value) {
-      showToast("请先进入房间");
+      showMessage("请先进入房间");
       return;
     }
     if (!video.url) {
-      showToast("请先加载视频");
+      showMessage("请先加载视频");
       return;
     }
     sendWatchControl("load", { positionMs: 0 });
@@ -450,11 +559,11 @@ export function useImClient() {
 
   function sendWatchControl(action, patch = {}) {
     if (!activeRoomId.value) {
-      showToast("请先进入房间");
+      showMessage("请先进入房间");
       return;
     }
     if (action !== "get_state" && !video.url) {
-      showToast("请先加载视频");
+      showMessage("请先加载视频");
       return;
     }
     const current = videoRef.value ? Math.floor(videoRef.value.currentTime * 1000) : 0;
@@ -535,9 +644,9 @@ export function useImClient() {
       });
       fileIdInput.value = data.fileId;
       await loadDanmaku();
-      showToast(`已切换到 ${data.fileName || data.fileId}`, "success");
+      showMessage(`已切换到 ${data.fileName || data.fileId}`, "success");
     } catch (err) {
-      showToast(err.message);
+      showMessage(err.message);
     }
   }
 
