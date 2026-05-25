@@ -23,7 +23,7 @@ export function useImClient() {
   const token = ref(localStorage.getItem("im_token") || "");
   const currentUser = reactive(JSON.parse(localStorage.getItem("im_user") || "{}"));
   const authMode = ref("login");
-  const authForm = reactive({ phone: "", password: "" });
+  const authForm = reactive({ account: "", phone: "", password: "" });
   const conversations = ref([]);
   const activeConversation = ref(null);
   const messages = ref([]);
@@ -36,7 +36,8 @@ export function useImClient() {
   const wsConnected = ref(false);
   const wsReconnecting = ref(false);
   const wsReconnectFailed = ref(false);
-  const toast = ref("");
+  const message = ref("");
+  const messageType = ref("info");
   const maxWsReconnectAttempts = 5;
   const wsReconnectAttempts = ref(0);
   let wsReconnectTimer = 0;
@@ -66,11 +67,13 @@ export function useImClient() {
       }));
   });
 
-  function showToast(message) {
-    toast.value = message;
+  function showToast(nextMessage, type = "danger") {
+    message.value = nextMessage;
+    messageType.value = type;
     window.clearTimeout(showToast.timer);
     showToast.timer = window.setTimeout(() => {
-      toast.value = "";
+      message.value = "";
+      messageType.value = "info";
     }, 2400);
   }
 
@@ -81,7 +84,7 @@ export function useImClient() {
       Object.assign(currentUser, data);
       localStorage.setItem("im_token", data.token);
       localStorage.setItem("im_user", JSON.stringify(data));
-      showToast("登录成功");
+      showToast("登录成功", "success");
       await Promise.all([loadOffline(), loadFriends(), loadFriendRequests()]);
       connectWs();
     } catch (err) {
@@ -177,7 +180,7 @@ export function useImClient() {
       await createFriendRequest(token.value, friendForm);
       friendForm.keyword = "";
       friendForm.toUserId = "";
-      showToast("好友申请已发送");
+      showToast("好友申请已发送", "success");
     } catch (err) {
       showToast(err.message);
     }
@@ -186,7 +189,7 @@ export function useImClient() {
   async function handleFriendRequest(requestId, action) {
     try {
       await operateFriendRequest(token.value, requestId, action);
-      showToast(action === 1 ? "已同意好友申请" : "已拒绝好友申请");
+      showToast(action === 1 ? "已同意好友申请" : "已拒绝好友申请", action === 1 ? "success" : "warning");
       await Promise.all([loadFriends(), loadFriendRequests()]);
     } catch (err) {
       showToast(err.message);
@@ -377,7 +380,7 @@ export function useImClient() {
       openConversation(data.roomId, 2, data.roomName || "一起看房间");
       roomForm.inviteCodeDisplay = data.inviteCode || "";
       loadRoomVideoHistory();
-      showToast("房间已创建");
+      showToast("房间已创建", "success");
     } catch (err) {
       showToast(err.message);
     }
@@ -392,7 +395,7 @@ export function useImClient() {
         openConversation(activeRoomId.value, 2, roomForm.roomName || "一起看房间");
         loadRoomVideoHistory();
       }
-      showToast("已加入房间");
+      showToast("已加入房间", "success");
     } catch (err) {
       showToast(err.message);
     }
@@ -416,7 +419,7 @@ export function useImClient() {
       Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
       fileIdInput.value = data.fileId;
       loadDanmaku();
-      showToast("视频上传完成");
+      showToast("视频上传完成", "success");
     } catch (err) {
       showToast(err.message);
     }
@@ -427,7 +430,7 @@ export function useImClient() {
       const data = await getFile(token.value, fileIdInput.value);
       Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
       loadDanmaku();
-      showToast("视频已加载");
+      showToast("视频已加载", "success");
     } catch (err) {
       showToast(err.message);
     }
@@ -532,7 +535,7 @@ export function useImClient() {
       });
       fileIdInput.value = data.fileId;
       await loadDanmaku();
-      showToast(`已切换到 ${data.fileName || data.fileId}`);
+      showToast(`已切换到 ${data.fileName || data.fileId}`, "success");
     } catch (err) {
       showToast(err.message);
     }
@@ -583,7 +586,8 @@ export function useImClient() {
     wsReconnecting,
     wsReconnectFailed,
     wsStatusText,
-    toast,
+    message,
+    messageType,
     roomForm,
     activeRoomId,
     fileIdInput,

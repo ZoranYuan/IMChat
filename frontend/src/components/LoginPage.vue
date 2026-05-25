@@ -24,7 +24,15 @@
         <button :class="{ active: authMode === 'register' }" @click="$emit('update:authMode', 'register')">注册</button>
       </div>
 
-      <label>
+      <label v-if="authMode === 'login'">
+        <span>账号</span>
+        <input
+          :value="authForm.account"
+          placeholder="请输入手机号或用户名"
+          @input="authForm.account = $event.target.value.trim()"
+        />
+      </label>
+      <label v-else>
         <span>手机号</span>
         <input :value="authForm.phone" placeholder="请输入手机号" @input="authForm.phone = $event.target.value.trim()" />
       </label>
@@ -41,7 +49,7 @@
 
       <button class="primary wide login-submit" @click="$emit('submit-auth')">
         <LogIn :size="17" />
-        {{ authMode === "login" ? "登录 SYCHAT" : "创建账号" }}
+        {{ authMode === "login" ? "登录" : "注册" }}
       </button>
 
       <div class="oauth-divider">
@@ -112,3 +120,152 @@ onBeforeUnmount(() => {
   window.clearInterval(streamTimer);
 });
 </script>
+
+<style scoped>
+.login-page {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(360px, 420px);
+  gap: clamp(28px, 4vw, 64px);
+  align-items: center;
+  min-height: 100vh;
+  padding: clamp(28px, 5vw, 72px);
+}
+
+.login-hero {
+  max-width: 760px;
+}
+
+.brand.big {
+  margin-bottom: 40px;
+}
+
+.brand.big .brand-mark {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  font-size: 18px;
+}
+
+.brand.big strong {
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+
+.brand.big span {
+  margin-top: 2px;
+  font-size: 13px;
+}
+
+.login-hero h1 {
+  max-width: 680px;
+  min-height: 118px;
+  margin: 0;
+  font-size: clamp(42px, 5vw, 68px);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+.login-hero p {
+  max-width: 560px;
+  min-height: 60px;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.stream-title,
+.stream-copy {
+  white-space: pre-wrap;
+}
+
+.stream-cursor {
+  display: inline-block;
+  width: 0.6em;
+  height: 1em;
+  margin-left: 4px;
+  border-right: 2px solid var(--primary);
+  transform: translateY(2px);
+  animation: cursorBlink 0.88s step-end infinite;
+}
+
+@keyframes cursorBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.login-card {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 28px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(22px);
+}
+
+.login-card label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.login-submit {
+  margin-top: 4px;
+}
+
+.oauth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.oauth-divider span {
+  height: 1px;
+  background: var(--border);
+}
+
+.oauth-divider em {
+  font-style: normal;
+}
+
+.oauth-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.oauth-btn {
+  height: 44px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.oauth-btn img {
+  width: 18px;
+  height: 18px;
+}
+
+.oauth-btn.wechat img {
+  filter: drop-shadow(0 0 12px rgba(7, 193, 96, 0.28));
+}
+
+@media (max-width: 980px) {
+  .login-page {
+    grid-template-columns: 1fr;
+    align-content: start;
+  }
+
+  .login-hero h1 {
+    min-height: auto;
+  }
+}
+</style>

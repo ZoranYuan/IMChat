@@ -159,6 +159,60 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 	return userAppDTO, nil
 }
 
+func (ua *UserApplication) LoginWithUserName(keyword, password string) (*UserAppDTO, error) {
+	userModel, err := ua.userRepository.FindByUsernameOrPhone(keyword)
+
+	if err != nil {
+		log.Println("failed to login user, ", err)
+		return nil, err
+	}
+
+	if userModel == nil {
+		return nil, ErrUserNotFound
+	}
+
+	if err = userentity.LoginWithPhone(
+		uservo.Phone(userModel.Phone),
+		uservo.Password(password),
+		userModel.Password,
+	); err != nil {
+		return nil, err
+	}
+
+	userModel.OnLineTime = time.Now()
+
+	updates := map[string]interface{}{
+		"on_line_time": userModel.OnLineTime,
+	}
+
+	if err = ua.userRepository.UpdateByUserIDAndPhone(userModel.Phone, userModel.UserId, updates); err != nil {
+		return nil, err
+	}
+
+	accessToken, refreshToken, err := ua.authService.IssueToken(userModel.UserId)
+	if err != nil {
+		return nil, err
+	}
+
+	userAppDTO := &UserAppDTO{
+		UserId:       userModel.UserId,
+		UserName:     userModel.UserName,
+		NickName:     userModel.NickName,
+		Avatar:       userModel.Avatar,
+		Phone:        userModel.Phone,
+		RefreshToken: refreshToken,
+		AccessToken:  accessToken,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	ua.authCache.SetAccessToken(ctx, accessToken, userAppDTO.UserId, time.Duration(ua.config.JWT.AccessExpireMinutes)*time.Minute)
+	ua.authCache.SetRefreshToken(ctx, refreshToken, userAppDTO.UserId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
+
+	return userAppDTO, nil
+}
+
 func (ua *UserApplication) GetUserByID(userId string) (*UserAppDTO, error) {
 	userModel, err := ua.userRepository.FindByUserID(userId)
 

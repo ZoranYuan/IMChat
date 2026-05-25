@@ -203,3 +203,250 @@ function formatHistoryTime(ts) {
   });
 }
 </script>
+
+<style scoped>
+.watch-pane {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  overflow: auto;
+  background: transparent;
+}
+
+.video-card,
+.watch-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 18px;
+  background: var(--surface-soft);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(20px);
+}
+
+.video-card {
+  display: grid;
+  gap: 14px;
+}
+
+.pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pane-head h2,
+.watch-card h3 {
+  margin: 0;
+}
+
+.pane-head.compact {
+  margin-bottom: 2px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.video-wrap {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: 22px;
+  background: #050507;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #050507;
+}
+
+.danmaku-layer {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.danmaku {
+  position: absolute;
+  left: 100%;
+  min-width: max-content;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: rgba(15, 12, 26, 0.56);
+  color: #fff;
+  font-size: 13px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+  animation-name: danmakuMove;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes danmakuMove {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-760px);
+  }
+}
+
+.watch-controls,
+.split {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.watch-controls {
+  margin-top: 2px;
+}
+
+.split {
+  grid-template-columns: minmax(0, 1fr) 88px;
+}
+
+.watch-card {
+  display: grid;
+  gap: 12px;
+}
+
+.room-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  color: var(--muted);
+}
+
+.room-state strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.file-box input {
+  display: none;
+}
+
+.upload-progress {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.upload-progress > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.upload-progress strong {
+  color: var(--text);
+}
+
+.upload-progress progress {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.upload-progress progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.upload-progress progress::-webkit-progress-value {
+  background: linear-gradient(90deg, var(--primary), var(--primary-strong));
+}
+
+.upload-progress progress::-moz-progress-bar {
+  background: linear-gradient(90deg, var(--primary), var(--primary-strong));
+}
+
+.history-card {
+  display: grid;
+  gap: 12px;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 62px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+
+.history-item:hover,
+.history-item.active {
+  border-color: var(--border-strong);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.history-item .item-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.history-item .item-main p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.code-box {
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--primary-soft);
+  color: var(--text);
+  font-weight: 700;
+  text-align: center;
+}
+
+@media (max-width: 1180px) {
+  .watch-pane {
+    padding: 16px;
+  }
+}
+</style>

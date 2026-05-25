@@ -6,19 +6,17 @@
         <h1>好友</h1>
       </div>
       <button class="icon-btn" :disabled="!token" title="刷新好友" @click="$emit('refresh')">
-        <RefreshCcw :size="18" />
+        <RefreshCcw :size="13" />
       </button>
     </div>
 
     <div class="friend-form">
-      <input
-        :value="friendForm.keyword"
-        placeholder="用户名 / 手机号"
-        @input="friendForm.keyword = $event.target.value.trim()"
-      />
-      <input :value="friendForm.message" placeholder="申请留言" @input="friendForm.message = $event.target.value" />
+      <input :value="friendForm.keyword" placeholder="用户名 / 手机号"
+        @input="friendForm.keyword = $event.target.value.trim()" :style="{ fontSize: '14px' }" />
+      <input :value="friendForm.message" placeholder="申请留言" @input="friendForm.message = $event.target.value"
+        :style="{ fontSize: '14px' }" />
       <button class="primary wide" :disabled="!token" @click="$emit('submit-request')">
-        <UserPlus :size="16" />
+        <UserPlus :size="15" />
         发送好友申请
       </button>
     </div>
@@ -28,7 +26,8 @@
         <span>好友列表</span>
         <span>{{ friends.length }}</span>
       </div>
-      <button v-for="friend in friends" :key="friend.friendUserId" class="friend-item" @click="$emit('open-chat', friend)">
+      <button v-for="friend in friends" :key="friend.friendUserId" class="friend-item"
+        @click="$emit('open-chat', friend)">
         <div class="avatar">{{ displayName(friend).slice(0, 2).toUpperCase() }}</div>
         <div class="item-main">
           <strong>{{ displayName(friend) }}</strong>
@@ -79,3 +78,120 @@ function displayName(friend) {
   return friend.displayName || friend.friendUsername || "好友";
 }
 </script>
+
+<style scoped>
+.friends-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: 22px 18px;
+  overflow: auto;
+  background: var(--surface-soft);
+}
+
+.pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pane-head h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.friend-form {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 16px;
+}
+
+.friend-section {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.friend-item,
+.request-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 66px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+
+.friend-item:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.request-item {
+  justify-content: space-between;
+}
+
+.request-item p,
+.friend-item p,
+.empty-hint {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.request-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.request-actions .ghost {
+  height: 32px;
+  padding: 0 10px;
+}
+
+.item-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.item-row strong,
+.item-main p {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

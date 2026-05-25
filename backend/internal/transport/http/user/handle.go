@@ -49,8 +49,12 @@ func (uh *UserHandle) Login(c *gin.Context) {
 
 		userApp, err = uh.app.LoginWithPhone(req.Phone, req.Password)
 	case int(uservo.UserNameType):
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "暂不支持该登录方式"))
-		return
+		if req.UserName == "" || req.Password == "" {
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+			return
+		}
+
+		userApp, err = uh.app.LoginWithUserName(req.UserName, req.Password)
 	case int(uservo.WxType):
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "暂不支持该登录方式"))
 		return

@@ -13,7 +13,18 @@
         <button :class="{ active: authMode === 'login' }" @click="$emit('update:authMode', 'login')">登录</button>
         <button :class="{ active: authMode === 'register' }" @click="$emit('update:authMode', 'register')">注册</button>
       </div>
-      <input :value="authForm.phone" placeholder="手机号" @input="authForm.phone = $event.target.value.trim()" />
+      <input
+        v-if="authMode === 'login'"
+        :value="authForm.account"
+        placeholder="手机号或用户名"
+        @input="authForm.account = $event.target.value.trim()"
+      />
+      <input
+        v-else
+        :value="authForm.phone"
+        placeholder="手机号"
+        @input="authForm.phone = $event.target.value.trim()"
+      />
       <input
         :value="authForm.password"
         placeholder="密码"
@@ -23,7 +34,7 @@
       />
       <button class="primary wide" @click="$emit('submit-auth')">
         <LogIn :size="16" />
-        {{ authMode === "login" ? "进入" : "创建账号" }}
+        {{ authMode === "login" ? "登录" : "注册" }}
       </button>
       <p class="muted small" v-if="currentUser.userId">
         当前用户：{{ currentUser.username || "用户" }}

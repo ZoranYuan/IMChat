@@ -67,3 +67,116 @@ function showSenderName(msg) {
   return props.activeConversation?.convType === 2 && msg.senderId !== props.currentUser.userId;
 }
 </script>
+
+<style scoped>
+.chat-pane {
+  display: grid;
+  grid-template-rows: 76px minmax(0, 1fr) 78px;
+  min-width: 0;
+  min-height: 0;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-placeholder {
+  grid-template-rows: 1fr;
+}
+
+.empty-chat {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  height: 100%;
+  color: var(--muted);
+}
+
+.empty-chat p {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+}
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.chat-head h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.messages {
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+
+.bubble-row {
+  display: flex;
+  margin-bottom: 14px;
+}
+
+.bubble-row.mine {
+  justify-content: flex-end;
+}
+
+.bubble {
+  max-width: min(72%, 620px);
+  border: 1px solid var(--border);
+  border-radius: 22px 22px 22px 8px;
+  padding: 12px 14px;
+  background: var(--surface-strong);
+  color: var(--text);
+  line-height: 1.6;
+  box-shadow: var(--shadow-md);
+}
+
+.bubble-row.mine .bubble {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  color: #fff;
+  border-radius: 22px 22px 8px 22px;
+}
+
+.bubble-meta {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 5px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+}
+
+.bubble-row:not(.mine) .bubble-meta {
+  color: var(--muted);
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.composer input {
+  height: 44px;
+}
+
+@media (max-width: 1180px) {
+  .chat-pane {
+    min-height: 620px;
+  }
+
+  .composer {
+    grid-template-columns: minmax(0, 1fr) 90px;
+  }
+}
+</style>
