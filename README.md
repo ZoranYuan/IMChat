@@ -2,9 +2,33 @@
 
 一个面向群聊场景的实时房间协作平台。
 
+## 项目背景
+
+传统聊天工具只能解决“交流”，视频平台只能解决“观看”，但在好友一起看视频、边看边聊、同步进度、回放互动内容这些场景里，用户体验通常是割裂的。
+
+这个项目就是为了解决这类问题：
+
+- 让用户具备好友关系链
+- 让用户能够进入一个共享房间
+- 让房间成员看到同一份视频状态
+- 让聊天消息和视频时间轴关联
+- 让历史消息和历史视频都可以回放
+
+## 技术栈
+
+- Go 1.25.2
+- Gin
+- GORM
+- MySQL 8
+- Redis 7
+- Kafka 3.9
+- MinIO
+- Vue 3
+- Vite
+
 ## 功能模块与接口
 
-| 功能模块 | 说明 | 对应接口 |
+| 功能模块 | 模块说明 | 对应接口 |
 |---|---|---|
 | 账户模块 | 用户注册、登录、退出和身份信息查询 | `POST /users/register`<br>`POST /users/login`<br>`POST /users/logout`<br>`GET /users/:userId`<br>`GET /users/resolve` |
 | 好友模块 | 用户搜索、好友列表和好友申请管理 | `GET /friends`<br>`POST /friend-requests`<br>`GET /friend-requests`<br>`POST /friend-requests/actions` |
