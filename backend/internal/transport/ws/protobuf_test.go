@@ -70,7 +70,7 @@ func TestMessageReqFromPBVideoTime(t *testing.T) {
 func TestUpsertWatchVideoStateBoundsAndPlayback(t *testing.T) {
 	gateway := NewGateway()
 
-	state := gateway.UpsertWatchVideoState(WatchVideoControlReq{
+	state, err := gateway.UpsertWatchVideoState(WatchVideoControlReq{
 		RoomId:       "room-1",
 		Action:       "load",
 		VideoId:      "video-1",
@@ -79,6 +79,9 @@ func TestUpsertWatchVideoStateBoundsAndPlayback(t *testing.T) {
 		DurationMs:   10_000,
 		PlaybackRate: 1.25,
 	}, "u1")
+	if err != nil {
+		t.Fatalf("load returned error: %v", err)
+	}
 	if state.PositionMs != 0 || state.IsPlaying {
 		t.Fatalf("load should reset position and pause playback: %+v", state)
 	}
@@ -86,31 +89,79 @@ func TestUpsertWatchVideoStateBoundsAndPlayback(t *testing.T) {
 		t.Fatalf("expected playback rate 1.25, got %v", state.PlaybackRate)
 	}
 
-	state = gateway.UpsertWatchVideoState(WatchVideoControlReq{
+	_, err = gateway.UpsertWatchVideoState(WatchVideoControlReq{
 		RoomId:     "room-1",
 		Action:     "forward",
 		PositionMs: 9_500,
 		DeltaMs:    1_000,
 	}, "u2")
+	if err == nil {
+		t.Fatalf("expected lock error when another user controls the session")
+	}
+
+	state, err = gateway.UpsertWatchVideoState(WatchVideoControlReq{
+		RoomId:     "room-1",
+		Action:     "forward",
+		PositionMs: 9_500,
+		DeltaMs:    1_000,
+	}, "u1")
+	if err != nil {
+		t.Fatalf("forward returned error: %v", err)
+	}
 	if state.PositionMs != 10_000 {
 		t.Fatalf("forward should clamp to duration, got %d", state.PositionMs)
 	}
 
-	state = gateway.UpsertWatchVideoState(WatchVideoControlReq{
+	state, err = gateway.UpsertWatchVideoState(WatchVideoControlReq{
 		RoomId:     "room-1",
 		Action:     "backward",
 		PositionMs: 200,
 		DeltaMs:    500,
-	}, "u2")
+	}, "u1")
+	if err != nil {
+		t.Fatalf("backward returned error: %v", err)
+	}
 	if state.PositionMs != 0 {
 		t.Fatalf("backward should clamp to zero, got %d", state.PositionMs)
 	}
 
-	state = gateway.UpsertWatchVideoState(WatchVideoControlReq{
+	state, err = gateway.UpsertWatchVideoState(WatchVideoControlReq{
 		RoomId: "room-1",
 		Action: "play",
-	}, "u3")
+	}, "u1")
+	if err != nil {
+		t.Fatalf("play returned error: %v", err)
+	}
 	if !state.IsPlaying || state.PlaybackRate != 1.25 {
 		t.Fatalf("play should start playback and keep previous playback rate: %+v", state)
+	}
+}
+
+func TestReleaseWatchVideoStatesByUser(t *testing.T) {
+	gateway := NewGateway()
+
+	state, err := gateway.UpsertWatchVideoState(WatchVideoControlReq{
+		RoomId:   "room-1",
+		Action:   "load",
+		VideoId:  "video-1",
+		VideoURL: "https://example.com/video.mp4",
+	}, "u1")
+	if err != nil {
+		t.Fatalf("load returned error: %v", err)
+	}
+	if state.RoomId != "room-1" {
+		t.Fatalf("unexpected state: %+v", state)
+	}
+
+	released := gateway.ReleaseWatchVideoStatesByUser("u1")
+	if len(released) != 1 {
+		t.Fatalf("expected 1 released state, got %d", len(released))
+	}
+	if released[0].Action != "stop" || released[0].RoomId != "room-1" {
+		t.Fatalf("unexpected released state: %+v", released[0])
+	}
+
+	if _, ok := gateway.GetWatchVideoState("room-1"); ok {
+		t.Fatalf("expected room state to be cleared")
 	}
 }

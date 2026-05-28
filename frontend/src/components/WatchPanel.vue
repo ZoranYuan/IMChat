@@ -6,9 +6,12 @@
           <p class="eyebrow">Watch Room</p>
           <h2>{{ activeRoomName || "进入房间后一起看" }}</h2>
         </div>
-        <button class="icon-btn" :disabled="!activeRoomId" title="同步房间播放状态" @click="$emit('watch-control', 'get_state')">
-          <RotateCw :size="18" />
-        </button>
+        <div class="watch-head-actions">
+          <span class="session-pill">{{ watchStatusLabel }}</span>
+          <button class="icon-btn" :disabled="!activeRoomId" title="同步房间播放状态" @click="$emit('watch-control', 'get_state')">
+            <RotateCw :size="18" />
+          </button>
+        </div>
       </div>
 
       <div class="video-wrap">
@@ -47,6 +50,11 @@
         <button class="icon-btn" :disabled="!canControlVideo" title="前进 10 秒" @click="$emit('seek-by', 10000)">
           <SkipForward :size="18" />
         </button>
+      </div>
+      <div class="session-meta">
+        <span>当前控制者：{{ watchOwnerLabel }}</span>
+        <span v-if="watchSession.active">共享中 · {{ watchSession.action || "sync" }}</span>
+        <span v-else>尚未发起共享</span>
       </div>
     </section>
 
@@ -89,10 +97,11 @@
       </div>
       <input :value="video.url" placeholder="视频 URL" @input="video.url = $event.target.value.trim()" />
       <p v-if="video.fileName || video.fileId" class="muted small">当前视频：{{ video.fileName || video.fileId }}</p>
-      <button class="primary wide" :disabled="!activeRoomId || !video.url" @click="$emit('load-video')">
+      <button class="primary wide" :disabled="!canStartWatchSession" @click="$emit('load-video')">
         <Film :size="16" />
-        同步给房间
+        {{ watchActionLabel }}
       </button>
+      <button v-if="canStopWatchSession" class="ghost wide" @click="$emit('stop-watch')">结束共享</button>
     </section>
 
     <section class="watch-card history-card">
@@ -111,6 +120,7 @@
           v-for="item in roomVideoHistory"
           :key="item.videoId"
           :class="['history-item', { active: item.videoId === video.fileId }]"
+          :disabled="!canControlVideo && watchSession.active"
           @click="$emit('select-history-video', item)"
         >
           <div class="avatar">{{ (item.fileName || item.videoId || 'V').slice(0, 1).toUpperCase() }}</div>
@@ -145,6 +155,12 @@ const props = defineProps({
   video: { type: Object, required: true },
   roomVideoHistory: { type: Array, default: () => [] },
   visibleDanmaku: { type: Array, default: () => [] },
+  watchSession: { type: Object, default: () => ({ active: false, ownerId: "" }) },
+  watchActionLabel: { type: String, default: "发起一起看" },
+  watchStatusLabel: { type: String, default: "未共享" },
+  watchOwnerLabel: { type: String, default: "暂无" },
+  canStartWatchSession: { type: Boolean, default: false },
+  canStopWatchSession: { type: Boolean, default: false },
 });
 
 const localVideoRef = ref(null);
@@ -160,6 +176,7 @@ const emit = defineEmits([
   "load-video",
   "select-history-video",
   "refresh-history",
+  "stop-watch",
   "native-video-control",
   "update:fileIdInput",
   "update:videoEl",
@@ -233,6 +250,12 @@ function formatHistoryTime(ts) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.watch-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .pane-head h2,
@@ -318,6 +341,26 @@ video {
 .watch-card {
   display: grid;
   gap: 12px;
+}
+
+.session-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--primary-soft);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .room-state {

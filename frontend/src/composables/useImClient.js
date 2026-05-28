@@ -48,6 +48,19 @@ export function useImClient() {
   const fileIdInput = ref("");
   const uploadName = ref("");
   const video = reactive({ fileId: "", url: "", objectKey: "" });
+  const watchSession = reactive({
+    active: false,
+    roomId: "",
+    ownerId: "",
+    action: "",
+    videoId: "",
+    videoUrl: "",
+    updatedAtMs: 0,
+    clientTimeMs: 0,
+    durationMs: 0,
+    playbackRate: 1,
+    isPlaying: false,
+  });
   const videoRef = ref(null);
   const danmakuItems = ref([]);
   const roomVideoHistory = ref([]);
@@ -122,6 +135,37 @@ export function useImClient() {
       }));
   });
 
+  const hasActiveWatchOwner = computed(
+    () => Boolean(watchSession.active && watchSession.ownerId && watchSession.ownerId !== currentUser.userId),
+  );
+
+  const canControlWatchVideo = computed(() => Boolean(activeRoomId.value && video.url && !hasActiveWatchOwner.value));
+
+  const canStartWatchSession = computed(() => Boolean(activeRoomId.value && video.url && !hasActiveWatchOwner.value));
+
+  const canStopWatchSession = computed(
+    () => Boolean(activeRoomId.value && watchSession.active && watchSession.ownerId === currentUser.userId),
+  );
+
+  const watchOwnerLabel = computed(() => {
+    if (!watchSession.active) return "暂无";
+    if (!watchSession.ownerId || watchSession.ownerId === currentUser.userId) return "你";
+    return `成员 ${watchSession.ownerId.slice(0, 6)}`;
+  });
+
+  const watchStatusLabel = computed(() => {
+    if (!activeRoomId.value) return "未进入房间";
+    if (!watchSession.active) return "未共享";
+    if (watchSession.ownerId === currentUser.userId) return "由你共享";
+    return `由 ${watchOwnerLabel.value} 共享`;
+  });
+
+  const watchActionLabel = computed(() => {
+    if (hasActiveWatchOwner.value) return "正在共享中";
+    if (watchSession.active && watchSession.ownerId === currentUser.userId) return "更新共享";
+    return "发起一起看";
+  });
+
   function showMessage(nextMessage, type = "danger") {
     message.value = nextMessage;
     messageType.value = type;
@@ -130,6 +174,37 @@ export function useImClient() {
       message.value = "";
       messageType.value = "info";
     }, 2400);
+  }
+
+  function resetWatchSession() {
+    Object.assign(watchSession, {
+      active: false,
+      roomId: activeRoomId.value || "",
+      ownerId: "",
+      action: "",
+      videoId: "",
+      videoUrl: "",
+      updatedAtMs: 0,
+      clientTimeMs: 0,
+      durationMs: 0,
+      playbackRate: 1,
+      isPlaying: false,
+    });
+  }
+
+  function clearVideoContext() {
+    Object.assign(video, { fileId: "", url: "", objectKey: "", fileName: "" });
+    fileIdInput.value = "";
+    danmakuItems.value = [];
+    currentVideoTime.value = 0;
+  }
+
+  function ensureWatchEditable() {
+    if (hasActiveWatchOwner.value) {
+      showMessage(`当前由 ${watchOwnerLabel.value} 共享，请先结束后再发起`);
+      return false;
+    }
+    return true;
   }
 
   async function submitAuth() {
@@ -193,7 +268,10 @@ export function useImClient() {
       latestMessage: item.latestMessage || null,
     });
     activeConversation.value = current || item;
-    if (activeConversation.value.convType === 2) activeRoomId.value = activeConversation.value.conversationId;
+    if (activeConversation.value.convType === 2) {
+      activeRoomId.value = activeConversation.value.conversationId;
+      resetWatchSession();
+    }
     const history = await getHistoryMessages(token.value, item.conversationId).catch((err) => {
       showMessage(err.message);
       return { messages: [] };
@@ -207,6 +285,7 @@ export function useImClient() {
     if (activeConversation.value.convType === 2) {
       loadDanmaku();
       loadRoomVideoHistory();
+      if (wsConnected.value) sendWatchControl("get_state");
     } else {
       roomVideoHistory.value = [];
     }
@@ -362,8 +441,8 @@ export function useImClient() {
     messages.value = [];
     activeRoomId.value = "";
     roomVideoHistory.value = [];
-    danmakuItems.value = [];
-    Object.assign(video, { fileId: "", url: "", objectKey: "", fileName: "" });
+    resetWatchSession();
+    clearVideoContext();
     localStorage.removeItem("im_token");
     localStorage.removeItem("im_user");
     for (const key of Object.keys(currentUser)) {
@@ -488,6 +567,8 @@ export function useImClient() {
       roomForm.roomName = data.roomName || roomForm.roomName;
       openConversation(data.roomId, 2, data.roomName || "一起看房间");
       roomForm.inviteCodeDisplay = data.inviteCode || "";
+      resetWatchSession();
+      clearVideoContext();
       loadRoomVideoHistory();
       showMessage("房间已创建", "success");
     } catch (err) {
@@ -502,7 +583,10 @@ export function useImClient() {
       roomForm.roomName = data.roomName || roomForm.roomName;
       if (activeRoomId.value) {
         openConversation(activeRoomId.value, 2, roomForm.roomName || "一起看房间");
+        resetWatchSession();
+        clearVideoContext();
         loadRoomVideoHistory();
+        if (wsConnected.value) sendWatchControl("get_state");
       }
       showMessage("已加入房间", "success");
     } catch (err) {
@@ -522,6 +606,7 @@ export function useImClient() {
   async function handleUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!ensureWatchEditable()) return;
     uploadName.value = file.name;
     try {
       const data = await chunkUpload.upload(token.value, file);
@@ -535,6 +620,7 @@ export function useImClient() {
   }
 
   async function loadFile() {
+    if (!ensureWatchEditable()) return;
     try {
       const data = await getFile(token.value, fileIdInput.value);
       Object.assign(video, { fileId: data.fileId, url: data.url, objectKey: data.objectKey, fileName: data.fileName });
@@ -550,6 +636,11 @@ export function useImClient() {
       showMessage("请先进入房间");
       return;
     }
+    if (!canStartWatchSession.value) {
+      if (!video.url) showMessage("请先加载视频");
+      else showMessage(`当前由 ${watchOwnerLabel.value} 共享，请先结束后再发起`);
+      return;
+    }
     if (!video.url) {
       showMessage("请先加载视频");
       return;
@@ -557,13 +648,25 @@ export function useImClient() {
     sendWatchControl("load", { positionMs: 0 });
   }
 
+  function stopWatchSession() {
+    if (!canStopWatchSession.value) {
+      showMessage("只有当前发起人可以结束共享");
+      return;
+    }
+    sendWatchControl("stop");
+  }
+
   function sendWatchControl(action, patch = {}) {
     if (!activeRoomId.value) {
       showMessage("请先进入房间");
       return;
     }
-    if (action !== "get_state" && !video.url) {
+    if (action !== "get_state" && action !== "stop" && !video.url) {
       showMessage("请先加载视频");
+      return;
+    }
+    if (action !== "get_state" && hasActiveWatchOwner.value) {
+      showMessage(`当前由 ${watchOwnerLabel.value} 共享，请先结束后再发起`);
       return;
     }
     const current = videoRef.value ? Math.floor(videoRef.value.currentTime * 1000) : 0;
@@ -594,7 +697,28 @@ export function useImClient() {
   function applyWatchState(state) {
     if (state.roomId && state.roomId !== activeRoomId.value) return;
     applyingWatchState.value = true;
+    if (state.action === "stop") {
+      resetWatchSession();
+      clearVideoContext();
+      window.setTimeout(() => {
+        applyingWatchState.value = false;
+      }, 200);
+      return;
+    }
+
     const previousVideoId = video.fileId;
+    watchSession.active = Boolean(state.videoId || state.videoUrl || state.action);
+    watchSession.roomId = state.roomId || activeRoomId.value || "";
+    watchSession.ownerId = state.updatedBy || "";
+    watchSession.action = state.action || "";
+    watchSession.videoId = state.videoId || "";
+    watchSession.videoUrl = state.videoUrl || "";
+    watchSession.updatedAtMs = state.updatedAtMs || Date.now();
+    watchSession.clientTimeMs = state.clientTimeMs || 0;
+    watchSession.durationMs = state.durationMs || 0;
+    watchSession.playbackRate = state.playbackRate || 1;
+    watchSession.isPlaying = Boolean(state.isPlaying);
+
     if (state.action === "load" || state.videoUrl) video.fileId = state.videoId || "";
     if (state.videoUrl) video.url = state.videoUrl;
     if (video.fileId !== previousVideoId) loadDanmaku();
@@ -634,6 +758,7 @@ export function useImClient() {
 
   async function selectRoomVideo(item) {
     if (!item?.videoId || !token.value) return;
+    if (!ensureWatchEditable()) return;
     try {
       const data = await getFile(token.value, item.videoId);
       Object.assign(video, {
@@ -703,10 +828,17 @@ export function useImClient() {
     uploadName,
     chunkUpload,
     video,
+    watchSession,
     applyingWatchState,
     videoRef,
     visibleDanmaku,
     roomVideoHistory,
+    canControlWatchVideo,
+    canStartWatchSession,
+    canStopWatchSession,
+    watchActionLabel,
+    watchStatusLabel,
+    watchOwnerLabel,
     submitAuth,
     loadOffline,
     loadFriends,
@@ -725,6 +857,7 @@ export function useImClient() {
     handleUpload,
     loadFile,
     loadVideoToRoom,
+    stopWatchSession,
     loadRoomVideoHistory,
     selectRoomVideo,
     sendWatchControl,

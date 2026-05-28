@@ -3,6 +3,7 @@ package ws
 import (
 	"IM_backend/internal/shared/protocol"
 	"encoding/json"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -23,6 +24,11 @@ type Gateway struct {
 	mu      sync.RWMutex
 	watchMu sync.RWMutex
 }
+
+var (
+	ErrWatchVideoLocked   = errors.New("当前共享由其他成员控制")
+	ErrWatchVideoNotReady = errors.New("当前房间还没有正在共享的视频")
+)
 
 func NewGateway() *Gateway {
 	return &Gateway{
@@ -213,20 +219,68 @@ func encodeWatchVideoState(state WatchVideoState) ([]byte, error) {
 	return proto.Marshal(watchVideoStateToPB(state))
 }
 
-func (g *Gateway) UpsertWatchVideoState(req WatchVideoControlReq, userId string) WatchVideoState {
+func (g *Gateway) UpsertWatchVideoState(req WatchVideoControlReq, userId string) (WatchVideoState, error) {
 	g.watchMu.Lock()
 	defer g.watchMu.Unlock()
 
-	state := g.watchStates[req.RoomId]
-	state.RoomId = req.RoomId
-	state.Action = req.Action
-	state.UpdatedBy = userId
-	state.UpdatedAtMs = time.Now().UnixMilli()
-	state.ClientTimeMs = req.ClientTimeMs
+	state, exists := g.watchStates[req.RoomId]
+
+	if req.Action != "get_state" && req.Action != "load" && !exists {
+		return WatchVideoState{}, ErrWatchVideoNotReady
+	}
+
+	if exists && state.UpdatedBy != "" && state.UpdatedBy != userId && req.Action != "get_state" {
+		return WatchVideoState{}, ErrWatchVideoLocked
+	}
+
+	now := time.Now().UnixMilli()
+
+	if req.Action == "stop" {
+		delete(g.watchStates, req.RoomId)
+		return WatchVideoState{
+			RoomId:       req.RoomId,
+			Action:       req.Action,
+			UpdatedBy:    userId,
+			UpdatedAtMs:  now,
+			ClientTimeMs: req.ClientTimeMs,
+		}, nil
+	}
+
+	if req.Action == "load" {
+		state = WatchVideoState{
+			RoomId:       req.RoomId,
+			Action:       req.Action,
+			UpdatedBy:    userId,
+			UpdatedAtMs:  now,
+			ClientTimeMs: req.ClientTimeMs,
+			PlaybackRate: 1,
+		}
+	} else {
+		state.RoomId = req.RoomId
+		state.Action = req.Action
+		state.UpdatedBy = userId
+		state.UpdatedAtMs = now
+		state.ClientTimeMs = req.ClientTimeMs
+	}
 
 	if req.Action == "load" {
 		state.VideoId = req.VideoId
-	} else if req.VideoId != "" {
+		state.VideoURL = req.VideoURL
+		state.DurationMs = req.DurationMs
+		state.PositionMs = 0
+		state.DeltaMs = 0
+		state.IsPlaying = false
+		if req.PlaybackRate > 0 {
+			state.PlaybackRate = req.PlaybackRate
+		}
+		if state.PlaybackRate == 0 {
+			state.PlaybackRate = 1
+		}
+		g.watchStates[req.RoomId] = state
+		return state, nil
+	}
+
+	if req.VideoId != "" {
 		state.VideoId = req.VideoId
 	}
 	if req.VideoURL != "" {
@@ -251,9 +305,6 @@ func (g *Gateway) UpsertWatchVideoState(req WatchVideoControlReq, userId string)
 		state.IsPlaying = true
 	case "pause", "ended":
 		state.IsPlaying = false
-	case "load":
-		state.IsPlaying = false
-		state.PositionMs = 0
 	case "forward":
 		state.PositionMs += req.DeltaMs
 		if state.DurationMs > 0 && state.PositionMs > state.DurationMs {
@@ -269,7 +320,7 @@ func (g *Gateway) UpsertWatchVideoState(req WatchVideoControlReq, userId string)
 	}
 
 	g.watchStates[req.RoomId] = state
-	return state
+	return state, nil
 }
 
 func (g *Gateway) GetWatchVideoState(roomId string) (WatchVideoState, bool) {
@@ -278,4 +329,27 @@ func (g *Gateway) GetWatchVideoState(roomId string) (WatchVideoState, bool) {
 
 	state, ok := g.watchStates[roomId]
 	return state, ok
+}
+
+func (g *Gateway) ReleaseWatchVideoStatesByUser(userId string) []WatchVideoState {
+	g.watchMu.Lock()
+	defer g.watchMu.Unlock()
+
+	released := make([]WatchVideoState, 0)
+	now := time.Now().UnixMilli()
+	for roomId, state := range g.watchStates {
+		if state.UpdatedBy != userId {
+			continue
+		}
+		delete(g.watchStates, roomId)
+		released = append(released, WatchVideoState{
+			RoomId:       roomId,
+			Action:       "stop",
+			UpdatedBy:    userId,
+			UpdatedAtMs:  now,
+			ClientTimeMs: now,
+		})
+	}
+
+	return released
 }

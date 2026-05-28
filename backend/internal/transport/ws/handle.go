@@ -130,7 +130,10 @@ func (wh *WSHandler) handleWatchVideoControl(ctx context.Context, c *Client, dat
 		return wh.gateway.SendWatchVideoStateToUsers(protocol.EventWatchVideoSync, []string{c.userId}, state)
 	}
 
-	state := wh.gateway.UpsertWatchVideoState(req, c.userId)
+	state, err := wh.gateway.UpsertWatchVideoState(req, c.userId)
+	if err != nil {
+		return err
+	}
 
 	members, err := wh.app.GetRoomMemberIDs(ctx, req.RoomId)
 	if err != nil {
@@ -144,6 +147,17 @@ func (wh *WSHandler) readLoop(ctx context.Context, client *Client) {
 	defer func() {
 		client.Close()
 		wh.gateway.RemoveClient(client)
+		released := wh.gateway.ReleaseWatchVideoStatesByUser(client.userId)
+		for _, state := range released {
+			members, err := wh.app.GetRoomMemberIDs(ctx, state.RoomId)
+			if err != nil {
+				log.Println("failed to fetch room members for release:", err)
+				continue
+			}
+			if err := wh.gateway.SendWatchVideoStateToUsers(protocol.EventWatchVideoSync, members, state); err != nil {
+				log.Println("failed to broadcast released watch state:", err)
+			}
+		}
 	}()
 
 	client.conn.SetReadDeadline(time.Now().Add(time.Duration(wh.config.WebSocket.PongWaitSeconds) * time.Second))

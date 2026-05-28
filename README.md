@@ -238,9 +238,3 @@ Authorization: Bearer <access_token>
 - `backend/cmd/migrate/main.go` 仍是占位状态
 - 项目缺少系统性的单元测试与集成测试
 - P1 的协同观影增强能力还没有真正补齐
-
-## 简历表达建议
-
-如果你准备投简历，推荐把这个项目写成：
-
-> 实时房间协作平台。支持用户登录、好友关系链、房间创建/加入、视频上传与分片分发、WebSocket 实时聊天、同步播放控制与回放记录。后端采用 Gin + GORM + MySQL + Redis + Kafka + MinIO 构建，负责消息可靠投递、状态同步和文件分发。

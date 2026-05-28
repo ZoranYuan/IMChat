@@ -29,9 +29,6 @@
         >
           <Users :size="22" />
         </button>
-        <button :class="{ active: viewMode === 'watch' }" title="一起看" @click="viewMode = 'watch'">
-          <Film :size="22" />
-        </button>
       </nav>
 
       <div class="menu-actions">
@@ -60,7 +57,9 @@
 
       <ChatPanel v-model:message-text="messageText" :active-conversation="activeConversation" :messages="messages"
         :current-user="currentUser" :ws-connected="wsConnected" :message-list-ref="messageList"
-        @send-message="sendMessage" />
+        :show-watch-entry="Boolean(activeConversation?.convType === 2)"
+        :watch-entry-label="watchActionLabel" :watch-entry-hint="watchStatusLabel" @send-message="sendMessage"
+        @open-watch="openWatchRoom" />
     </section>
 
     <section v-else :class="['watch-workspace', { 'chat-collapsed': watchChatCollapsed }]"
@@ -81,19 +80,22 @@
 
           <ChatPanel v-model:message-text="messageText" :active-conversation="watchConversation" :messages="watchMessages"
             :current-user="currentUser" :ws-connected="wsConnected" :message-list-ref="messageList"
-            @send-message="sendWatchMessage" />
-        </template>
-      </aside>
+            :show-watch-entry="true" :watch-entry-label="watchActionLabel" :watch-entry-hint="watchStatusLabel"
+            @send-message="sendWatchMessage" @open-watch="openWatchRoom" />
+      </template>
+    </aside>
 
       <WatchPanel v-model:file-id-input="fileIdInput" :token="token" :active-room-id="activeRoomId"
         :active-room-name="activeRoomName" :can-control-video="canControlWatchVideo" :room-form="roomForm"
         :upload-name="uploadName" :chunk-upload="chunkUpload" :video="video" :room-video-history="roomVideoHistory"
-        :visible-danmaku="visibleDanmaku"
+        :visible-danmaku="visibleDanmaku" :watch-session="watchSession" :watch-action-label="watchActionLabel"
+        :watch-status-label="watchStatusLabel" :watch-owner-label="watchOwnerLabel"
+        :can-start-watch-session="canStartWatchSession" :can-stop-watch-session="canStopWatchSession"
         :suppress-native-controls="applyingWatchState"
         @update:video-el="setVideoElement" @watch-control="sendWatchControl" @seek-by="seekBy"
         @video-time-update="onVideoTimeUpdate" @create-room="handleCreateRoom" @join-room="handleJoinRoom"
         @invite="handleInvite" @upload="handleUpload" @load-file="loadFile" @load-video="loadVideoToRoom"
-        @select-history-video="selectRoomVideo" @refresh-history="loadRoomVideoHistory"
+        @select-history-video="selectRoomVideo" @refresh-history="loadRoomVideoHistory" @stop-watch="stopWatchSession"
         @native-video-control="handleNativeVideoControl" />
     </section>
   </main>
@@ -112,7 +114,7 @@ import FriendsPanel from "./components/FriendsPanel.vue";
 import LoginPage from "./components/LoginPage.vue";
 import WatchPanel from "./components/WatchPanel.vue";
 import { useImClient } from "./composables/useImClient";
-import { Film, LogOut, MessageCircle, MoonStar, PanelLeftClose, PanelLeftOpen, SunMedium, Users } from "@lucide/vue";
+import { LogOut, MessageCircle, MoonStar, PanelLeftClose, PanelLeftOpen, SunMedium, Users } from "@lucide/vue";
 
 const viewMode = ref("chat");
 const themeMode = ref(resolveInitialTheme());
@@ -155,9 +157,16 @@ const {
   uploadName,
   chunkUpload,
   video,
+  watchSession,
+  canControlWatchVideo,
+  canStartWatchSession,
+  canStopWatchSession,
   applyingWatchState,
   visibleDanmaku,
   roomVideoHistory,
+  watchActionLabel,
+  watchStatusLabel,
+  watchOwnerLabel,
   submitAuth,
   loadOffline,
   loadFriends,
@@ -178,6 +187,7 @@ const {
   loadRoomVideoHistory,
   selectRoomVideo,
   sendWatchControl,
+  stopWatchSession,
   seekBy,
   onVideoTimeUpdate,
   setVideoElement,
@@ -208,8 +218,6 @@ const watchMessages = computed(() => {
   return messages.value;
 });
 
-const canControlWatchVideo = computed(() => Boolean(activeRoomId.value && video.url));
-
 function focusWatchRoomConversation() {
   if (!activeRoomId.value) return Promise.resolve();
   if (activeConversation.value?.conversationId === activeRoomId.value) return Promise.resolve();
@@ -235,6 +243,15 @@ async function sendWatchMessage() {
   await focusWatchRoomConversation();
   if (activeConversation.value?.conversationId !== activeRoomId.value) return;
   sendMessage({ withVideoContext: true });
+}
+
+function openWatchRoom() {
+  if (!activeConversation.value || activeConversation.value.convType !== 2) {
+    showMessage("只有群聊房间可以一起看");
+    return;
+  }
+  viewMode.value = "watch";
+  focusWatchRoomConversation();
 }
 
 function handleNativeVideoControl(action) {

@@ -11,7 +11,19 @@
       <div>
         <h2>{{ activeConversation.displayName || "会话" }}</h2>
       </div>
-      <span class="pill">{{ activeConversation.convType === 2 ? "群聊" : "私聊" }}</span>
+      <div class="chat-head-actions">
+        <span class="pill">{{ activeConversation.convType === 2 ? "群聊" : "私聊" }}</span>
+        <button
+          v-if="showWatchEntry && activeConversation.convType === 2"
+          class="ghost watch-entry-btn"
+          :title="watchEntryHint"
+          :disabled="watchEntryDisabled"
+          @click="$emit('open-watch')"
+        >
+          <Film :size="16" />
+          {{ watchEntryLabel }}
+        </button>
+      </div>
     </header>
 
     <div class="messages" :ref="setMessageList">
@@ -46,7 +58,7 @@
 </template>
 
 <script setup>
-import { MessageCircle, Send } from "@lucide/vue";
+import { Film, MessageCircle, Send } from "@lucide/vue";
 
 const props = defineProps({
   activeConversation: { type: Object, default: null },
@@ -55,9 +67,13 @@ const props = defineProps({
   messageText: { type: String, default: "" },
   wsConnected: { type: Boolean, default: false },
   messageListRef: { type: Object, required: true },
+  showWatchEntry: { type: Boolean, default: false },
+  watchEntryLabel: { type: String, default: "一起看" },
+  watchEntryHint: { type: String, default: "" },
+  watchEntryDisabled: { type: Boolean, default: false },
 });
 
-defineEmits(["update:messageText", "send-message"]);
+defineEmits(["update:messageText", "send-message", "open-watch"]);
 
 function setMessageList(el) {
   props.messageListRef.value = el;
@@ -110,6 +126,20 @@ function showSenderName(msg) {
   margin: 0;
   font-size: 20px;
   letter-spacing: -0.02em;
+}
+
+.chat-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.watch-entry-btn {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--text);
 }
 
 .messages {
