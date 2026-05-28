@@ -67,6 +67,7 @@ export function useImClient() {
   const currentVideoTime = ref(0);
   const chunkUpload = useChunkUpload();
   const applyingWatchState = ref(false);
+  let messageTimer = 0;
 
   function getConversationIndex(conversationId) {
     return conversations.value.findIndex((item) => item.conversationId === conversationId);
@@ -169,8 +170,8 @@ export function useImClient() {
   function showMessage(nextMessage, type = "danger") {
     message.value = nextMessage;
     messageType.value = type;
-    window.clearTimeout(showMessage.timer);
-    showMessage.timer = window.setTimeout(() => {
+    window.clearTimeout(messageTimer);
+    messageTimer = window.setTimeout(() => {
       message.value = "";
       messageType.value = "info";
     }, 2400);
@@ -796,6 +797,7 @@ export function useImClient() {
 
   onBeforeUnmount(() => {
     clearWsReconnectTimer();
+    window.clearTimeout(messageTimer);
     wsManualClose = true;
     if (ws.value) {
       ws.value.onclose = null;

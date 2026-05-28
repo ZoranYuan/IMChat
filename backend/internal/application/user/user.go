@@ -33,6 +33,21 @@ func NewUserApplication(userRepository userrepo.UserRepository, config configs.C
 	}
 }
 
+func (ua *UserApplication) issueTokensAndCache(userId string) (string, string, error) {
+	accessToken, refreshToken, err := ua.authService.IssueToken(userId)
+	if err != nil {
+		return "", "", err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	ua.authCache.SetAccessToken(ctx, accessToken, userId, time.Duration(ua.config.JWT.AccessExpireMinutes)*time.Minute)
+	ua.authCache.SetRefreshToken(ctx, refreshToken, userId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
+
+	return accessToken, refreshToken, nil
+}
+
 func (ua *UserApplication) RegisterWithPhone(password string, phone string, reconfirmPassword string) (*UserAppDTO, error) {
 	// TODO 检查当前用户是否存在
 	user, err := ua.userRepository.FindUserByPhone(phone)
@@ -75,8 +90,7 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 	}
 
 	// 生成 token
-	accessToken, refreshToken, err := ua.authService.IssueToken(userId)
-
+	accessToken, refreshToken, err := ua.issueTokensAndCache(userId)
 	if err != nil {
 		return nil, err
 	}
@@ -91,11 +105,6 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 		RefreshToken: refreshToken,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	ua.authCache.SetAccessToken(ctx, accessToken, userId, time.Duration(ua.config.JWT.AccessExpireMinutes)*time.Minute)
-	ua.authCache.SetRefreshToken(ctx, refreshToken, userId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
 	return userApp, nil
 }
 
@@ -131,8 +140,7 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 	}
 
 	// 生成 token
-	accessToken, refreshToken, err := ua.authService.IssueToken(userModel.UserId)
-
+	accessToken, refreshToken, err := ua.issueTokensAndCache(userModel.UserId)
 	if err != nil {
 		return nil, err
 	}
@@ -149,13 +157,6 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 
 	// TODO 将之前的缓存删除
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	ua.authCache.SetAccessToken(ctx, accessToken, userAppDTO.UserId, time.Duration(ua.config.JWT.AccessExpireMinutes)*time.Minute)
-	ua.authCache.SetRefreshToken(ctx, refreshToken, userAppDTO.UserId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
-
-	// 更新缓存
 	return userAppDTO, nil
 }
 
@@ -189,7 +190,7 @@ func (ua *UserApplication) LoginWithUserName(keyword, password string) (*UserApp
 		return nil, err
 	}
 
-	accessToken, refreshToken, err := ua.authService.IssueToken(userModel.UserId)
+	accessToken, refreshToken, err := ua.issueTokensAndCache(userModel.UserId)
 	if err != nil {
 		return nil, err
 	}
@@ -203,12 +204,6 @@ func (ua *UserApplication) LoginWithUserName(keyword, password string) (*UserApp
 		RefreshToken: refreshToken,
 		AccessToken:  accessToken,
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	ua.authCache.SetAccessToken(ctx, accessToken, userAppDTO.UserId, time.Duration(ua.config.JWT.AccessExpireMinutes)*time.Minute)
-	ua.authCache.SetRefreshToken(ctx, refreshToken, userAppDTO.UserId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
 
 	return userAppDTO, nil
 }

@@ -191,9 +191,13 @@ function emitNativeVideoControl(action) {
   emit("native-video-control", action);
 }
 
-const uploadStatusText = computed(() => {
+function getChunkUploadStatus() {
   if (!props.chunkUpload) return "";
-  const status = props.chunkUpload.status?.value || props.chunkUpload.status;
+  return props.chunkUpload.status?.value || props.chunkUpload.status || "";
+}
+
+const uploadStatusText = computed(() => {
+  const status = getChunkUploadStatus();
   if (status === "hashing") return "计算文件指纹";
   if (status === "initializing") return "初始化上传";
   if (status === "uploading") return "分片上传中";
@@ -205,8 +209,7 @@ const uploadStatusText = computed(() => {
 const uploadProgress = computed(() => props.chunkUpload?.progress?.value || props.chunkUpload?.progress || 0);
 
 const showUploadProgress = computed(() => {
-  if (!props.chunkUpload) return false;
-  const status = props.chunkUpload.status?.value || props.chunkUpload.status;
+  const status = getChunkUploadStatus();
   return ["hashing", "initializing", "uploading", "completing", "completed"].includes(status);
 });
 

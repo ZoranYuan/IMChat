@@ -53,10 +53,10 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 
 func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar, description string) (*RoomAppDTO, error) {
 	roomId, err := snow.GenerateSnowID(int(ra.config.App.MachineID))
-	conversationId := messageentity.GetConversationID(userId, roomId, int(messagevo.RoomChat))
 	if err != nil {
 		return nil, err
 	}
+	conversationId := messageentity.GetConversationID(userId, roomId, int(messagevo.RoomChat))
 
 	room, err := roomentity.NewRoom(roomId, userId, description, roomName, avatar)
 	if err != nil {
