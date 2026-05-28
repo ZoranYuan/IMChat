@@ -2,31 +2,18 @@
 
 一个面向群聊场景的实时房间协作平台。
 
-## 功能模块
+## 功能模块与接口
 
-### 账户模块
-负责用户注册、登录、退出登录和当前用户信息获取。
-
-### 好友模块
-负责搜索用户、发送好友申请、管理好友列表和处理好友请求。
-
-### 聊天模块
-负责私聊、群聊、离线消息、历史消息、实时消息收发和已读确认。
-
-### 房间模块
-负责创建房间、通过邀请码加入房间、刷新邀请码，以及在群聊中展示一起看入口。
-
-### 一起看模块
-负责房间内的视频同步播放、播放控制、共享者独占控制权和共享结束后的权限释放。
-
-### 视频模块
-负责视频文件上传、分片上传、输入 fileId 加载视频、同步到房间和回放视频列表。
-
-### 回放模块
-负责房间历史消息回放、房间历史视频记录以及弹幕回放。
-
-### 前端页面模块
-负责登录 / 注册页、会话列表、好友面板、聊天面板和一起看面板。
+| 功能模块 | 说明 | 对应接口 |
+|---|---|---|
+| 账户模块 | 用户注册、登录、退出和身份信息查询 | `POST /users/register`<br>`POST /users/login`<br>`POST /users/logout`<br>`GET /users/:userId`<br>`GET /users/resolve` |
+| 好友模块 | 用户搜索、好友列表和好友申请管理 | `GET /friends`<br>`POST /friend-requests`<br>`GET /friend-requests`<br>`POST /friend-requests/actions` |
+| 聊天模块 | 私聊、群聊、历史消息和离线消息 | `GET /messages/history`<br>`GET /messages/offline` |
+| 房间模块 | 房间创建、加入和邀请码管理 | `POST /rooms`<br>`GET /rooms/:roomId/invite-code`<br>`POST /rooms/join` |
+| 视频模块 | 视频上传、分片上传、加载和查询 | `POST /files`<br>`POST /files/multipart/init`<br>`PUT /files/multipart/:uploadId/parts/:partNumber`<br>`POST /files/multipart/:uploadId/complete`<br>`GET /files/:fileId` |
+| 一起看模块 | 房间内视频同步播放与共享控制 | `GET /ws` |
+| 回放模块 | 房间历史视频、弹幕回放与互动记录 | `GET /messages/videos`<br>`GET /messages/danmaku` |
+| 实时通道 | 实时消息收发、已读确认和播放状态同步 | `GET /ws` |
 
 ## 功能清单
 
@@ -42,3 +29,7 @@
 - 历史视频预览与恢复
 - 房间历史消息回放
 - 弹幕回放
+
+## 接口文件
+
+- `docs/apipost.collection.json`：Apipost 可直接导入的接口集合文件
