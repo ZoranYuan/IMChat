@@ -9,8 +9,7 @@
   <section v-else key="conversation" class="chat-pane">
     <header class="chat-head">
       <div class="chat-head-main">
-        <h2>{{ activeConversation.displayName || "会话" }}</h2>
-        <span class="chat-head-subtitle">{{ activeConversation.convType === 2 ? "群聊" : "私聊" }}</span>
+        <h2>{{ activeConversation.displayName}}</h2>
       </div>
     </header>
 
