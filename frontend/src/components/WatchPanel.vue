@@ -28,8 +28,8 @@
         ></video>
         <div class="danmaku-layer">
           <span
-            v-for="item in visibleDanmaku"
-            :key="item.messageId"
+            v-for="(item, index) in visibleDanmaku"
+            :key="item.messageId || item.seq || index"
             class="danmaku"
             :style="{ top: `${item.top}%`, animationDuration: `${item.duration}s` }"
           >

@@ -49,13 +49,19 @@ func (h *GroupHandler) Cleanup(sarama.ConsumerGroupSession) error {
 func (h *GroupHandler) getConvMembers(ctx context.Context, conversationId string, roomId string) ([]string, error) {
 	members, cacheVersion, err := h.conversationCache.GetMembersWithVersion(ctx, conversationId)
 	if err == nil && cacheVersion > 0 && len(members) > 0 {
-		return members, nil
+		room, roomErr := h.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
+		if roomErr == nil && cacheVersion == room.Version {
+			return members, nil
+		}
 	}
 
 	v, err, _ := h.sf.Do(conversationId, func() (any, error) {
 		members, cacheVersion, err := h.conversationCache.GetMembersWithVersion(ctx, conversationId)
 		if err == nil && cacheVersion > 0 && len(members) > 0 {
-			return members, nil
+			room, roomErr := h.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
+			if roomErr == nil && cacheVersion == room.Version {
+				return members, nil
+			}
 		}
 
 		members, err = h.userConversationRepository.GetUsersByConversationID(ctx, conversationId)
@@ -67,8 +73,7 @@ func (h *GroupHandler) getConvMembers(ctx context.Context, conversationId string
 			return nil, err
 		}
 
-		version := room.Version
-		if err := h.conversationCache.SetMembers(ctx, conversationId, members, version); err != nil {
+		if err := h.conversationCache.SetMembers(ctx, conversationId, members, room.Version); err != nil {
 			// TODO: 异步补偿（MQ / retry）
 		}
 

@@ -2,7 +2,7 @@
   <section class="conversation-pane">
     <div class="pane-head">
       <div>
-        <h1>消息</h1>
+        <h1>消息列表</h1>
       </div>
       <button class="icon-btn" :disabled="!token" title="刷新会话" @click="$emit('load-offline')">
         <RefreshCcw :size="13" />

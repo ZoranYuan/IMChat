@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import {
   createRoom,
   createFriendRequest,
@@ -261,6 +261,8 @@ export function useImClient() {
   }
 
   async function selectConversation(item) {
+    if (!item?.conversationId) return;
+    const requestedConversationId = item.conversationId;
     const current = upsertConversationPreview(item.conversationId, {
       displayName: item.displayName,
       convType: item.convType,
@@ -277,13 +279,14 @@ export function useImClient() {
       showMessage(err.message);
       return { messages: [] };
     });
+    if (activeConversation.value?.conversationId !== requestedConversationId) return;
     messages.value = history.messages || [];
     if (item.convType === 2) {
       const lastSeq = history.messages?.at(-1)?.seq || 0;
       sendReadAck(item.conversationId, lastSeq);
     }
     scrollToBottom();
-    if (activeConversation.value.convType === 2) {
+    if (activeConversation.value?.convType === 2) {
       loadDanmaku();
       loadRoomVideoHistory();
       if (wsConnected.value) sendWatchControl("get_state");
@@ -789,6 +792,14 @@ export function useImClient() {
       if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight;
     });
   }
+
+  watch(
+    [() => activeConversation.value?.conversationId, () => messages.value.length],
+    () => {
+      scrollToBottom();
+    },
+    { flush: "post" },
+  );
 
   function formatTime(ts) {
     if (!ts) return "刚刚";

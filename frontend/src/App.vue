@@ -15,18 +15,11 @@
       </div>
 
       <nav class="menu-nav">
-        <button
-          :class="{ active: viewMode === 'chat' && directoryMode === 'conversations' }"
-          title="会话"
-          @click="showConversations"
-        >
+        <button :class="{ active: viewMode === 'chat' && directoryMode === 'conversations' }" title="会话"
+          @click="showConversations">
           <MessageCircle :size="22" />
         </button>
-        <button
-          :class="{ active: viewMode === 'chat' && directoryMode === 'friends' }"
-          title="好友"
-          @click="showFriends"
-        >
+        <button :class="{ active: viewMode === 'chat' && directoryMode === 'friends' }" title="好友" @click="showFriends">
           <Users :size="22" />
         </button>
       </nav>
@@ -41,28 +34,28 @@
       </div>
     </aside>
 
-    <section v-if="viewMode === 'chat'" class="chat-workspace" :style="{ gridTemplateColumns: `${chatSidebarWidth}px minmax(0, 1fr)` }">
+    <section v-if="viewMode === 'chat'" key="chat-workspace" class="chat-workspace"
+      :style="{ gridTemplateColumns: `${chatSidebarWidth}px minmax(0, 1fr)` }">
       <aside class="chat-directory">
         <div class="chat-resize-handle" @pointerdown="startChatSidebarResize"></div>
 
-        <ConversationList v-if="directoryMode === 'conversations'" :token="token" :conversations="conversations"
-          :active-conversation="activeConversation" @load-offline="loadOffline"
+        <ConversationList v-if="directoryMode === 'conversations'" key="conversations" :token="token"
+          :conversations="conversations" :active-conversation="activeConversation" @load-offline="loadOffline"
           @select-conversation="selectConversation" />
 
-        <FriendsPanel v-else :token="token" :friends="friends" :friend-requests="friendRequests"
+        <FriendsPanel v-else key="friends" :token="token" :friends="friends" :friend-requests="friendRequests"
           :friend-form="friendForm" :format-time="formatTime" @refresh="refreshFriends"
           @submit-request="submitFriendRequest" @operate-request="handleFriendRequest"
           @open-chat="openPrivateConversation" />
       </aside>
 
       <ChatPanel v-model:message-text="messageText" :active-conversation="activeConversation" :messages="messages"
-        :current-user="currentUser" :ws-connected="wsConnected" :message-list-ref="messageList"
-        :show-watch-entry="Boolean(activeConversation?.convType === 2)"
-        :watch-entry-label="watchActionLabel" :watch-entry-hint="watchStatusLabel" @send-message="sendMessage"
-        @open-watch="openWatchRoom" />
+        :current-user="currentUser" :ws-connected="wsConnected" :set-message-list-ref="setMessageListRef"
+        :show-watch-entry="Boolean(activeConversation?.convType === 2)" :watch-entry-label="watchActionLabel"
+        :watch-entry-hint="watchStatusLabel" @send-message="sendMessage" @open-watch="openWatchRoom" />
     </section>
 
-    <section v-else :class="['watch-workspace', { 'chat-collapsed': watchChatCollapsed }]"
+    <section v-else key="watch-workspace" :class="['watch-workspace', { 'chat-collapsed': watchChatCollapsed }]"
       :style="{ gridTemplateColumns: watchChatCollapsed ? '44px minmax(0, 1fr)' : `${watchSidebarWidth}px minmax(0, 1fr)` }">
       <aside class="watch-chat-sidebar">
         <button class="collapse-tab" @click="watchChatCollapsed = !watchChatCollapsed">
@@ -78,12 +71,12 @@
             <strong>{{ activeRoomName || "未进入房间" }}</strong>
           </div>
 
-          <ChatPanel v-model:message-text="messageText" :active-conversation="watchConversation" :messages="watchMessages"
-            :current-user="currentUser" :ws-connected="wsConnected" :message-list-ref="messageList"
-            :show-watch-entry="true" :watch-entry-label="watchActionLabel" :watch-entry-hint="watchStatusLabel"
-            @send-message="sendWatchMessage" @open-watch="openWatchRoom" />
-      </template>
-    </aside>
+          <ChatPanel v-model:message-text="messageText" :active-conversation="watchConversation"
+            :messages="watchMessages" :current-user="currentUser" :ws-connected="wsConnected"
+            :set-message-list-ref="setMessageListRef" :show-watch-entry="true" :watch-entry-label="watchActionLabel"
+            :watch-entry-hint="watchStatusLabel" @send-message="sendWatchMessage" @open-watch="openWatchRoom" />
+        </template>
+      </aside>
 
       <WatchPanel v-model:file-id-input="fileIdInput" :token="token" :active-room-id="activeRoomId"
         :active-room-name="activeRoomName" :can-control-video="canControlWatchVideo" :room-form="roomForm"
@@ -91,11 +84,11 @@
         :visible-danmaku="visibleDanmaku" :watch-session="watchSession" :watch-action-label="watchActionLabel"
         :watch-status-label="watchStatusLabel" :watch-owner-label="watchOwnerLabel"
         :can-start-watch-session="canStartWatchSession" :can-stop-watch-session="canStopWatchSession"
-        :suppress-native-controls="applyingWatchState"
-        @update:video-el="setVideoElement" @watch-control="sendWatchControl" @seek-by="seekBy"
-        @video-time-update="onVideoTimeUpdate" @create-room="handleCreateRoom" @join-room="handleJoinRoom"
-        @invite="handleInvite" @upload="handleUpload" @load-file="loadFile" @load-video="loadVideoToRoom"
-        @select-history-video="selectRoomVideo" @refresh-history="loadRoomVideoHistory" @stop-watch="stopWatchSession"
+        :suppress-native-controls="applyingWatchState" @update:video-el="setVideoElement"
+        @watch-control="sendWatchControl" @seek-by="seekBy" @video-time-update="onVideoTimeUpdate"
+        @create-room="handleCreateRoom" @join-room="handleJoinRoom" @invite="handleInvite" @upload="handleUpload"
+        @load-file="loadFile" @load-video="loadVideoToRoom" @select-history-video="selectRoomVideo"
+        @refresh-history="loadRoomVideoHistory" @stop-watch="stopWatchSession"
         @native-video-control="handleNativeVideoControl" />
     </section>
   </main>
@@ -194,6 +187,10 @@ const {
   formatTime,
 } = useImClient();
 
+const setMessageListRef = (el) => {
+  messageList.value = el;
+};
+
 const themeLabel = computed(() => (themeMode.value === "dark" ? "切换白天模式" : "切换黑夜模式"));
 
 const activeRoomName = computed(() => {
@@ -273,6 +270,8 @@ function showFriends() {
 }
 
 function startChatSidebarResize(event) {
+  event.preventDefault();
+  setSidebarResizing(true);
   chatSidebarResizeStartX = event.clientX;
   chatSidebarResizeStartWidth = chatSidebarWidth.value;
   window.addEventListener("pointermove", resizeChatSidebar);
@@ -286,10 +285,13 @@ function resizeChatSidebar(event) {
 
 function stopChatSidebarResize() {
   window.removeEventListener("pointermove", resizeChatSidebar);
+  setSidebarResizing(false);
 }
 
 function startWatchSidebarResize(event) {
   if (watchChatCollapsed.value) return;
+  event.preventDefault();
+  setSidebarResizing(true);
   watchSidebarResizeStartX = event.clientX;
   watchSidebarResizeStartWidth = watchSidebarWidth.value;
   window.addEventListener("pointermove", resizeWatchSidebar);
@@ -303,11 +305,18 @@ function resizeWatchSidebar(event) {
 
 function stopWatchSidebarResize() {
   window.removeEventListener("pointermove", resizeWatchSidebar);
+  setSidebarResizing(false);
+}
+
+function setSidebarResizing(next) {
+  if (typeof document === "undefined") return;
+  document.body.classList.toggle("sidebar-resizing", next);
 }
 
 onBeforeUnmount(() => {
   window.removeEventListener("pointermove", resizeChatSidebar);
   window.removeEventListener("pointermove", resizeWatchSidebar);
+  setSidebarResizing(false);
 });
 
 function handleOAuthLogin(provider) {
@@ -335,6 +344,15 @@ function resolveInitialTheme() {
 </script>
 
 <style scoped>
+:global(body.sidebar-resizing) {
+  user-select: none;
+  cursor: col-resize;
+}
+
+:global(body.sidebar-resizing *) {
+  user-select: none;
+}
+
 .theme-toggle {
   position: fixed;
   top: 18px;

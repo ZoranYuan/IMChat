@@ -81,7 +81,7 @@ func (ma *MessageApplication) checkConvMember(
 	isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
 		ctx, conversationId, userId,
 	)
-	if err == nil && cacheVersion > 0 {
+	if err == nil && cacheVersion > 0 && convType == messagevo.PrivateChat {
 		return isMember, nil
 	}
 
@@ -91,11 +91,9 @@ func (ma *MessageApplication) checkConvMember(
 		isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
 			ctx, conversationId, userId,
 		)
-		if err == nil && cacheVersion > 0 {
+		if err == nil && cacheVersion > 0 && convType == messagevo.PrivateChat {
 			return isMember, nil
 		}
-
-		var cacheErr error
 
 		if convType == messagevo.PrivateChat {
 			friend, err := ma.friendRepository.FindRelation(userId, recvId)
@@ -105,34 +103,47 @@ func (ma *MessageApplication) checkConvMember(
 			if friend == nil {
 				return false, ErrNotFriends
 			}
-			cacheErr = ma.conversationCache.SetMembers(
+			cacheErr := ma.conversationCache.SetMembers(
 				ctx,
 				conversationId,
 				[]string{userId, recvId},
 				1,
 			)
-		} else {
-			room, err := ma.roomRepository.FindActiveRoom(recvId, int(roomvo.Activate))
-			if err != nil {
-				return false, err
-			}
-			roomUser, err := ma.roomUserRepository.GetRelationByIDs(userId, recvId)
-			if err != nil {
-				return false, err
-			}
-			if roomUser == nil {
-				return false, ErrNotRoomMember
-			}
-
-			cacheErr = ma.conversationCache.AddMember(
-				ctx,
-				conversationId,
-				userId,
-				room.Version,
-			)
+			return true, cacheErr
 		}
 
-		return true, cacheErr
+		room, err := ma.roomRepository.FindActiveRoom(recvId, int(roomvo.Activate))
+		if err != nil {
+			return false, err
+		}
+
+		if err == nil && cacheVersion > 0 && cacheVersion == room.Version {
+			return isMember, nil
+		}
+
+		members, err := ma.roomUserRepository.ListActiveUserIDs(recvId)
+		if err != nil {
+			return false, err
+		}
+		if len(members) == 0 {
+			return false, ErrNotRoomMember
+		}
+		cacheErr := ma.conversationCache.SetMembers(
+			ctx,
+			conversationId,
+			members,
+			room.Version,
+		)
+		if cacheErr != nil {
+			return false, cacheErr
+		}
+		for _, memberID := range members {
+			if memberID == userId {
+				return true, nil
+			}
+		}
+
+		return false, ErrNotRoomMember
 	})
 
 	if err != nil {
@@ -205,9 +216,17 @@ func (ma *MessageApplication) CheckRoomMember(ctx context.Context, userId string
 }
 
 func (ma *MessageApplication) GetRoomMemberIDs(ctx context.Context, roomId string) ([]string, error) {
-	members, _, err := ma.conversationCache.GetMembersWithVersion(ctx, roomId)
+	members, cacheVersion, err := ma.conversationCache.GetMembersWithVersion(ctx, roomId)
 	if err == nil && len(members) > 0 {
-		return members, nil
+		room, roomErr := ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
+		if roomErr == nil && cacheVersion == room.Version {
+			return members, nil
+		}
+	}
+
+	room, err := ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
+	if err != nil {
+		return nil, err
 	}
 
 	members, err = ma.roomUserRepository.ListActiveUserIDs(roomId)
@@ -216,6 +235,9 @@ func (ma *MessageApplication) GetRoomMemberIDs(ctx context.Context, roomId strin
 	}
 	if len(members) == 0 {
 		return nil, ErrNotRoomMember
+	}
+	if cacheErr := ma.conversationCache.SetMembers(ctx, roomId, members, room.Version); cacheErr != nil {
+		// 缓存回填失败不阻断主流程
 	}
 	return members, nil
 }
