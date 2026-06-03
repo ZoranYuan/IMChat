@@ -39,6 +39,7 @@ type Message struct {
 type OfflineMessageRes struct {
 	ConversationId string  `json:"conversationId"`
 	DisplayName    string  `json:"displayName"`
+	Avatar         string  `json:"avatar"`
 	UnRead         int64   `json:"unread"`
 	LatestMessage  Message `json:"latestMessage"`
 }
@@ -148,6 +149,7 @@ func toOfflineMessageRes(messages []messageapp.MessageAppeDTO, unreadMap map[str
 		om := OfflineMessageRes{
 			ConversationId: m.ConversationID,
 			DisplayName:    m.DisplayName,
+			Avatar:         m.Avatar,
 			UnRead:         unreadMap[m.ConversationID],
 			LatestMessage:  latestMessage,
 		}

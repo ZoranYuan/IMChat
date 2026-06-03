@@ -1,6 +1,6 @@
 <template>
   <aside class="watch-pane">
-    <section class="watch-card video-card">
+    <section class="watch-card watch-stage">
       <div class="pane-head compact">
         <div>
           <p class="eyebrow">Watch Room</p>
@@ -8,131 +8,135 @@
         </div>
         <div class="watch-head-actions">
           <span class="session-pill">{{ watchStatusLabel }}</span>
-          <button class="icon-btn" :disabled="!activeRoomId" title="同步房间播放状态" @click="$emit('watch-control', 'get_state')">
+          <button
+            class="icon-btn"
+            :disabled="!activeRoomId"
+            title="同步房间播放状态"
+            @click="$emit('watch-control', 'get_state')"
+          >
             <RotateCw :size="18" />
           </button>
         </div>
       </div>
 
-      <div class="video-wrap">
-        <video
-          ref="localVideoRef"
-          :src="video.url"
-          controls
-          @timeupdate="$emit('video-time-update')"
-          @play="emitNativeVideoControl('play')"
-          @pause="emitNativeVideoControl('pause')"
-          @seeked="emitNativeVideoControl('seek')"
-          @ratechange="emitNativeVideoControl('ratechange')"
-          @ended="emitNativeVideoControl('ended')"
-        ></video>
-        <div class="danmaku-layer">
-          <span
-            v-for="(item, index) in visibleDanmaku"
-            :key="item.messageId || item.seq || index"
-            class="danmaku"
-            :style="{ top: `${item.top}%`, animationDuration: `${item.duration}s` }"
-          >
-            {{ item.content }}
-          </span>
+      <div v-if="watchSession.active && video.url" class="watch-playing">
+        <div class="watch-sharing-line">
+          共享人：<strong>{{ watchOwnerLabel }}</strong>
         </div>
+
+        <div class="video-wrap">
+          <video
+            ref="localVideoRef"
+            :src="video.url"
+            controls
+            @timeupdate="$emit('video-time-update')"
+            @play="emitNativeVideoControl('play')"
+            @pause="emitNativeVideoControl('pause')"
+            @seeked="emitNativeVideoControl('seek')"
+            @ratechange="emitNativeVideoControl('ratechange')"
+            @ended="emitNativeVideoControl('ended')"
+          ></video>
+          <div class="danmaku-layer">
+            <span
+              v-for="(item, index) in visibleDanmaku"
+              :key="item.messageId || item.seq || index"
+              class="danmaku"
+              :style="{ top: `${item.top}%`, animationDuration: `${item.duration}s` }"
+            >
+              {{ item.content }}
+            </span>
+          </div>
+        </div>
+
+        <div class="watch-controls">
+          <button class="icon-btn" :disabled="!canControlVideo" title="后退 10 秒" @click="$emit('seek-by', -10000)">
+            <SkipBack :size="18" />
+          </button>
+          <button class="icon-btn strong" :disabled="!canControlVideo" title="播放" @click="$emit('watch-control', 'play')">
+            <Play :size="18" />
+          </button>
+          <button class="icon-btn" :disabled="!canControlVideo" title="暂停" @click="$emit('watch-control', 'pause')">
+            <Pause :size="18" />
+          </button>
+          <button class="icon-btn" :disabled="!canControlVideo" title="前进 10 秒" @click="$emit('seek-by', 10000)">
+            <SkipForward :size="18" />
+          </button>
+        </div>
+
+        <div class="session-meta">
+          <span>当前控制者：{{ watchOwnerLabel }}</span>
+          <span v-if="watchSession.active">共享中 · {{ watchSession.action || "sync" }}</span>
+          <span v-else>尚未发起共享</span>
+        </div>
+
+        <button v-if="canStopWatchSession" class="ghost wide watch-stop" @click="$emit('stop-watch')">结束共享</button>
       </div>
-      <div class="watch-controls">
-        <button class="icon-btn" :disabled="!canControlVideo" title="后退 10 秒" @click="$emit('seek-by', -10000)">
-          <SkipBack :size="18" />
-        </button>
-        <button class="icon-btn strong" :disabled="!canControlVideo" title="播放" @click="$emit('watch-control', 'play')">
-          <Play :size="18" />
-        </button>
-        <button class="icon-btn" :disabled="!canControlVideo" title="暂停" @click="$emit('watch-control', 'pause')">
-          <Pause :size="18" />
-        </button>
-        <button class="icon-btn" :disabled="!canControlVideo" title="前进 10 秒" @click="$emit('seek-by', 10000)">
-          <SkipForward :size="18" />
-        </button>
-      </div>
-      <div class="session-meta">
-        <span>当前控制者：{{ watchOwnerLabel }}</span>
-        <span v-if="watchSession.active">共享中 · {{ watchSession.action || "sync" }}</span>
-        <span v-else>尚未发起共享</span>
+
+      <div v-else class="watch-empty">
+        <div class="watch-empty-card">
+          <div class="watch-empty-copy">
+            <p class="watch-empty-title">{{ activeRoomId ? "当前还没有共享视频" : "先进入房间，再开启一起看" }}</p>
+            <p class="watch-empty-desc">
+              房间成员可以先上传视频，或直接输入 fileId 加载视频。共享状态会保存到 Redis，重新进入房间也能同步当前播放。
+            </p>
+          </div>
+
+          <label class="file-box watch-dropzone">
+            <Upload :size="18" />
+            <span>{{ uploadName || "上传视频文件" }}</span>
+            <input type="file" accept="video/*" @change="$emit('upload', $event)" />
+          </label>
+
+          <div v-if="showUploadProgress" class="upload-progress">
+            <div>
+              <span>{{ uploadStatusText }}</span>
+              <strong>{{ uploadProgress }}%</strong>
+            </div>
+            <progress :value="uploadProgress" max="100"></progress>
+          </div>
+
+          <div class="split">
+            <input :value="fileIdInput" placeholder="输入视频 fileId" @input="$emit('update:fileIdInput', $event.target.value.trim())" />
+            <button class="ghost" :disabled="!fileIdInput" @click="$emit('load-file')">加载</button>
+          </div>
+
+          <input :value="video.url" placeholder="视频 URL" @input="video.url = $event.target.value.trim()" />
+
+          <p v-if="video.fileName || video.fileId" class="muted small">
+            当前待共享：{{ video.fileName || video.fileId }}
+          </p>
+
+          <button class="primary wide" :disabled="!canStartWatchSession" @click="$emit('load-video')">
+            <Film :size="16" />
+            {{ watchActionLabel }}
+          </button>
+        </div>
       </div>
     </section>
 
     <section class="watch-card">
-      <h3>房间</h3>
-      <div class="room-state">
-        <span :class="['dot', activeRoomId ? 'ok' : '']"></span>
-        <strong>{{ activeRoomName || "未进入房间" }}</strong>
-      </div>
-      <input :value="roomForm.roomName" placeholder="创建房间名称" @input="roomForm.roomName = $event.target.value" />
-      <div class="split">
-        <button class="ghost" :disabled="!token || !roomForm.roomName" @click="$emit('create-room')">创建房间</button>
-        <button class="ghost" :disabled="!activeRoomId" @click="$emit('invite')">生成邀请码</button>
-      </div>
-      <div class="split">
-        <input :value="roomForm.inviteCode" placeholder="输入邀请码加入房间" @input="roomForm.inviteCode = $event.target.value.trim()" />
-        <button class="ghost" :disabled="!token || !roomForm.inviteCode" @click="$emit('join-room')">加入</button>
-      </div>
-      <p v-if="roomForm.inviteCodeDisplay" class="code-box">{{ roomForm.inviteCodeDisplay }}</p>
-    </section>
-
-    <section class="watch-card">
-      <h3>视频</h3>
-      <p class="muted small">先进入房间，再把视频同步给房间成员。</p>
-      <label class="file-box">
-        <Upload :size="18" />
-        <span>{{ uploadName || "上传视频文件" }}</span>
-        <input type="file" accept="video/*" @change="$emit('upload', $event)" />
-      </label>
-      <div v-if="showUploadProgress" class="upload-progress">
-        <div>
-          <span>{{ uploadStatusText }}</span>
-          <strong>{{ uploadProgress }}%</strong>
-        </div>
-        <progress :value="uploadProgress" max="100"></progress>
-      </div>
-      <div class="split">
-        <input :value="fileIdInput" placeholder="输入视频 fileId" @input="$emit('update:fileIdInput', $event.target.value.trim())" />
-        <button class="ghost" :disabled="!fileIdInput" @click="$emit('load-file')">加载视频</button>
-      </div>
-      <input :value="video.url" placeholder="视频 URL" @input="video.url = $event.target.value.trim()" />
-      <p v-if="video.fileName || video.fileId" class="muted small">当前视频：{{ video.fileName || video.fileId }}</p>
-      <button class="primary wide" :disabled="!canStartWatchSession" @click="$emit('load-video')">
-        <Film :size="16" />
-        {{ watchActionLabel }}
-      </button>
-      <button v-if="canStopWatchSession" class="ghost wide" @click="$emit('stop-watch')">结束共享</button>
-    </section>
-
-    <section class="watch-card history-card">
       <div class="pane-head compact">
         <div>
-          <p class="eyebrow">History</p>
-          <h3>房间历史视频</h3>
+          <p class="eyebrow">Room</p>
+          <h3>房间设置</h3>
         </div>
-        <button class="icon-btn" :disabled="!activeRoomId" title="刷新历史视频" @click="$emit('refresh-history')">
-          <RotateCw :size="16" />
-        </button>
+        <div class="room-state">
+          <span :class="['dot', activeRoomId ? 'ok' : '']"></span>
+          <strong>{{ activeRoomName || "未进入房间" }}</strong>
+        </div>
       </div>
-      <p v-if="!activeRoomId" class="muted small">进入房间后会显示该房间的历史视频。</p>
-      <div v-else class="history-list">
-        <button
-          v-for="item in roomVideoHistory"
-          :key="item.videoId"
-          :class="['history-item', { active: item.videoId === video.fileId }]"
-          :disabled="!canControlVideo && watchSession.active"
-          @click="$emit('select-history-video', item)"
-        >
-          <div class="avatar">{{ (item.fileName || item.videoId || 'V').slice(0, 1).toUpperCase() }}</div>
-          <div class="item-main">
-            <div class="item-row">
-              <strong>{{ item.fileName || item.videoId }}</strong>
-              <span class="badge">{{ item.messageCount || 0 }} 条</span>
-            </div>
-            <p>{{ formatHistoryTime(item.latestSendTime) }}</p>
-          </div>
-        </button>
-        <p v-if="!roomVideoHistory.length" class="empty-hint">这个房间还没有视频回放记录。</p>
+
+      <div class="room-grid">
+        <input :value="roomForm.roomName" placeholder="创建房间名称" @input="roomForm.roomName = $event.target.value" />
+        <div class="split">
+          <button class="ghost" :disabled="!token || !roomForm.roomName" @click="$emit('create-room')">创建</button>
+          <button class="ghost" :disabled="!activeRoomId" @click="$emit('invite')">邀请码</button>
+        </div>
+        <div class="split">
+          <input :value="roomForm.inviteCode" placeholder="输入邀请码加入房间" @input="roomForm.inviteCode = $event.target.value.trim()" />
+          <button class="ghost" :disabled="!token || !roomForm.inviteCode" @click="$emit('join-room')">加入</button>
+        </div>
+        <p v-if="roomForm.inviteCodeDisplay" class="code-box">{{ roomForm.inviteCodeDisplay }}</p>
       </div>
     </section>
   </aside>
@@ -153,7 +157,6 @@ const props = defineProps({
   uploadName: { type: String, default: "" },
   chunkUpload: { type: Object, default: null },
   video: { type: Object, required: true },
-  roomVideoHistory: { type: Array, default: () => [] },
   visibleDanmaku: { type: Array, default: () => [] },
   watchSession: { type: Object, default: () => ({ active: false, ownerId: "" }) },
   watchActionLabel: { type: String, default: "发起一起看" },
@@ -174,8 +177,6 @@ const emit = defineEmits([
   "upload",
   "load-file",
   "load-video",
-  "select-history-video",
-  "refresh-history",
   "stop-watch",
   "native-video-control",
   "update:fileIdInput",
@@ -212,16 +213,6 @@ const showUploadProgress = computed(() => {
   const status = getChunkUploadStatus();
   return ["hashing", "initializing", "uploading", "completing", "completed"].includes(status);
 });
-
-function formatHistoryTime(ts) {
-  if (!ts) return "刚刚";
-  return new Date(ts).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 </script>
 
 <style scoped>
@@ -230,27 +221,29 @@ function formatHistoryTime(ts) {
   gap: 16px;
   padding: 18px;
   overflow: auto;
-  background: transparent;
+  background:
+    radial-gradient(circle at top right, rgba(126, 87, 194, 0.18), transparent 26%),
+    radial-gradient(circle at 12% 18%, rgba(119, 104, 214, 0.14), transparent 28%),
+    transparent;
 }
 
-.video-card,
 .watch-card {
   border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
+  border-radius: 24px;
   padding: 18px;
-  background: var(--surface-soft);
+  background: linear-gradient(180deg, var(--surface-soft), var(--surface));
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(20px);
 }
 
-.video-card {
+.watch-stage {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .pane-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
@@ -279,12 +272,45 @@ function formatHistoryTime(ts) {
   text-transform: uppercase;
 }
 
+.session-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--primary-soft);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.watch-playing,
+.watch-empty-card,
+.room-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.watch-sharing-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.watch-sharing-line strong {
+  color: var(--text);
+}
+
 .video-wrap {
   position: relative;
   overflow: hidden;
   aspect-ratio: 16 / 9;
-  border-radius: 22px;
-  background: #050507;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.06), transparent 54%),
+    #050507;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
@@ -341,29 +367,51 @@ video {
   grid-template-columns: minmax(0, 1fr) 88px;
 }
 
-.watch-card {
-  display: grid;
-  gap: 12px;
-}
-
-.session-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  border-radius: 999px;
-  padding: 0 12px;
-  background: var(--primary-soft);
-  color: var(--text);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .session-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.watch-empty {
+  display: grid;
+}
+
+.watch-empty-card {
+  border-radius: 22px;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(127, 87, 194, 0.12), rgba(127, 87, 194, 0.04)),
+    var(--surface);
+  border: 1px solid var(--border);
+}
+
+.watch-empty-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.watch-empty-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.watch-empty-desc {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.watch-dropzone {
+  min-height: 52px;
+  background: var(--surface-strong);
+}
+
+.room-grid {
+  gap: 12px;
 }
 
 .room-state {
@@ -380,21 +428,18 @@ video {
   white-space: nowrap;
 }
 
-.file-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-md);
-  padding: 0 12px;
+.code-box {
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: var(--primary-soft);
   color: var(--text);
-  background: var(--surface);
-  cursor: pointer;
+  font-weight: 700;
+  text-align: center;
 }
 
-.file-box input {
-  display: none;
+.watch-stop {
+  justify-self: end;
+  max-width: 160px;
 }
 
 .upload-progress {
@@ -434,60 +479,6 @@ video {
 
 .upload-progress progress::-moz-progress-bar {
   background: linear-gradient(90deg, var(--primary), var(--primary-strong));
-}
-
-.history-card {
-  display: grid;
-  gap: 12px;
-}
-
-.history-list {
-  display: grid;
-  gap: 10px;
-  max-height: 260px;
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.history-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 62px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  padding: 12px;
-  background: var(--surface);
-  color: var(--text);
-  text-align: left;
-}
-
-.history-item:hover,
-.history-item.active {
-  border-color: var(--border-strong);
-  background: var(--surface-strong);
-  box-shadow: var(--shadow-md);
-}
-
-.history-item .item-main {
-  min-width: 0;
-  flex: 1;
-}
-
-.history-item .item-main p {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.code-box {
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
-  background: var(--primary-soft);
-  color: var(--text);
-  font-weight: 700;
-  text-align: center;
 }
 
 @media (max-width: 1180px) {

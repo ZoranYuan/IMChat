@@ -6,6 +6,7 @@ type MessageAppeDTO struct {
 	ClientMsgId    string `json:"clientMsgId"`      // 客户端消息ID（用于ACK去重）
 	SendId         string `json:"sendId"`           // 发送者ID
 	SenderUsername string `json:"senderUsername"`   // 发送者用户名
+	Avatar         string `json:"avatar"`           // 会话头像/发送者头像
 	RecvId         string `json:"recvId,omitempty"` // 接收者ID（单聊是用户ID，群聊是群ID）
 	ConversationID string `json:"conversation"`
 	DisplayName    string `json:"displayName"`

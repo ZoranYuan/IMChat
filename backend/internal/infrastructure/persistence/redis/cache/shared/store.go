@@ -109,6 +109,19 @@ func (s *Store) SAddStrings(ctx context.Context, key string, values ...string) e
 	return s.client.SAdd(ctx, key, members...).Err()
 }
 
+func (s *Store) SRemStrings(ctx context.Context, key string, values ...string) error {
+	if len(values) == 0 {
+		return nil
+	}
+
+	members := make([]interface{}, 0, len(values))
+	for _, value := range values {
+		members = append(members, value)
+	}
+
+	return s.client.SRem(ctx, key, members...).Err()
+}
+
 func (s *Store) SMembers(ctx context.Context, key string) ([]string, error) {
 	return s.client.SMembers(ctx, key).Result()
 }

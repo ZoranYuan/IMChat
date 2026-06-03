@@ -55,6 +55,10 @@ func messageReadAckEventToPB(event protocol.MessageReadAckEvent) *wspb.MessageRe
 }
 
 func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
+	var videoTime int64
+	if event.VideoTime != nil {
+		videoTime = *event.VideoTime
+	}
 	return &wspb.MessageEvent{
 		MessageId:      event.MessageId,
 		ConversationId: event.ConversationId,
@@ -66,6 +70,9 @@ func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
 		CType:          int32(event.CType),
 		Content:        event.Content,
 		SendTime:       event.SendTime,
+		ClientMsgId:    event.ClientMsgId,
+		HasVideoTime:   event.HasVideoTime,
+		VideoTime:      videoTime,
 	}
 }
 

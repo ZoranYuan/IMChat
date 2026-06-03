@@ -68,7 +68,7 @@ func TestMessageReqFromPBVideoTime(t *testing.T) {
 }
 
 func TestUpsertWatchVideoStateBoundsAndPlayback(t *testing.T) {
-	gateway := NewGateway()
+	gateway := NewGateway(nil)
 
 	state, err := gateway.UpsertWatchVideoState(WatchVideoControlReq{
 		RoomId:       "room-1",
@@ -138,7 +138,7 @@ func TestUpsertWatchVideoStateBoundsAndPlayback(t *testing.T) {
 }
 
 func TestReleaseWatchVideoStatesByUser(t *testing.T) {
-	gateway := NewGateway()
+	gateway := NewGateway(nil)
 
 	state, err := gateway.UpsertWatchVideoState(WatchVideoControlReq{
 		RoomId:   "room-1",

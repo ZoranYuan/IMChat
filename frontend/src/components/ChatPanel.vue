@@ -9,16 +9,17 @@
   <section v-else key="conversation" class="chat-pane">
     <header class="chat-head">
       <div class="chat-head-main">
-        <h2>{{ activeConversation.displayName}}</h2>
+        <h2>{{ activeConversation.displayName }}</h2>
       </div>
     </header>
 
     <div class="messages" :ref="setMessageList">
-      <article
-        v-for="(msg, index) in messages"
-        :key="msg.clientMsgId || msg.messageId || msg.seq || index"
-        :class="['bubble-row', { mine: isMine(msg), group: isGroupChat }]"
-      >
+      <div v-if="conversationLoading" class="messages-loading">
+        <span class="loading-dot"></span>
+        <span>正在加载聊天记录</span>
+      </div>
+      <article v-for="(msg, index) in messages" :key="msg.clientMsgId || msg.messageId || msg.seq || index"
+        :class="['bubble-row', { mine: isMine(msg), group: isGroupChat }]">
         <div class="bubble-avatar" :class="{ mine: isMine(msg) }">
           <img v-if="avatarUrl(msg)" :src="avatarUrl(msg)" :alt="senderName(msg)" />
           <span v-else>{{ avatarText(msg) }}</span>
@@ -35,17 +36,9 @@
 
     <footer class="composer">
       <div class="composer-shell">
-        <textarea
-          ref="messageInputRef"
-          :style="{ height: `${composerHeight}px` }"
-          :value="messageText"
-          :disabled="!wsConnected"
-          rows="1"
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-          @input="handleMessageInput"
-          @keydown.enter.exact.prevent="handleEnterSend"
-          @keydown.enter.shift.stop
-        ></textarea>
+        <textarea ref="messageInputRef" :style="{ height: `${composerHeight}px` }" :value="messageText"
+          :disabled="!wsConnected" rows="1" @input="handleMessageInput"
+          @keydown.enter.exact.prevent="handleEnterSend" @keydown.enter.shift.stop></textarea>
         <div class="composer-top-resizer" @pointerdown="startComposerResize"></div>
 
         <div class="composer-toolbar">
@@ -65,14 +58,8 @@
             <button class="composer-tool composer-audio" type="button" :disabled="!wsConnected" title="语音">
               <Volume2 :size="16" />
             </button>
-            <button
-              v-if="showWatchEntry && activeConversation.convType === 2"
-              class="composer-watch-entry"
-              type="button"
-              :title="watchEntryHint"
-              :disabled="watchEntryDisabled"
-              @click="$emit('open-watch')"
-            >
+            <button v-if="showWatchEntry && activeConversation.convType === 2" class="composer-watch-entry"
+              type="button" :title="watchEntryHint" :disabled="watchEntryDisabled" @click="$emit('open-watch')">
               <Film :size="14" />
               {{ watchEntryLabel }}
             </button>
@@ -94,6 +81,7 @@ import { Film, MessageCircle, MoreHorizontal, Paperclip, Send, Smile, Volume2 } 
 const props = defineProps({
   activeConversation: { type: Object, default: null },
   messages: { type: Array, default: () => [] },
+  conversationLoading: { type: Boolean, default: false },
   currentUser: { type: Object, required: true },
   messageText: { type: String, default: "" },
   wsConnected: { type: Boolean, default: false },
@@ -265,11 +253,30 @@ onBeforeUnmount(() => {
   padding: 16px 16px 20px;
 }
 
+.messages-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 120px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.loading-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 18%, transparent);
+  animation: loadingPulse 1.1s ease-in-out infinite;
+}
+
 .bubble-row {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  margin-bottom: 10px;
+  margin-bottom: 25px;
 }
 
 .bubble-row.mine {
@@ -335,7 +342,7 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   background: var(--chat-bubble-other-bg);
   color: var(--text);
-  line-height: 1.65;
+  font-size: 13.5px;
   box-shadow: var(--shadow-md);
   word-break: break-word;
   white-space: pre-wrap;
@@ -398,6 +405,7 @@ onBeforeUnmount(() => {
   color: var(--text);
   resize: none;
   outline: none;
+  font-size: 14px;
   line-height: 1.65;
   overflow-y: hidden;
 }
@@ -492,6 +500,18 @@ onBeforeUnmount(() => {
 @media (max-width: 1180px) {
   .chat-pane {
     min-height: 620px;
+  }
+}
+
+@keyframes loadingPulse {
+  0%,
+  100% {
+    transform: scale(0.88);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
   }
 }
 </style>

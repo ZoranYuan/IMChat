@@ -1,5 +1,10 @@
 <template>
   <main class="login-page">
+    <button class="login-theme-toggle" type="button" :title="themeLabel" @click="$emit('toggle-theme')">
+      <SunMedium v-if="themeMode === 'dark'" :size="16" />
+      <MoonStar v-else :size="16" />
+    </button>
+
     <section class="login-hero">
       <div class="brand big">
         <div class="brand-mark">SY</div>
@@ -74,16 +79,18 @@
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from "vue";
-import { LogIn } from "@lucide/vue";
+import { LogIn, MoonStar, SunMedium } from "@lucide/vue";
 import githubIcon from "../assets/github.svg";
 import wechatIcon from "../assets/wechat.svg";
 
 defineProps({
   authMode: { type: String, required: true },
   authForm: { type: Object, required: true },
+  themeMode: { type: String, required: true },
+  themeLabel: { type: String, required: true },
 });
 
-defineEmits(["update:authMode", "submit-auth", "oauth-login"]);
+defineEmits(["update:authMode", "submit-auth", "oauth-login", "toggle-theme"]);
 
 const titleText = "实时聊天，一起同步观影。";
 const copyText = "房间成员可以聊天、上传视频、同步播放进度，并把历史聊天作为弹幕回放。";
@@ -130,6 +137,24 @@ onBeforeUnmount(() => {
   align-items: center;
   min-height: 100vh;
   padding: clamp(28px, 5vw, 72px);
+}
+
+.login-theme-toggle {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0;
+  background: var(--surface-strong);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(18px);
 }
 
 .login-hero {
@@ -252,20 +277,41 @@ onBeforeUnmount(() => {
 .oauth-btn img {
   width: 18px;
   height: 18px;
+  flex: 0 0 auto;
 }
 
 .oauth-btn.wechat img {
   filter: drop-shadow(0 0 12px rgba(7, 193, 96, 0.28));
 }
 
+.oauth-btn.github {
+  color: var(--text);
+}
+
+:global(html[data-theme="light"]) .oauth-btn.github {
+  color: #24292f;
+}
+
+:global(html[data-theme="dark"]) .oauth-btn.github {
+  color: #f4f7ff;
+}
+
 @media (max-width: 980px) {
   .login-page {
     grid-template-columns: 1fr;
     align-content: start;
+    padding-top: 76px;
   }
 
   .login-hero h1 {
     min-height: auto;
+  }
+
+  .login-theme-toggle {
+    top: 12px;
+    right: 12px;
+    width: 38px;
+    height: 38px;
   }
 }
 </style>

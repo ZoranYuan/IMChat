@@ -49,6 +49,9 @@ message MessageEvent {
   string content = 8;
   int64 send_time = 9;
   string sender_username = 10;
+  string client_msg_id = 11;
+  bool has_video_time = 12;
+  int64 video_time = 13;
 }
 
 message WatchVideoControl {

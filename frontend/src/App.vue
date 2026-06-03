@@ -1,11 +1,6 @@
 <template>
-  <button class="theme-toggle" type="button" :title="themeLabel" @click="toggleTheme">
-    <SunMedium v-if="themeMode === 'dark'" :size="16" />
-    <MoonStar v-else :size="16" />
-  </button>
-
-  <LoginPage v-if="!token" v-model:auth-mode="authMode" :auth-form="authForm" @submit-auth="submitAuth"
-    @oauth-login="handleOAuthLogin" />
+  <LoginPage v-if="!token" v-model:auth-mode="authMode" :auth-form="authForm" :theme-mode="themeMode"
+    :theme-label="themeLabel" @submit-auth="submitAuth" @oauth-login="handleOAuthLogin" @toggle-theme="toggleTheme" />
 
   <main v-else class="app-shell">
     <aside class="app-menu">
@@ -32,6 +27,11 @@
           <LogOut :size="20" />
         </button>
       </div>
+
+      <button class="theme-toggle" type="button" :title="themeLabel" @click="toggleTheme">
+        <SunMedium v-if="themeMode === 'dark'" :size="16" />
+        <MoonStar v-else :size="16" />
+      </button>
     </aside>
 
     <section v-if="viewMode === 'chat'" key="chat-workspace" class="chat-workspace"
@@ -40,17 +40,18 @@
         <div class="chat-resize-handle" @pointerdown="startChatSidebarResize"></div>
 
         <ConversationList v-if="directoryMode === 'conversations'" key="conversations" :token="token"
-          :conversations="conversations" :active-conversation="activeConversation" @load-offline="loadOffline"
-          @select-conversation="selectConversation" />
+          :conversations="conversations" :active-conversation="activeConversation" @load-offline="refreshConversations"
+          :refreshing="refreshingOffline" @select-conversation="selectConversation" />
 
         <FriendsPanel v-else key="friends" :token="token" :friends="friends" :friend-requests="friendRequests"
           :friend-form="friendForm" :format-time="formatTime" @refresh="refreshFriends"
+          :refreshing="refreshingFriends"
           @submit-request="submitFriendRequest" @operate-request="handleFriendRequest"
           @open-chat="openPrivateConversation" />
       </aside>
 
       <ChatPanel v-model:message-text="messageText" :active-conversation="activeConversation" :messages="messages"
-        :current-user="currentUser" :ws-connected="wsConnected" :set-message-list-ref="setMessageListRef"
+        :conversation-loading="conversationLoading" :current-user="currentUser" :ws-connected="wsConnected" :set-message-list-ref="setMessageListRef"
         :show-watch-entry="Boolean(activeConversation?.convType === 2)" :watch-entry-label="watchActionLabel"
         :watch-entry-hint="watchStatusLabel" @send-message="sendMessage" @open-watch="openWatchRoom" />
     </section>
@@ -72,23 +73,23 @@
           </div>
 
           <ChatPanel v-model:message-text="messageText" :active-conversation="watchConversation"
-            :messages="watchMessages" :current-user="currentUser" :ws-connected="wsConnected"
+            :messages="watchMessages" :conversation-loading="false" :current-user="currentUser" :ws-connected="wsConnected"
             :set-message-list-ref="setMessageListRef" :show-watch-entry="true" :watch-entry-label="watchActionLabel"
             :watch-entry-hint="watchStatusLabel" @send-message="sendWatchMessage" @open-watch="openWatchRoom" />
         </template>
       </aside>
 
-      <WatchPanel v-model:file-id-input="fileIdInput" :token="token" :active-room-id="activeRoomId"
+        <WatchPanel v-model:file-id-input="fileIdInput" :token="token" :active-room-id="activeRoomId"
         :active-room-name="activeRoomName" :can-control-video="canControlWatchVideo" :room-form="roomForm"
-        :upload-name="uploadName" :chunk-upload="chunkUpload" :video="video" :room-video-history="roomVideoHistory"
+        :upload-name="uploadName" :chunk-upload="chunkUpload" :video="video"
         :visible-danmaku="visibleDanmaku" :watch-session="watchSession" :watch-action-label="watchActionLabel"
         :watch-status-label="watchStatusLabel" :watch-owner-label="watchOwnerLabel"
         :can-start-watch-session="canStartWatchSession" :can-stop-watch-session="canStopWatchSession"
-        :suppress-native-controls="applyingWatchState" @update:video-el="setVideoElement"
+        :suppress-native-controls="applyingWatchState"
+        @update:video-el="setVideoElement"
         @watch-control="sendWatchControl" @seek-by="seekBy" @video-time-update="onVideoTimeUpdate"
         @create-room="handleCreateRoom" @join-room="handleJoinRoom" @invite="handleInvite" @upload="handleUpload"
-        @load-file="loadFile" @load-video="loadVideoToRoom" @select-history-video="selectRoomVideo"
-        @refresh-history="loadRoomVideoHistory" @stop-watch="stopWatchSession"
+        @load-file="loadFile" @load-video="loadVideoToRoom" @stop-watch="stopWatchSession"
         @native-video-control="handleNativeVideoControl" />
     </section>
   </main>
@@ -124,6 +125,9 @@ const watchSidebarMaxWidth = 560;
 let watchSidebarResizeStartX = 0;
 let watchSidebarResizeStartWidth = 0;
 let oauthToastTimer = 0;
+const refreshingOffline = ref(false);
+const refreshingFriends = ref(false);
+let refreshToastTimer = 0;
 
 const {
   token,
@@ -136,6 +140,7 @@ const {
   friendForm,
   activeConversation,
   messages,
+  conversationLoading,
   messageText,
   messageList,
   wsConnected,
@@ -144,6 +149,7 @@ const {
   wsStatusText,
   message,
   messageType,
+  showMessage,
   roomForm,
   activeRoomId,
   fileIdInput,
@@ -156,7 +162,6 @@ const {
   canStopWatchSession,
   applyingWatchState,
   visibleDanmaku,
-  roomVideoHistory,
   watchActionLabel,
   watchStatusLabel,
   watchOwnerLabel,
@@ -177,8 +182,6 @@ const {
   handleUpload,
   loadFile,
   loadVideoToRoom,
-  loadRoomVideoHistory,
-  selectRoomVideo,
   sendWatchControl,
   stopWatchSession,
   seekBy,
@@ -330,9 +333,36 @@ function handleOAuthLogin(provider) {
   }, 2400);
 }
 
-function refreshFriends() {
-  loadFriends();
-  loadFriendRequests();
+function showAppMessage(nextMessage, type = "success") {
+  message.value = nextMessage;
+  messageType.value = type;
+  window.clearTimeout(refreshToastTimer);
+  refreshToastTimer = window.setTimeout(() => {
+    message.value = "";
+    messageType.value = "info";
+  }, 2400);
+}
+
+async function refreshConversations() {
+  if (refreshingOffline.value) return;
+  refreshingOffline.value = true;
+  try {
+    const ok = await loadOffline();
+    if (ok) showAppMessage("会话已刷新", "success");
+  } finally {
+    refreshingOffline.value = false;
+  }
+}
+
+async function refreshFriends() {
+  if (refreshingFriends.value) return;
+  refreshingFriends.value = true;
+  try {
+    const [friendsOk, requestsOk] = await Promise.all([loadFriends(), loadFriendRequests()]);
+    if (friendsOk && requestsOk) showAppMessage("好友已刷新", "success");
+  } finally {
+    refreshingFriends.value = false;
+  }
 }
 
 function resolveInitialTheme() {
@@ -354,15 +384,12 @@ function resolveInitialTheme() {
 }
 
 .theme-toggle {
-  position: fixed;
-  top: 18px;
-  right: 18px;
-  z-index: 80;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 42px;
   height: 42px;
+  margin-top: auto;
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0;
@@ -381,7 +408,7 @@ function resolveInitialTheme() {
 
 .app-menu {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr auto auto;
   justify-items: center;
   gap: 18px;
   padding: 16px 14px;

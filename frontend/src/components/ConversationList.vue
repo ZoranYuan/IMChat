@@ -4,8 +4,9 @@
       <div>
         <h1>消息列表</h1>
       </div>
-      <button class="icon-btn" :disabled="!token" title="刷新会话" @click="$emit('load-offline')">
-        <RefreshCcw :size="13" />
+      <button class="icon-btn" :disabled="!token || refreshing" :aria-busy="refreshing" title="刷新会话"
+        @click="$emit('load-offline')">
+        <RefreshCcw :class="{ spinning: refreshing }" :size="13" />
       </button>
     </div>
 
@@ -22,7 +23,10 @@
         :class="['conversation-item', activeConversation?.conversationId === item.conversationId ? 'active' : '']"
         @click="$emit('select-conversation', item)"
       >
-        <div class="avatar">{{ displayName(item).slice(0, 2).toUpperCase() }}</div>
+        <div class="avatar conversation-avatar">
+          <img v-if="showAvatar(item)" :src="item.avatar" :alt="displayName(item)" @error="handleAvatarError(item)" />
+          <span v-else>{{ avatarText(item) }}</span>
+        </div>
         <div class="item-main">
           <div class="item-row">
             <strong>{{ displayName(item) }}</strong>
@@ -36,18 +40,38 @@
 </template>
 
 <script setup>
+import { ref } from "vue";
 import { RefreshCcw, Search } from "@lucide/vue";
 
 defineProps({
   token: { type: String, default: "" },
   conversations: { type: Array, default: () => [] },
   activeConversation: { type: Object, default: null },
+  refreshing: { type: Boolean, default: false },
 });
 
 defineEmits(["load-offline", "select-conversation"]);
 
+const brokenAvatarSources = ref(new Set());
+
 function displayName(item) {
   return item.displayName || item.latestMessage?.displayName || "会话";
+}
+
+function showAvatar(item) {
+  return Boolean(item.avatar) && !brokenAvatarSources.value.has(item.avatar);
+}
+
+function handleAvatarError(item) {
+  if (!item?.avatar) return;
+  if (brokenAvatarSources.value.has(item.avatar)) return;
+  const next = new Set(brokenAvatarSources.value);
+  next.add(item.avatar);
+  brokenAvatarSources.value = next;
+}
+
+function avatarText(item) {
+  return displayName(item).slice(0, 2).toUpperCase();
 }
 </script>
 
@@ -121,6 +145,17 @@ function displayName(item) {
   text-align: left;
 }
 
+.conversation-avatar {
+  overflow: hidden;
+  background: var(--primary-soft);
+}
+
+.conversation-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .conversation-item:hover,
 .conversation-item.active {
   border-color: var(--border-strong);
@@ -161,5 +196,16 @@ function displayName(item) {
   margin-top: 4px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.spinning {
+  animation: spin 0.8s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

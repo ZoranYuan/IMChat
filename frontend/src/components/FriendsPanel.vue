@@ -5,8 +5,9 @@
         <p class="eyebrow">Contacts</p>
         <h1>好友</h1>
       </div>
-      <button class="icon-btn" :disabled="!token" title="刷新好友" @click="$emit('refresh')">
-        <RefreshCcw :size="13" />
+      <button class="icon-btn" :disabled="!token || refreshing" :aria-busy="refreshing" title="刷新好友"
+        @click="$emit('refresh')">
+        <RefreshCcw :class="{ spinning: refreshing }" :size="13" />
       </button>
     </div>
 
@@ -68,6 +69,7 @@ const props = defineProps({
   friendRequests: { type: Array, default: () => [] },
   friendForm: { type: Object, required: true },
   formatTime: { type: Function, required: true },
+  refreshing: { type: Boolean, default: false },
 });
 
 defineEmits(["refresh", "submit-request", "operate-request", "open-chat"]);
@@ -193,5 +195,16 @@ function displayName(friend) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.spinning {
+  animation: spin 0.8s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

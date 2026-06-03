@@ -7,6 +7,7 @@ import (
 	friendrequestapp "IM_backend/internal/application/friend_request"
 	messageapp "IM_backend/internal/application/message"
 	roomapp "IM_backend/internal/application/room"
+	testdataapp "IM_backend/internal/application/testdata"
 	userapp "IM_backend/internal/application/user"
 	"IM_backend/internal/infrastructure/messaging"
 	"IM_backend/internal/infrastructure/messaging/client/kafka"
@@ -34,6 +35,7 @@ import (
 	messagehttp "IM_backend/internal/transport/http/message"
 	"IM_backend/internal/transport/http/middleware"
 	roomhttp "IM_backend/internal/transport/http/room"
+	testdatahttp "IM_backend/internal/transport/http/testdata"
 	userhttp "IM_backend/internal/transport/http/user"
 	"IM_backend/internal/transport/ws"
 	"context"
@@ -61,7 +63,7 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	redis := redis.InitRedis(cfg.Database.Redis.DSN)
+	redisClient := redis.InitRedis(cfg.Database.Redis.DSN)
 	db := mysql.InitMysql(cfg.Database.MySQL.DSN)
 	defer func() {
 		db = nil
@@ -69,14 +71,14 @@ func main() {
 
 	txManager := persistence.NewGormTxManager(db)
 
-	gateway := ws.NewGateway()
+	gateway := ws.NewGateway(redisClient)
 	gateway.KeepAlive(cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
 
-	authCache := authredis.NewAuthCache(redis)
-	roomCache := roomredis.NewRoomCache(redis)
-	fileCache := fileredis.NewFileCache(redis)
+	authCache := authredis.NewAuthCache(redisClient)
+	roomCache := roomredis.NewRoomCache(redisClient)
+	fileCache := fileredis.NewFileCache(redisClient)
 
-	conversationCache := conversationredis.NewConversationCache(redis)
+	conversationCache := conversationredis.NewConversationCache(redisClient)
 
 	kafkaClient, err := kafka.NewClient(cfg.Kafka)
 
@@ -180,6 +182,22 @@ func main() {
 		gateway,
 	)
 
+	testdataApplication := testdataapp.NewBootstrapApplication(
+		cfg,
+		db,
+		redisClient,
+		userRepository,
+		friendRepository,
+		messageRepository,
+		conversationRepository,
+		userConversationRepository,
+		roomRepository,
+		roomUserRepository,
+		roomApp,
+		messageApplication,
+	)
+	testdataHandle := testdatahttp.NewHandle(testdataApplication)
+
 	// 注册中间件
 	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
 
@@ -191,6 +209,9 @@ func main() {
 	httpapi.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
 	httpapi.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)
 	httpapi.RegisterFileRouter(apiGroup, fileHandle, authMiddle)
+	if cfg.App.Env == "development" {
+		httpapi.RegisterTestDataRouter(apiGroup.Group("/dev"), testdataHandle)
+	}
 
 	ws.RegisterWSRouter(apiGroup, wsHandle, authMiddle)
 

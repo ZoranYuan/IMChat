@@ -517,6 +517,10 @@ components:
       properties:
         conversationId:
           type: string
+        displayName:
+          type: string
+        avatar:
+          type: string
         unread:
           type: integer
           format: int64

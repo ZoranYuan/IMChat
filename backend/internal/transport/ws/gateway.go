@@ -1,13 +1,16 @@
 package ws
 
 import (
+	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"IM_backend/internal/shared/protocol"
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"sync"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -20,6 +23,7 @@ type Gateway struct {
 	userSessions map[string]map[string]struct{}
 
 	watchStates map[string]WatchVideoState
+	watchStore  *shared.Store
 
 	mu      sync.RWMutex
 	watchMu sync.RWMutex
@@ -30,12 +34,83 @@ var (
 	ErrWatchVideoNotReady = errors.New("当前房间还没有正在共享的视频")
 )
 
-func NewGateway() *Gateway {
+func NewGateway(rb *redis.Client) *Gateway {
+	var watchStore *shared.Store
+	if rb != nil {
+		watchStore = shared.NewStore(rb)
+	}
+
 	return &Gateway{
 		sessions:     make(map[string]*Client),
 		userSessions: make(map[string]map[string]struct{}),
 		watchStates:  make(map[string]WatchVideoState),
+		watchStore:   watchStore,
 	}
+}
+
+func watchStateKey(roomId string) string {
+	return "watch:state:" + roomId
+}
+
+func watchOwnerRoomsKey(userId string) string {
+	return "watch:owner:" + userId + ":rooms"
+}
+
+func (g *Gateway) loadWatchState(ctx context.Context, roomId string) (WatchVideoState, bool, error) {
+	if g.watchStore == nil {
+		g.watchMu.RLock()
+		defer g.watchMu.RUnlock()
+		state, ok := g.watchStates[roomId]
+		return state, ok, nil
+	}
+
+	var state WatchVideoState
+	ok, err := g.watchStore.GetJSON(ctx, watchStateKey(roomId), &state)
+	if err != nil || !ok {
+		return WatchVideoState{}, false, err
+	}
+
+	g.watchMu.Lock()
+	g.watchStates[roomId] = state
+	g.watchMu.Unlock()
+
+	return state, true, nil
+}
+
+func (g *Gateway) saveWatchState(ctx context.Context, state WatchVideoState) error {
+	g.watchMu.Lock()
+	if state.Action == "stop" {
+		delete(g.watchStates, state.RoomId)
+	} else {
+		g.watchStates[state.RoomId] = state
+	}
+	g.watchMu.Unlock()
+
+	if g.watchStore == nil {
+		return nil
+	}
+
+	if state.Action == "stop" {
+		if err := g.watchStore.Del(ctx, watchStateKey(state.RoomId)); err != nil {
+			return err
+		}
+		if state.UpdatedBy != "" {
+			if err := g.watchStore.SRemStrings(ctx, watchOwnerRoomsKey(state.UpdatedBy), state.RoomId); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := g.watchStore.SetJSON(ctx, watchStateKey(state.RoomId), state, 0); err != nil {
+		return err
+	}
+	if state.UpdatedBy != "" {
+		if err := g.watchStore.SAddStrings(ctx, watchOwnerRoomsKey(state.UpdatedBy), state.RoomId); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // 监听协程
@@ -220,10 +295,12 @@ func encodeWatchVideoState(state WatchVideoState) ([]byte, error) {
 }
 
 func (g *Gateway) UpsertWatchVideoState(req WatchVideoControlReq, userId string) (WatchVideoState, error) {
-	g.watchMu.Lock()
-	defer g.watchMu.Unlock()
+	ctx := context.Background()
 
-	state, exists := g.watchStates[req.RoomId]
+	state, exists, err := g.loadWatchState(ctx, req.RoomId)
+	if err != nil {
+		return WatchVideoState{}, err
+	}
 
 	if req.Action != "get_state" && req.Action != "load" && !exists {
 		return WatchVideoState{}, ErrWatchVideoNotReady
@@ -236,14 +313,17 @@ func (g *Gateway) UpsertWatchVideoState(req WatchVideoControlReq, userId string)
 	now := time.Now().UnixMilli()
 
 	if req.Action == "stop" {
-		delete(g.watchStates, req.RoomId)
-		return WatchVideoState{
+		state = WatchVideoState{
 			RoomId:       req.RoomId,
 			Action:       req.Action,
 			UpdatedBy:    userId,
 			UpdatedAtMs:  now,
 			ClientTimeMs: req.ClientTimeMs,
-		}, nil
+		}
+		if err := g.saveWatchState(ctx, state); err != nil {
+			return WatchVideoState{}, err
+		}
+		return state, nil
 	}
 
 	if req.Action == "load" {
@@ -276,7 +356,9 @@ func (g *Gateway) UpsertWatchVideoState(req WatchVideoControlReq, userId string)
 		if state.PlaybackRate == 0 {
 			state.PlaybackRate = 1
 		}
-		g.watchStates[req.RoomId] = state
+		if err := g.saveWatchState(ctx, state); err != nil {
+			return WatchVideoState{}, err
+		}
 		return state, nil
 	}
 
@@ -319,24 +401,65 @@ func (g *Gateway) UpsertWatchVideoState(req WatchVideoControlReq, userId string)
 	default:
 	}
 
-	g.watchStates[req.RoomId] = state
+	if err := g.saveWatchState(ctx, state); err != nil {
+		return WatchVideoState{}, err
+	}
 	return state, nil
 }
 
 func (g *Gateway) GetWatchVideoState(roomId string) (WatchVideoState, bool) {
-	g.watchMu.RLock()
-	defer g.watchMu.RUnlock()
-
-	state, ok := g.watchStates[roomId]
-	return state, ok
+	state, ok, err := g.loadWatchState(context.Background(), roomId)
+	if err != nil || !ok {
+		return WatchVideoState{}, false
+	}
+	return state, true
 }
 
 func (g *Gateway) ReleaseWatchVideoStatesByUser(userId string) []WatchVideoState {
+	released := make([]WatchVideoState, 0)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	if g.watchStore != nil {
+		roomIds, err := g.watchStore.SMembers(ctx, watchOwnerRoomsKey(userId))
+		if err != nil {
+			log.Println("failed to load watch rooms for release:", err)
+			return released
+		}
+
+		for _, roomId := range roomIds {
+			state, ok, err := g.loadWatchState(ctx, roomId)
+			if err != nil {
+				log.Println("failed to load watch state for release:", err)
+				continue
+			}
+			if !ok || state.UpdatedBy != userId {
+				_ = g.watchStore.SRemStrings(ctx, watchOwnerRoomsKey(userId), roomId)
+				continue
+			}
+
+			released = append(released, WatchVideoState{
+				RoomId:       roomId,
+				Action:       "stop",
+				UpdatedBy:    userId,
+				UpdatedAtMs:  now,
+				ClientTimeMs: now,
+			})
+			_ = g.saveWatchState(ctx, WatchVideoState{
+				RoomId:       roomId,
+				Action:       "stop",
+				UpdatedBy:    userId,
+				UpdatedAtMs:  now,
+				ClientTimeMs: now,
+			})
+		}
+
+		_ = g.watchStore.Del(ctx, watchOwnerRoomsKey(userId))
+		return released
+	}
+
 	g.watchMu.Lock()
 	defer g.watchMu.Unlock()
-
-	released := make([]WatchVideoState, 0)
-	now := time.Now().UnixMilli()
 	for roomId, state := range g.watchStates {
 		if state.UpdatedBy != userId {
 			continue

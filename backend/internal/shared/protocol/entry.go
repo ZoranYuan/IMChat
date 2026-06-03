@@ -71,6 +71,9 @@ type MessageEvent struct {
 	CType          int      `json:"cType"`
 	Content        string   `json:"content"`
 	SendTime       int64    `json:"sendTime"`
+	ClientMsgId    string   `json:"clientMsgId"`
+	HasVideoTime   bool     `json:"hasVideoTime,omitempty"`
+	VideoTime      *int64   `json:"videoTime,omitempty"`
 }
 
 type ConversationSyncSeqItem struct {

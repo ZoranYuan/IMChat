@@ -13,6 +13,7 @@ import (
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
 	roomvo "IM_backend/internal/domain/room/value_object"
+	userentity "IM_backend/internal/domain/user/entity"
 	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/shared/protocol"
 	"context"
@@ -309,6 +310,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		seq,
 	)
 
+	isDanmaku := dto.ConvType == int(messagevo.RoomChat) && dto.VideoTime != nil
 	err = ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
 		msgRepo := ma.messageRepository.WithTx(tx)
 		convRepo := ma.conversationRepository.WithTx(tx)
@@ -319,16 +321,18 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 			return ErrMessageSave
 		}
 
-		if err = convRepo.Upsert(ctx, conv); err != nil {
-			return ErrConversationSequenceUpdate
-		}
+		if !isDanmaku {
+			if err = convRepo.Upsert(ctx, conv); err != nil {
+				return ErrConversationSequenceUpdate
+			}
 
-		if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
-			log.Printf("warn: update sender uc failed: %v", err)
-		}
+			if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
+				log.Printf("warn: update sender uc failed: %v", err)
+			}
 
-		if err := userConvRepo.UpdateSyncSeq(ctx, userConv); err != nil {
-			log.Printf("warn: update sender uc failed: %v", err)
+			if err := userConvRepo.UpdateSyncSeq(ctx, userConv); err != nil {
+				log.Printf("warn: update sender uc failed: %v", err)
+			}
 		}
 
 		return nil
@@ -360,6 +364,9 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		CType:          dto.CType,
 		Content:        dto.Content,
 		SendTime:       message.SendTime,
+		ClientMsgId:    dto.ClientMsgId,
+		HasVideoTime:   dto.VideoTime != nil,
+		VideoTime:      dto.VideoTime,
 	}
 
 	go func() {
@@ -500,11 +507,61 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 	}
 
 	conversationById := make(map[string]*messageentity.Conversation, len(conversations))
+	privatePeerIds := make([]string, 0, len(conversations))
+	privateSeen := make(map[string]struct{}, len(conversations))
+	roomIds := make([]string, 0, len(conversations))
+	roomSeen := make(map[string]struct{}, len(conversations))
+
 	for _, conv := range conversations {
 		if conv == nil {
 			continue
 		}
 		conversationById[conv.ConversationId] = conv
+
+		switch conv.Convtype {
+		case messagevo.PrivateChat:
+			peerId := conv.UserId1
+			if peerId == userId {
+				peerId = conv.UserId2
+			}
+			if peerId != "" {
+				if _, ok := privateSeen[peerId]; !ok {
+					privateSeen[peerId] = struct{}{}
+					privatePeerIds = append(privatePeerIds, peerId)
+				}
+			}
+		case messagevo.RoomChat:
+			if conv.RoomId != "" {
+				if _, ok := roomSeen[conv.RoomId]; !ok {
+					roomSeen[conv.RoomId] = struct{}{}
+					roomIds = append(roomIds, conv.RoomId)
+				}
+			}
+		}
+	}
+
+	userMetaByID := make(map[string]userentity.User, len(privatePeerIds))
+	if len(privatePeerIds) > 0 && ma.userRepository != nil {
+		if users, err := ma.userRepository.FindByUserIDs(privatePeerIds); err == nil {
+			for _, user := range users {
+				userMetaByID[user.UserId] = user
+			}
+		}
+	}
+
+	type roomMeta struct {
+		displayName string
+		avatar      string
+	}
+	roomMetaByID := make(map[string]roomMeta, len(roomIds))
+	if len(roomIds) > 0 && ma.roomRepository != nil {
+		for _, roomID := range roomIds {
+			room, err := ma.roomRepository.FindActiveRoom(roomID, int(roomvo.Activate))
+			if err != nil || room == nil {
+				continue
+			}
+			roomMetaByID[roomID] = roomMeta{displayName: room.RoomName, avatar: room.Avatar}
+		}
 	}
 
 	for i := range messages {
@@ -520,9 +577,25 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 			if peerId == userId {
 				peerId = conv.UserId2
 			}
+			if user, ok := userMetaByID[peerId]; ok {
+				if user.NickName != "" {
+					messages[i].DisplayName = user.NickName
+				} else {
+					messages[i].DisplayName = user.UserName
+				}
+				messages[i].Avatar = user.Avatar
+				continue
+			}
 			messages[i].DisplayName = ma.getUserDisplayName(peerId)
+			messages[i].Avatar = ma.getUserAvatar(peerId)
 		case messagevo.RoomChat:
+			if meta, ok := roomMetaByID[conv.RoomId]; ok {
+				messages[i].DisplayName = meta.displayName
+				messages[i].Avatar = meta.avatar
+				continue
+			}
 			messages[i].DisplayName = ma.getRoomDisplayName(conv.RoomId)
+			messages[i].Avatar = ma.getRoomAvatar(conv.RoomId)
 		}
 	}
 }
@@ -541,6 +614,17 @@ func (ma *MessageApplication) getUserDisplayName(userId string) string {
 	return user.UserName
 }
 
+func (ma *MessageApplication) getUserAvatar(userId string) string {
+	if userId == "" || ma.userRepository == nil {
+		return ""
+	}
+	user, err := ma.userRepository.FindByUserID(userId)
+	if err != nil || user == nil {
+		return ""
+	}
+	return user.Avatar
+}
+
 func (ma *MessageApplication) getRoomDisplayName(roomId string) string {
 	if roomId == "" || ma.roomRepository == nil {
 		return ""
@@ -550,6 +634,17 @@ func (ma *MessageApplication) getRoomDisplayName(roomId string) string {
 		return ""
 	}
 	return room.RoomName
+}
+
+func (ma *MessageApplication) getRoomAvatar(roomId string) string {
+	if roomId == "" || ma.roomRepository == nil {
+		return ""
+	}
+	room, err := ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
+	if err != nil || room == nil {
+		return ""
+	}
+	return room.Avatar
 }
 
 func (ma *MessageApplication) GetVideoDanmaku(
