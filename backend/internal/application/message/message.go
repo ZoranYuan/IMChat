@@ -92,6 +92,8 @@ func (ma *MessageApplication) checkConvMember(
 		isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
 			ctx, conversationId, userId,
 		)
+
+		// double check
 		if err == nil && cacheVersion > 0 && convType == messagevo.PrivateChat {
 			return isMember, nil
 		}
@@ -118,7 +120,7 @@ func (ma *MessageApplication) checkConvMember(
 			return false, err
 		}
 
-		if err == nil && cacheVersion > 0 && cacheVersion == room.Version {
+		if cacheVersion > 0 && cacheVersion == room.Version {
 			return isMember, nil
 		}
 
@@ -187,6 +189,7 @@ func (ma *MessageApplication) HandleMessageReadAck(
 		return err
 	}
 
+	// 发送消息 ack
 	go func() {
 		event := protocol.MessageReadAckEvent{
 			ConversationId: conversationId,
@@ -238,7 +241,7 @@ func (ma *MessageApplication) GetRoomMemberIDs(ctx context.Context, roomId strin
 		return nil, ErrNotRoomMember
 	}
 	if cacheErr := ma.conversationCache.SetMembers(ctx, roomId, members, room.Version); cacheErr != nil {
-		// 缓存回填失败不阻断主流程
+		// TODO: 异步补偿
 	}
 	return members, nil
 }
