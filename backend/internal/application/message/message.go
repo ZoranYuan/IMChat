@@ -17,6 +17,7 @@ import (
 	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/shared/protocol"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -35,6 +36,7 @@ type MessageApplication struct {
 	conversationRepository     messagerepo.ConversationRepository
 	friendRepository           friendrepo.FriendRepository
 	fileRepository             filerepo.FileRepository
+	messageOutboxRepository    messagerepo.MessageOutboxRepository
 	userRepository             userrepo.UserRepository
 	roomUserRepository         roomrepo.RoomUserRepository
 	roomRepository             roomrepo.RoomRepository
@@ -49,6 +51,7 @@ func NewMessageApplication(
 	taskManager mqport.TaskManager,
 	userConversationRepository messagerepo.UserConversationRepository,
 	conversationRepository messagerepo.ConversationRepository,
+	messageOutboxRepository messagerepo.MessageOutboxRepository,
 	friendRepository friendrepo.FriendRepository,
 	fileRepository filerepo.FileRepository,
 	userRepository userrepo.UserRepository,
@@ -61,6 +64,7 @@ func NewMessageApplication(
 		conversationCache:          conversationCache,
 		txManager:                  txManager,
 		taskManager:                taskManager,
+		messageOutboxRepository:    messageOutboxRepository,
 		messageRepository:          messageRepository,
 		conversationRepository:     conversationRepository,
 		userConversationRepository: userConversationRepository,
@@ -182,26 +186,45 @@ func (ma *MessageApplication) HandleMessageReadAck(
 		return nil
 	}
 
-	uconv.UpdateReadSeq(lastReadSeq)
-
-	err = ma.userConversationRepository.UpdateReadSeq(
-		ctx,
-		uconv,
-	)
-	if err != nil {
-		return err
-	}
-
 	// 查会话类型，前端需要此字段来区分展示
 	conv, err := ma.conversationRepository.GetByID(ctx, conversationId)
 	if err != nil {
 		return err
 	}
+	if conv == nil {
+		return ErrConversationNotFound
+	}
+	uconv.UpdateReadSeq(lastReadSeq)
 
-	// 通知消息发送方：你的消息已被读取
-	go ma.publishMessageReadAck(ctx, userId, conversationId, lastReadSeq, senderId, int(conv.Convtype))
+	avatar := ""
+	if conv.Convtype == messagevo.RoomChat && ma.userRepository != nil {
+		if user, err := ma.userRepository.FindByUserID(userId); err == nil && user != nil {
+			avatar = user.Avatar
+		}
+	}
 
-	return nil
+	ackEvent := protocol.MessageReadAckEvent{
+		ConversationId: conversationId,
+		LastReadSeq:    lastReadSeq,
+		UserId:         userId,
+		ConvType:       protocol.ConvType(conv.Convtype),
+		SenderId:       senderId,
+		Avatar:         avatar,
+	}
+	if ma.txManager == nil || ma.messageOutboxRepository == nil {
+		return fmt.Errorf("message outbox is not configured")
+	}
+	return ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+		if err := ma.userConversationRepository.WithTx(tx).UpdateReadSeq(ctx, uconv); err != nil {
+			return err
+		}
+		payload, err := json.Marshal(ackEvent)
+		if err != nil {
+			return err
+		}
+		outbox := &messageentity.MessageOutbox{EventType: string(protocol.EventMessageReadAck), Topic: string(protocol.EventMessageReadAck), MessageKey: userId + ":" + conversationId, Payload: payload}
+		return ma.messageOutboxRepository.WithTx(tx).Create(ctx, outbox)
+	})
 }
 
 func (ma *MessageApplication) publishMessageReadAck(

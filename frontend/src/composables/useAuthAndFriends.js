@@ -126,7 +126,8 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
       } else if (frame.op === "watch_video_sync") {
         frameHandler({ op: "watch_video_sync", payload: decodePayload("watchState", frame.data) });
       } else if (frame.op === "msg_read_notify") {
-        frameHandler({ op: "msg_read_notify", payload: decodePayload("readAckEvent", frame.data) });
+        const raw = new TextDecoder().decode(frame.data);
+        frameHandler({ op: "msg_read_notify", payload: JSON.parse(raw) });
       }
     } catch (err) {
       showLocalMessage(`消息解析失败：${err.message}`);

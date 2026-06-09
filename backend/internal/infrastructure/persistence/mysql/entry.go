@@ -40,6 +40,7 @@ func InitMysql(dns string) *gorm.DB {
 
 	db.AutoMigrate(
 		&model.User{},
+		&model.MessageOutbox{},
 		&model.FriendRequest{},
 		&model.Friend{},
 		&model.Room{},

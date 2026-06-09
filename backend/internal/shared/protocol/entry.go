@@ -47,7 +47,7 @@ type MessageReadAckEvent struct {
 	LastReadSeq    int64    `json:"lastReadSeq"`
 	ConvType       ConvType `json:"convType"`
 	SenderId       string   `json:"senderId"`
-	Avatar         string   `json:"avatar"`
+	Avatar         string   `json:"avatar,omitempty"`
 }
 
 type MessageAckEvent struct {

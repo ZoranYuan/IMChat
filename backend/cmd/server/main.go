@@ -99,6 +99,7 @@ func main() {
 	fileHandle := filehttp.NewHandle(fileApplication)
 
 	messageRepository := messagemysql.NewMessageRepository(db)
+	messageOutboxRepository := messagemysql.NewMessageOutboxRepository(db, int(cfg.App.MachineID))
 	conversationRepository := messagemysql.NewConversationRepository(db)
 	userConversationRepository := messagemysql.NewUserConversationRepository(db)
 
@@ -158,6 +159,9 @@ func main() {
 
 	dispatcher := ws.NewDispatcher()
 	taskManager := mq.NewTaskManager(messageProducer)
+	readAckOutboxWorker := mq.NewReadAckOutboxWorker(txManager, messageOutboxRepository, taskManager)
+
+	go readAckOutboxWorker.Start(ctx)
 
 	messageApplication := messageapp.NewMessageApplication(
 		cfg,
@@ -166,6 +170,7 @@ func main() {
 		taskManager,
 		userConversationRepository,
 		conversationRepository,
+		messageOutboxRepository,
 		friendRepository,
 		fileRepository,
 		userRepository,
