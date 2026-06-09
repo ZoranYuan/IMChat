@@ -10,7 +10,7 @@ import {
 } from "../api";
 import { decodeFrame, decodePayload, encodeFrame } from "../wsProto";
 
-export function useAuthAndFriends({ showMessage, onWsFrame }) {
+export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
   const token = ref(localStorage.getItem("im_token") || "");
   const currentUser = reactive(JSON.parse(localStorage.getItem("im_user") || "{}"));
   const authMode = ref("login");
@@ -155,10 +155,14 @@ export function useAuthAndFriends({ showMessage, onWsFrame }) {
     ws.value = new WebSocket(url);
     ws.value.binaryType = "arraybuffer";
     ws.value.onopen = () => {
+      const wasReconnecting = wsReconnecting.value;
       wsConnected.value = true;
       wsReconnecting.value = false;
       wsReconnectFailed.value = false;
       wsReconnectAttempts.value = 0;
+      if (wasReconnecting && typeof onWsReconnect === "function") {
+        onWsReconnect();
+      }
     };
     ws.value.onclose = () => {
       wsConnected.value = false;

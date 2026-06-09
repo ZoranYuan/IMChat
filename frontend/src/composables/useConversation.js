@@ -238,7 +238,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       conversationId: item.conversationId,
       displayName: item.displayName || item.latestMessage?.displayName || "会话",
       avatar: item.avatar || item.latestMessage?.avatar || "",
-      unread: Number(item.unread) || 0,
+      unread: Math.max(0, Number(item.unread) || 0),
       latestMessage: item.latestMessage,
       convType: item.latestMessage?.convType || 2,
     }));

@@ -3,7 +3,11 @@ import { useConversation } from "./useConversation";
 import { useRoomWatch } from "./useRoomWatch";
 
 export function useImClient() {
-  const auth = useAuthAndFriends({});
+  const auth = useAuthAndFriends({
+    onWsReconnect: () => {
+      conversation.loadOffline();
+    },
+  });
   const room = useRoomWatch({
     token: auth.token,
     currentUser: auth.currentUser,
