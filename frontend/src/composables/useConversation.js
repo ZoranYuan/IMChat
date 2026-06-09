@@ -210,7 +210,6 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       });
       setConversationMessagesCache(msg.conversationId, messages.value);
       scrollToBottom();
-      sendReadAck(msg.conversationId, msg.seq, msg.sendId);
     }
   }
 
@@ -252,6 +251,17 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
 
   async function selectConversation(item) {
     if (!item?.conversationId) return;
+
+    // 离开当前会话时，ack 最后读到的那条消息
+    const prevConversation = activeConversation.value;
+    if (prevConversation && prevConversation.conversationId !== item.conversationId) {
+      const prevMsgs = getConversationMessagesCache(prevConversation.conversationId) || messages.value;
+      const lastMsg = prevMsgs.filter((msg) => Number(msg.seq) > 0).at(-1);
+      if (lastMsg) {
+        sendReadAck(prevConversation.conversationId, lastMsg.seq, lastMsg.senderId || "");
+      }
+    }
+
     const loadSeq = ++conversationLoadSeq;
     const requestedConversationId = item.conversationId;
     const current = upsertConversationPreview(item.conversationId, {
