@@ -163,6 +163,7 @@ func (h *GroupHandler) handleMessage(
 }
 
 func (h *GroupHandler) handleMessageReadAck(
+	ctx context.Context,
 	topic string,
 	envelope protocol.Envelope,
 ) error {
@@ -171,8 +172,11 @@ func (h *GroupHandler) handleMessageReadAck(
 		return err
 	}
 
-	if err := h.dispatch.SendToClient(topic, envelope.To, envelope.Payload); err != nil {
-		// TODO: 补偿
+	// 通知消息发送方：你的消息已被读取
+	if event.SenderId != "" {
+		if err := h.dispatch.SendToClient(protocol.EventMessageReadNotify, event.SenderId, envelope.Payload); err != nil {
+			// TODO: 补偿
+		}
 	}
 
 	return nil
@@ -225,7 +229,7 @@ func (h *GroupHandler) ConsumeClaim(
 		case protocol.EventTypeMessage:
 			err = h.handleMessage(session.Context(), msg.Topic, string(msg.Key), envelope)
 		case protocol.EventMessageReadAck:
-			err = h.handleMessageReadAck(msg.Topic, envelope)
+			err = h.handleMessageReadAck(session.Context(), msg.Topic, envelope)
 		case protocol.EventConversationSyncSeq:
 			err = h.handleConversationSyncSeq(session.Context(), envelope)
 		default:

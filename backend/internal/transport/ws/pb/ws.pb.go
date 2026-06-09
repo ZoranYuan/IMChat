@@ -77,6 +77,7 @@ type MessageReadAckReq struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	LastReadSeq    int64                  `protobuf:"varint,2,opt,name=last_read_seq,json=lastReadSeq,proto3" json:"last_read_seq,omitempty"`
+	SenderId       string                 `protobuf:"bytes,3,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -123,6 +124,13 @@ func (x *MessageReadAckReq) GetLastReadSeq() int64 {
 		return x.LastReadSeq
 	}
 	return 0
+}
+
+func (x *MessageReadAckReq) GetSenderId() string {
+	if x != nil {
+		return x.SenderId
+	}
+	return ""
 }
 
 type MessageReq struct {
@@ -740,10 +748,11 @@ const file_ws_proto_rawDesc = "" +
 	"\bws.proto\x12\x05im.ws\"-\n" +
 	"\aWsFrame\x12\x0e\n" +
 	"\x02op\x18\x01 \x01(\tR\x02op\x12\x12\n" +
-	"\x04data\x18\x02 \x01(\fR\x04data\"`\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"}\n" +
 	"\x11MessageReadAckReq\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\"\n" +
-	"\rlast_read_seq\x18\x02 \x01(\x03R\vlastReadSeq\"\xdc\x01\n" +
+	"\rlast_read_seq\x18\x02 \x01(\x03R\vlastReadSeq\x12\x1b\n" +
+	"\tsender_id\x18\x03 \x01(\tR\bsenderId\"\xdc\x01\n" +
 	"\n" +
 	"MessageReq\x12\"\n" +
 	"\rclient_msg_id\x18\x01 \x01(\tR\vclientMsgId\x12\x17\n" +

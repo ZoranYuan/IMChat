@@ -166,9 +166,13 @@ func (ma *MessageApplication) HandleMessageReadAck(
 	userId string,
 	conversationId string,
 	lastReadSeq int64,
+	senderId string,
 ) error {
-	uconv, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
+	if senderId == "" || senderId == userId {
+		return nil
+	}
 
+	uconv, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
 	if err != nil {
 		return ErrConversationNotFound
 	}
@@ -184,20 +188,27 @@ func (ma *MessageApplication) HandleMessageReadAck(
 		ctx,
 		uconv,
 	)
-
 	if err != nil {
 		return err
 	}
 
-	// 发送消息 ack
+	// 查会话类型，前端需要此字段来区分展示
+	conv, err := ma.conversationRepository.GetByID(ctx, conversationId)
+	if err != nil {
+		return err
+	}
+
+	// 通知消息发送方：你的消息已被读取
 	go func() {
 		event := protocol.MessageReadAckEvent{
 			ConversationId: conversationId,
 			LastReadSeq:    lastReadSeq,
 			UserId:         userId,
+			ConvType:       protocol.ConvType(conv.Convtype),
+			SenderId:       senderId,
 		}
 
-		ma.taskManager.SendHistoryMessageAck(
+		ma.taskManager.SendMessageReadAck(
 			ctx,
 			protocol.EventMessageReadAck,
 			userId+":"+conversationId,

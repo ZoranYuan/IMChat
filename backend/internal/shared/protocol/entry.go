@@ -27,12 +27,13 @@ const (
 )
 
 const (
-	EventMessageReadAck      = "msg_read_ack"
-	EventTypeMsgAck          = "msg_ack"
-	EventTypeMessage         = "msg"
-	EventWatchVideoCtrl      = "watch_video_control"
-	EventWatchVideoSync      = "watch_video_sync"
-	EventConversationSyncSeq = "conversation_sync_seq"
+	EventMessageReadAck       = "msg_read_ack"
+	EventMessageReadNotify    = "msg_read_notify"
+	EventTypeMsgAck           = "msg_ack"
+	EventTypeMessage          = "msg"
+	EventWatchVideoCtrl       = "watch_video_control"
+	EventWatchVideoSync       = "watch_video_sync"
+	EventConversationSyncSeq  = "conversation_sync_seq"
 )
 
 type Event struct {
@@ -41,9 +42,11 @@ type Event struct {
 }
 
 type MessageReadAckEvent struct {
-	UserId         string `json:"userId"`
-	ConversationId string `json:"conversationId"`
-	LastReadSeq    int64  `json:"lastReadSeq"`
+	UserId         string   `json:"userId"`
+	ConversationId string   `json:"conversationId"`
+	LastReadSeq    int64    `json:"lastReadSeq"`
+	ConvType       ConvType `json:"convType"`
+	SenderId       string   `json:"senderId"`
 }
 
 type MessageAckEvent struct {

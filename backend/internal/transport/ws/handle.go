@@ -53,7 +53,7 @@ func (wh *WSHandler) handleHistoryMessageRead(ctx context.Context, c *Client, da
 		return err
 	}
 
-	return wh.app.HandleMessageReadAck(ctx, c.userId, pb.GetConversationId(), pb.GetLastReadSeq())
+	return wh.app.HandleMessageReadAck(ctx, c.userId, pb.GetConversationId(), pb.GetLastReadSeq(), pb.GetSenderId())
 }
 
 func (wh *WSHandler) handleSendMessage(ctx context.Context, c *Client, data []byte) error {

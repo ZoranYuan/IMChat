@@ -125,6 +125,8 @@ export function useAuthAndFriends({ showMessage, onWsFrame }) {
         frameHandler({ op: "msg_ack", payload: decodePayload("messageAck", frame.data) });
       } else if (frame.op === "watch_video_sync") {
         frameHandler({ op: "watch_video_sync", payload: decodePayload("watchState", frame.data) });
+      } else if (frame.op === "msg_read_notify") {
+        frameHandler({ op: "msg_read_notify", payload: decodePayload("readAckEvent", frame.data) });
       }
     } catch (err) {
       showLocalMessage(`消息解析失败：${err.message}`);

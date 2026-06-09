@@ -12,6 +12,7 @@ message WsFrame {
 message MessageReadAckReq {
   string conversation_id = 1;
   int64 last_read_seq = 2;
+  string sender_id = 3;
 }
 
 message MessageReq {

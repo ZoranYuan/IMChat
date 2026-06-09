@@ -29,13 +29,8 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
 
     const nextItem = {
       conversationId,
-      displayName:
-        patch.displayName ??
-        existing?.displayName ??
-        patch.latestMessage?.displayName ??
-        existing?.latestMessage?.displayName ??
-        "会话",
-      avatar: patch.avatar ?? existing?.avatar ?? patch.latestMessage?.avatar ?? existing?.latestMessage?.avatar ?? "",
+      displayName: patch.displayName,
+      avatar: patch.avatar,
       unread: nextUnread,
       latestMessage: patch.latestMessage ?? existing?.latestMessage ?? null,
       convType: patch.convType ?? existing?.convType ?? patch.latestMessage?.convType ?? 2,
@@ -127,11 +122,12 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
     return merged;
   }
 
-  function sendReadAck(conversationId, lastReadSeq) {
-    if (!conversationId || !lastReadSeq) return;
+  function sendReadAck(conversationId, lastReadSeq, senderId) {
+    if (!conversationId || !lastReadSeq || !senderId) return;
     sendFrame("msg_read_ack", "readAck", {
       conversationId,
       lastReadSeq,
+      senderId,
     });
   }
 
@@ -214,7 +210,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       });
       setConversationMessagesCache(msg.conversationId, messages.value);
       scrollToBottom();
-      sendReadAck(msg.conversationId, msg.seq);
+      sendReadAck(msg.conversationId, msg.seq, msg.sendId);
     }
   }
 
@@ -224,6 +220,11 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       const ack = frame.payload;
       if (ack.clientMsgId && ack.status === "failed") removePendingLocalMessage(ack.clientMsgId);
       if (ack.status === "failed") showMessage(ack.extra || "消息发送失败");
+    }
+    if (frame.op === "msg_read_notify") {
+      // 收到消息已读通知：{ userId, conversationId, lastReadSeq, convType, senderId }
+      // userId 是读者，可在此处更新 UI 展示已读状态
+      console.log("read notify:", frame.payload);
     }
   }
 
@@ -282,7 +283,8 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       messages.value = mergedMessages;
       setConversationMessagesCache(requestedConversationId, mergedMessages);
       const lastSeq = mergedMessages.filter((msg) => Number(msg.seq) > 0).at(-1)?.seq || 0;
-      sendReadAck(item.conversationId, lastSeq);
+      const lastSender = mergedMessages.filter((msg) => Number(msg.seq) > 0).at(-1)?.senderId || "";
+      sendReadAck(item.conversationId, lastSeq, lastSender);
       scrollToBottom();
       if (current?.convType === 2 && typeof onRoomConversationSelected === "function") {
         onRoomConversationSelected(current);
