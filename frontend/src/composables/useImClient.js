@@ -54,6 +54,7 @@ export function useImClient() {
     conversations: conversation.conversations,
     activeConversation: conversation.activeConversation,
     messages: conversation.messages,
+    activeReadState: conversation.activeReadState,
     conversationLoading: conversation.conversationLoading,
     friends: auth.friends,
     friendRequests: auth.friendRequests,

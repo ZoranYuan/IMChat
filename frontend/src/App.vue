@@ -51,9 +51,11 @@
       </aside>
 
       <ChatPanel v-model:message-text="messageText" :active-conversation="activeConversation" :messages="messages"
-        :conversation-loading="conversationLoading" :current-user="currentUser" :ws-connected="wsConnected" :set-message-list-ref="setMessageListRef"
-        :show-watch-entry="Boolean(activeConversation?.convType === 2)" :watch-entry-label="watchActionLabel"
-        :watch-entry-hint="watchStatusLabel" @send-message="sendMessage" @open-watch="openWatchRoom" />
+        :conversation-loading="conversationLoading" :current-user="currentUser" :ws-connected="wsConnected"
+        :set-message-list-ref="setMessageListRef" :last-read-seq="activeReadState.lastReadSeq"
+        :read-receivers="activeReadState.readers" :show-watch-entry="Boolean(activeConversation?.convType === 2)"
+        :watch-entry-label="watchActionLabel" :watch-entry-hint="watchStatusLabel" @send-message="sendMessage"
+        @open-watch="openWatchRoom" />
     </section>
 
     <section v-else key="watch-workspace" :class="['watch-workspace', { 'chat-collapsed': watchChatCollapsed }]"
@@ -74,7 +76,8 @@
 
           <ChatPanel v-model:message-text="messageText" :active-conversation="watchConversation"
             :messages="watchMessages" :conversation-loading="false" :current-user="currentUser" :ws-connected="wsConnected"
-            :set-message-list-ref="setMessageListRef" :show-watch-entry="true" :watch-entry-label="watchActionLabel"
+            :set-message-list-ref="setMessageListRef" :last-read-seq="activeReadState.lastReadSeq"
+            :read-receivers="activeReadState.readers" :show-watch-entry="true" :watch-entry-label="watchActionLabel"
             :watch-entry-hint="watchStatusLabel" @send-message="sendWatchMessage" @open-watch="openWatchRoom" />
         </template>
       </aside>
@@ -140,6 +143,7 @@ const {
   friendForm,
   activeConversation,
   messages,
+  activeReadState,
   conversationLoading,
   messageText,
   messageList,

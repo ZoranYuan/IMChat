@@ -174,11 +174,20 @@ func (h *GroupHandler) handleMessageReadAck(
 
 	// 通知消息发送方：你的消息已被读取
 	if event.SenderId != "" {
-		if err := h.dispatch.SendToClient(protocol.EventMessageReadNotify, event.SenderId, envelope.Payload); err != nil {
-			// TODO: 补偿
-		}
+		return h.dispatchMessageReadNotify(event.SenderId, envelope.Payload)
 	}
 
+	return nil
+}
+
+func (h *GroupHandler) dispatchMessageReadNotify(senderId string, payload []byte) error {
+	if senderId == "" {
+		return nil
+	}
+	if err := h.dispatch.SendToClient(protocol.EventMessageReadNotify, senderId, payload); err != nil {
+		// TODO: 补偿
+		return err
+	}
 	return nil
 }
 

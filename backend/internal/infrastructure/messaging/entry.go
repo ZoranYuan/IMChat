@@ -47,7 +47,6 @@ func (t *TaskManager) handleMessageReadAck(ctx context.Context, topic string, ke
 		// 补偿措施
 	}
 
-	// routing is handled by the consumer based on ConvType in the payload
 	var envelope = protocol.Envelope{
 		To:      event.ConversationId,
 		Payload: payload,
@@ -117,7 +116,7 @@ func (t *TaskManager) SendMessage(ctx context.Context, topic string, key string,
 	})
 }
 
-func (t *TaskManager) SendMessageReadAck(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error {
+func (t *TaskManager) PublishMessageReadAck(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err

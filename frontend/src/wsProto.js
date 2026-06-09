@@ -39,6 +39,7 @@ message MessageReadAckEvent {
   int64 last_read_seq = 3;
   int32 conv_type = 4;
   string sender_id = 5;
+  string avatar = 6;
 }
 
 message MessageEvent {

@@ -5,12 +5,22 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
   const conversations = ref([]);
   const activeConversation = ref(null);
   const messages = ref([]);
+  const readReceipts = ref({});
   const conversationLoading = ref(false);
   const messageText = ref("");
   const messageList = ref(null);
   const pendingLocalMessages = [];
   const conversationMessageCacheKey = "im_active_conversation_messages";
   let conversationLoadSeq = 0;
+
+  function getConversationReadState(conversationId) {
+    if (!conversationId) {
+      return { lastReadSeq: 0, readers: [] };
+    }
+    return readReceipts.value[conversationId] || { lastReadSeq: 0, readers: [] };
+  }
+
+  const activeReadState = ref({ lastReadSeq: 0, readers: [] });
 
   function getConversationIndex(conversationId) {
     return conversations.value.findIndex((item) => item.conversationId === conversationId);
@@ -221,9 +231,32 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       if (ack.status === "failed") showMessage(ack.extra || "消息发送失败");
     }
     if (frame.op === "msg_read_notify") {
-      // 收到消息已读通知：{ userId, conversationId, lastReadSeq, convType, senderId }
-      // userId 是读者，可在此处更新 UI 展示已读状态
-      console.log("read notify:", frame.payload);
+      const event = frame.payload || {};
+      const conversationId = event.conversationId;
+      const senderId = event.senderId;
+      if (!conversationId || !senderId || senderId !== currentUser.userId) return;
+
+      const existing = getConversationReadState(conversationId);
+      const nextReaders = (existing.readers || []).filter((item) => item.userId !== event.userId);
+      nextReaders.unshift({
+        userId: event.userId,
+        avatar: event.avatar || "",
+        lastReadSeq: Number(event.lastReadSeq) || 0,
+        convType: Number(event.convType) || 0,
+        senderId: event.senderId,
+      });
+
+      readReceipts.value = {
+        ...readReceipts.value,
+        [conversationId]: {
+          lastReadSeq: Math.max(Number(existing.lastReadSeq) || 0, Number(event.lastReadSeq) || 0),
+          readers: nextReaders.slice(0, 4),
+        },
+      };
+
+      if (activeConversation.value?.conversationId === conversationId) {
+        activeReadState.value = readReceipts.value[conversationId];
+      }
     }
   }
 
@@ -395,6 +428,8 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
     conversations.value = [];
     activeConversation.value = null;
     messages.value = [];
+    readReceipts.value = {};
+    activeReadState.value = { lastReadSeq: 0, readers: [] };
     conversationLoading.value = false;
     clearConversationMessagesCache();
     messageText.value = "";
@@ -412,10 +447,19 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
     { flush: "post" },
   );
 
+  watch(
+    () => activeConversation.value?.conversationId,
+    (conversationId) => {
+      activeReadState.value = getConversationReadState(conversationId);
+    },
+    { immediate: true },
+  );
+
   return {
     conversations,
     activeConversation,
     messages,
+    activeReadState,
     conversationLoading,
     messageText,
     messageList,

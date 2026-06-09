@@ -199,24 +199,43 @@ func (ma *MessageApplication) HandleMessageReadAck(
 	}
 
 	// 通知消息发送方：你的消息已被读取
-	go func() {
-		event := protocol.MessageReadAckEvent{
-			ConversationId: conversationId,
-			LastReadSeq:    lastReadSeq,
-			UserId:         userId,
-			ConvType:       protocol.ConvType(conv.Convtype),
-			SenderId:       senderId,
-		}
+	go ma.publishMessageReadAck(ctx, userId, conversationId, lastReadSeq, senderId, int(conv.Convtype))
 
-		ma.taskManager.SendMessageReadAck(
+	return nil
+}
+
+func (ma *MessageApplication) publishMessageReadAck(
+	ctx context.Context,
+	userId string,
+	conversationId string,
+	lastReadSeq int64,
+	senderId string,
+	convType int,
+) {
+	avatar := ""
+	if ma.userRepository != nil {
+		if user, err := ma.userRepository.FindByUserID(userId); err == nil && user != nil {
+			avatar = user.Avatar
+		}
+	}
+
+	ackEvent := protocol.MessageReadAckEvent{
+		ConversationId: conversationId,
+		LastReadSeq:    lastReadSeq,
+		UserId:         userId,
+		ConvType:       protocol.ConvType(convType),
+		SenderId:       senderId,
+		Avatar:         avatar,
+	}
+
+	if ma.taskManager != nil {
+		_ = ma.taskManager.PublishMessageReadAck(
 			ctx,
 			protocol.EventMessageReadAck,
 			userId+":"+conversationId,
-			event,
+			ackEvent,
 		)
-	}()
-
-	return nil
+	}
 }
 
 func (ma *MessageApplication) CheckRoomMember(ctx context.Context, userId string, roomId string) error {

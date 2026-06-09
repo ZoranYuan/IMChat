@@ -46,6 +46,40 @@ func TestEncodeWebSocketPayloadMessageEvent(t *testing.T) {
 	}
 }
 
+func TestEncodeWebSocketPayloadMessageReadAckEvent(t *testing.T) {
+	event := protocol.MessageReadAckEvent{
+		UserId:         "u2",
+		ConversationId: "conv-1",
+		LastReadSeq:    18,
+		ConvType:       protocol.RoomChat,
+		SenderId:       "u1",
+		Avatar:         "https://example.com/avatar.png",
+	}
+	raw, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+
+	encoded, err := encodeWebSocketPayload(string(protocol.EventMessageReadAck), raw)
+	if err != nil {
+		t.Fatalf("encode payload: %v", err)
+	}
+
+	var got wspb.MessageReadAckEvent
+	if err := proto.Unmarshal(encoded, &got); err != nil {
+		t.Fatalf("unmarshal protobuf payload: %v", err)
+	}
+	if got.GetUserId() != event.UserId ||
+		got.GetConversationId() != event.ConversationId ||
+		got.GetLastReadSeq() != event.LastReadSeq ||
+		got.GetConvType() != int32(event.ConvType) ||
+		got.GetSenderId() != event.SenderId ||
+		got.GetAvatar() != event.Avatar {
+		t.Fatalf("unexpected protobuf event: userId=%q conversationId=%q lastReadSeq=%d convType=%d senderId=%q avatar=%q",
+			got.GetUserId(), got.GetConversationId(), got.GetLastReadSeq(), got.GetConvType(), got.GetSenderId(), got.GetAvatar())
+	}
+}
+
 func TestMessageReqFromPBVideoTime(t *testing.T) {
 	req := messageReqFromPB(&wspb.MessageReq{
 		ClientMsgId:  "client-1",

@@ -18,20 +18,35 @@
         <span class="loading-dot"></span>
         <span>正在加载聊天记录</span>
       </div>
-      <article v-for="(msg, index) in messages" :key="msg.clientMsgId || msg.messageId || msg.seq || index"
-        :class="['bubble-row', { mine: isMine(msg), group: isGroupChat }]">
-        <div class="bubble-avatar" :class="{ mine: isMine(msg) }">
-          <img v-if="avatarUrl(msg)" :src="avatarUrl(msg)" :alt="senderName(msg)" />
-          <span v-else>{{ avatarText(msg) }}</span>
-        </div>
-
-        <div class="bubble-stack" :class="{ mine: isMine(msg) }">
-          <div v-if="isGroupChat && !isMine(msg)" class="bubble-sender">{{ senderName(msg) }}</div>
-          <div class="bubble-shell" :class="{ mine: isMine(msg) }">
-            <div class="bubble-content">{{ msg.content }}</div>
+      <template v-for="(msg, index) in messages" :key="msg.clientMsgId || msg.messageId || msg.seq || index">
+        <article :class="['bubble-row', { mine: isMine(msg), group: isGroupChat }]">
+          <div class="bubble-avatar" :class="{ mine: isMine(msg) }">
+            <img v-if="avatarUrl(msg)" :src="avatarUrl(msg)" :alt="senderName(msg)" />
+            <span v-else>{{ avatarText(msg) }}</span>
           </div>
+
+          <div class="bubble-stack" :class="{ mine: isMine(msg) }">
+            <div v-if="isGroupChat && !isMine(msg)" class="bubble-sender">{{ senderName(msg) }}</div>
+            <div class="bubble-shell" :class="{ mine: isMine(msg) }">
+              <div class="bubble-content">{{ msg.content }}</div>
+            </div>
+          </div>
+        </article>
+
+        <div v-if="isReadBoundary(index)" class="read-boundary" :class="{ group: isGroupChat }">
+          <span class="read-boundary-line"></span>
+          <span class="read-boundary-pill">
+            <span v-if="readReceiversPreview.length" class="read-avatars">
+              <span v-for="reader in readReceiversPreview" :key="reader.userId" class="read-avatar">
+                <img v-if="reader.avatar" :src="reader.avatar" :alt="reader.userId" />
+                <span v-else>{{ readAvatarText(reader) }}</span>
+              </span>
+            </span>
+            <span class="read-boundary-text">已读</span>
+          </span>
+          <span class="read-boundary-line"></span>
         </div>
-      </article>
+      </template>
     </div>
 
     <footer class="composer">
@@ -86,6 +101,8 @@ const props = defineProps({
   messageText: { type: String, default: "" },
   wsConnected: { type: Boolean, default: false },
   setMessageListRef: { type: Function, required: true },
+  lastReadSeq: { type: Number, default: 0 },
+  readReceivers: { type: Array, default: () => [] },
   showWatchEntry: { type: Boolean, default: false },
   watchEntryLabel: { type: String, default: "一起看" },
   watchEntryHint: { type: String, default: "" },
@@ -95,6 +112,18 @@ const props = defineProps({
 const emit = defineEmits(["update:messageText", "send-message", "open-watch"]);
 
 const isGroupChat = computed(() => props.activeConversation?.convType === 2);
+const readReceiversPreview = computed(() => (Array.isArray(props.readReceivers) ? props.readReceivers.slice(0, 4) : []));
+const readBoundaryIndex = computed(() => {
+  const maxSeq = Number(props.lastReadSeq) || 0;
+  if (!maxSeq) return -1;
+  let boundary = -1;
+  props.messages.forEach((msg, index) => {
+    if (!isMine(msg)) return;
+    const seq = Number(msg.seq) || 0;
+    if (seq > 0 && seq <= maxSeq) boundary = index;
+  });
+  return boundary;
+});
 const messageInputRef = ref(null);
 const composerMinHeight = 124;
 const composerMaxHeight = 180;
@@ -122,6 +151,16 @@ function avatarText(msg) {
 
 function avatarUrl(msg) {
   return msg.senderAvatar || msg.avatar || (isMine(msg) ? props.currentUser.avatar : "");
+}
+
+function readAvatarText(reader) {
+  const text = String(reader?.userId || "");
+  if (!text) return "已";
+  return text.slice(0, 2).toUpperCase();
+}
+
+function isReadBoundary(index) {
+  return index === readBoundaryIndex.value;
 }
 
 function resizeMessageInput() {
@@ -374,6 +413,70 @@ onBeforeUnmount(() => {
   background: var(--chat-bubble-mine-bg);
   color: #fff;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
+}
+
+.read-boundary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -8px 0 20px;
+  padding-left: 44px;
+}
+
+.read-boundary.group {
+  padding-left: 44px;
+}
+
+.read-boundary-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+}
+
+.read-boundary-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(141, 91, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.read-avatars {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 2px;
+}
+
+.read-avatar {
+  width: 18px;
+  height: 18px;
+  margin-left: -5px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+.read-avatar:first-child {
+  margin-left: 0;
+}
+
+.read-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .composer {

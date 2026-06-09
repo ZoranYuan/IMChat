@@ -306,6 +306,9 @@ type MessageReadAckEvent struct {
 	UserId         string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	ConversationId string                 `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	LastReadSeq    int64                  `protobuf:"varint,3,opt,name=last_read_seq,json=lastReadSeq,proto3" json:"last_read_seq,omitempty"`
+	ConvType       int32                  `protobuf:"varint,4,opt,name=conv_type,json=convType,proto3" json:"conv_type,omitempty"`
+	SenderId       string                 `protobuf:"bytes,5,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
+	Avatar         string                 `protobuf:"bytes,6,opt,name=avatar,proto3" json:"avatar,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -359,6 +362,27 @@ func (x *MessageReadAckEvent) GetLastReadSeq() int64 {
 		return x.LastReadSeq
 	}
 	return 0
+}
+
+func (x *MessageReadAckEvent) GetConvType() int32 {
+	if x != nil {
+		return x.ConvType
+	}
+	return 0
+}
+
+func (x *MessageReadAckEvent) GetSenderId() string {
+	if x != nil {
+		return x.SenderId
+	}
+	return ""
+}
+
+func (x *MessageReadAckEvent) GetAvatar() string {
+	if x != nil {
+		return x.Avatar
+	}
+	return ""
 }
 
 type MessageEvent struct {
@@ -770,11 +794,14 @@ const file_ws_proto_rawDesc = "" +
 	"message_id\x18\x02 \x01(\tR\tmessageId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x14\n" +
 	"\x05extra\x18\x04 \x01(\tR\x05extra\x12\x1b\n" +
-	"\tsend_time\x18\x05 \x01(\x03R\bsendTime\"{\n" +
+	"\tsend_time\x18\x05 \x01(\x03R\bsendTime\"\xcd\x01\n" +
 	"\x13MessageReadAckEvent\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\"\n" +
-	"\rlast_read_seq\x18\x03 \x01(\x03R\vlastReadSeq\"\x97\x03\n" +
+	"\rlast_read_seq\x18\x03 \x01(\x03R\vlastReadSeq\x12\x1b\n" +
+	"\tconv_type\x18\x04 \x01(\x05R\bconvType\x12\x1b\n" +
+	"\tsender_id\x18\x05 \x01(\tR\bsenderId\x12\x16\n" +
+	"\x06avatar\x18\x06 \x01(\tR\x06avatar\"\x97\x03\n" +
 	"\fMessageEvent\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12'\n" +
