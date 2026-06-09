@@ -238,6 +238,40 @@ message WsFrame {
   │   ── Pong ──→                     │  (重置 idle 时间戳)
 ```
 
+### 5.1 WebSocket 断线重连与数据补齐
+
+```
+[前端]                                                     [后端]
+  │                                                          │
+  │── onclose ──→ scheduleWsReconnect                         │
+  │   │  最多重试 5 次，指数退避                                │
+  │   │  wsReconnecting = true                                │
+  │   │                                                       │
+  │   └── 重连成功 ──→ onopen                                  │
+  │       │  wasReconnecting = true                           │
+  │       │  wsConnected = true                               │
+  │       │  onWsReconnect() ──→ loadOffline()                 │
+  │       │                       │                            │
+  │       │                       │── GET /messages/offline ──→│
+  │       │                       │   │ 返回所有会话 + 未读数   │
+  │       │                       │   │ 返回每个会话最新消息     │
+  │       │                       │   │ 异步触发 sync seq      │
+  │       │                       │                            │
+  │       │                       │←── conversations[] ────────│
+  │       │                       │   更新侧边栏列表 + 未读计数  │
+  │       │                       │   当前会话从 localStorage   │
+  │       │                       │   恢复消息（如有缓存）       │
+  │       │                       │                            │
+  │       │  若重试耗尽 → wsReconnectFailed = true              │
+  │       │  用户可点击状态点手动重连                             │
+```
+
+**关键点**：
+- `onopen` 只负责设连接状态 + 触发回调，不自行拉数据
+- `onWsReconnect` 回调由 `useImClient` 注入，调用 `conversation.loadOffline()` 补齐断线期间消息
+- 首次连接**不**触发（`wasReconnecting` 为 false），避免与 `submitAuth` 的 `loadOffline` 重复
+- 重连失败后用户可手动点击状态指示器调用 `retryWsConnection` 重新连接
+
 ---
 
 ## Kafka 架构
