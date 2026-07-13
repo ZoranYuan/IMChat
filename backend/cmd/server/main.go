@@ -52,10 +52,15 @@ import (
 
 func main() {
 	r := gin.Default()
+	r.Use(middleware.ErrorLoggerMiddleware())
 
 	ctx := context.TODO()
 
-	cfg := configs.LoadConfig("/workspace/IM/backend/configs/config.yaml")
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "/workspace/IM/backend/configs/config.yaml"
+	}
+	cfg := configs.LoadConfig(configPath)
 
 	if cfg.App.Env == "development" {
 		gin.SetMode(gin.DebugMode)
@@ -99,6 +104,10 @@ func main() {
 	fileHandle := filehttp.NewHandle(fileApplication)
 
 	messageRepository := messagemysql.NewMessageRepository(db)
+	messageImageRepository := messagemysql.NewMessageImageRepository(db)
+	messageFileRepository := messagemysql.NewMessageFileRepository(db)
+	messageStickerRepository := messagemysql.NewMessageStickerRepository(db)
+	messageVideoRepository := messagemysql.NewMessageVideoRepository(db)
 	messageOutboxRepository := messagemysql.NewMessageOutboxRepository(db, int(cfg.App.MachineID))
 	conversationRepository := messagemysql.NewConversationRepository(db)
 	userConversationRepository := messagemysql.NewUserConversationRepository(db)
@@ -173,6 +182,10 @@ func main() {
 		messageOutboxRepository,
 		friendRepository,
 		fileRepository,
+		messageImageRepository,
+		messageFileRepository,
+		messageStickerRepository,
+		messageVideoRepository,
 		userRepository,
 		messageRepository,
 		roomUserRepository,

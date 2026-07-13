@@ -68,3 +68,7 @@ func RoomInvite(roomId string) string {
 func RoomMembers(roomId string) string {
 	return Build("room", roomId, "members")
 }
+
+func MessageDedup(clientMsgId string) string {
+	return Build("msg", "dedup", clientMsgId)
+}

@@ -5,12 +5,10 @@ type Message struct {
 	ConversationId string `gorm:"size:64;not null;index:idx_conv_seq,priority:1" json:"conversationId"`
 	SendId         string `gorm:"size:32;not null;index:idx_sender" json:"sendId"`
 
-	// 当前消息的自增序列值
-	Seq int64 `gorm:"not null;index:idx_conv_seq,priority:2,sort:desc" json:"seq"`
-	// 消息状态
-	Type    int8   `gorm:"not null;comment:1=text 2=image 3=video" json:"type"`
+	Seq     int64  `gorm:"not null;index:idx_conv_seq,priority:2,sort:desc" json:"seq"`
+	Type    int8   `gorm:"not null;comment:1=text 2=image 3=video 4=sticker 5=file" json:"type"`
 	Content string `gorm:"type:text" json:"content"`
-	// 消息状态
+	// 弹幕/视频时间戳关联（非媒体字段）
 	VideoId   string `gorm:"size:64;index:idx_video_time,priority:1;comment:video file id" json:"videoId,omitempty"`
 	VideoTime *int64 `gorm:"index:idx_video_time,priority:2;comment:video progress(ms)" json:"videoTime,omitempty"`
 	Status    int8   `gorm:"default:1;comment:1=normal 2=recall" json:"status"`

@@ -383,7 +383,7 @@ func (a *BootstrapApplication) createPrivateConversations(ctx context.Context, p
 		}
 
 		conversationID := messageentity.GetConversationID(leftUser.UserId, rightUser.UserId, int(messagevo.PrivateChat))
-		if err := a.conversationRepository.Upsert(ctx, messageentity.BuildConversation(conversationID, leftUser.UserId, rightUser.UserId, int(messagevo.PrivateChat), 0, latestMessagePlaceholder(conversationID))); err != nil {
+		if err := a.conversationRepository.Upsert(ctx, messageentity.NewConversation(conversationID, leftUser.UserId, rightUser.UserId, int(messagevo.PrivateChat), 0, latestMessagePlaceholder(conversationID))); err != nil {
 			return err
 		}
 		if err := a.userConversationRepo.CreateUserConversation(ctx, messageentity.BuildUserConversation(leftUser.UserId, conversationID, 0, 0)); err != nil {

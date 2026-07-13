@@ -142,6 +142,17 @@ type MessageReq struct {
 	Content       string                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
 	VideoTime     int64                  `protobuf:"varint,6,opt,name=video_time,json=videoTime,proto3" json:"video_time,omitempty"`
 	HasVideoTime  bool                   `protobuf:"varint,7,opt,name=has_video_time,json=hasVideoTime,proto3" json:"has_video_time,omitempty"`
+	MediaUrl      string                 `protobuf:"bytes,8,opt,name=media_url,json=mediaUrl,proto3" json:"media_url,omitempty"`
+	ThumbUrl      string                 `protobuf:"bytes,9,opt,name=thumb_url,json=thumbUrl,proto3" json:"thumb_url,omitempty"`
+	FileId        string                 `protobuf:"bytes,10,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
+	ThumbFileId   string                 `protobuf:"bytes,11,opt,name=thumb_file_id,json=thumbFileId,proto3" json:"thumb_file_id,omitempty"`
+	FileName      string                 `protobuf:"bytes,12,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	FileSize      int64                  `protobuf:"varint,13,opt,name=file_size,json=fileSize,proto3" json:"file_size,omitempty"`
+	Width         int32                  `protobuf:"varint,14,opt,name=width,proto3" json:"width,omitempty"`
+	Height        int32                  `protobuf:"varint,15,opt,name=height,proto3" json:"height,omitempty"`
+	DurationMs    int64                  `protobuf:"varint,16,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	StickerId     string                 `protobuf:"bytes,17,opt,name=sticker_id,json=stickerId,proto3" json:"sticker_id,omitempty"`
+	PackId        string                 `protobuf:"bytes,18,opt,name=pack_id,json=packId,proto3" json:"pack_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -223,6 +234,83 @@ func (x *MessageReq) GetHasVideoTime() bool {
 		return x.HasVideoTime
 	}
 	return false
+}
+
+func (x *MessageReq) GetMediaUrl() string {
+	if x != nil {
+		return x.MediaUrl
+	}
+	return ""
+}
+
+func (x *MessageReq) GetThumbUrl() string {
+	if x != nil {
+		return x.ThumbUrl
+	}
+	return ""
+}
+
+func (x *MessageReq) GetFileId() string {
+	if x != nil {
+		return x.FileId
+	}
+	return ""
+}
+
+func (x *MessageReq) GetThumbFileId() string {
+	if x != nil {
+		return x.ThumbFileId
+	}
+	return ""
+}
+
+func (x *MessageReq) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+func (x *MessageReq) GetFileSize() int64 {
+	if x != nil {
+		return x.FileSize
+	}
+	return 0
+}
+
+func (x *MessageReq) GetWidth() int32 {
+	if x != nil {
+		return x.Width
+	}
+	return 0
+}
+
+func (x *MessageReq) GetHeight() int32 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
+func (x *MessageReq) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *MessageReq) GetStickerId() string {
+	if x != nil {
+		return x.StickerId
+	}
+	return ""
+}
+
+func (x *MessageReq) GetPackId() string {
+	if x != nil {
+		return x.PackId
+	}
+	return ""
 }
 
 type MessageAck struct {
@@ -398,8 +486,19 @@ type MessageEvent struct {
 	SendTime       int64                  `protobuf:"varint,9,opt,name=send_time,json=sendTime,proto3" json:"send_time,omitempty"`
 	SenderUsername string                 `protobuf:"bytes,10,opt,name=sender_username,json=senderUsername,proto3" json:"sender_username,omitempty"`
 	ClientMsgId    string                 `protobuf:"bytes,11,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
-	HasVideoTime   bool                   `protobuf:"varint,12,opt,name=has_video_time,json=hasVideoTime,proto3" json:"has_video_time,omitempty"`
-	VideoTime      int64                  `protobuf:"varint,13,opt,name=video_time,json=videoTime,proto3" json:"video_time,omitempty"`
+	MediaUrl       string                 `protobuf:"bytes,12,opt,name=media_url,json=mediaUrl,proto3" json:"media_url,omitempty"`
+	ThumbUrl       string                 `protobuf:"bytes,13,opt,name=thumb_url,json=thumbUrl,proto3" json:"thumb_url,omitempty"`
+	FileId         string                 `protobuf:"bytes,14,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
+	ThumbFileId    string                 `protobuf:"bytes,15,opt,name=thumb_file_id,json=thumbFileId,proto3" json:"thumb_file_id,omitempty"`
+	FileName       string                 `protobuf:"bytes,16,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	FileSize       int64                  `protobuf:"varint,17,opt,name=file_size,json=fileSize,proto3" json:"file_size,omitempty"`
+	Width          int32                  `protobuf:"varint,18,opt,name=width,proto3" json:"width,omitempty"`
+	Height         int32                  `protobuf:"varint,19,opt,name=height,proto3" json:"height,omitempty"`
+	DurationMs     int64                  `protobuf:"varint,20,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	StickerId      string                 `protobuf:"bytes,21,opt,name=sticker_id,json=stickerId,proto3" json:"sticker_id,omitempty"`
+	PackId         string                 `protobuf:"bytes,22,opt,name=pack_id,json=packId,proto3" json:"pack_id,omitempty"`
+	HasVideoTime   bool                   `protobuf:"varint,23,opt,name=has_video_time,json=hasVideoTime,proto3" json:"has_video_time,omitempty"`
+	VideoTime      int64                  `protobuf:"varint,24,opt,name=video_time,json=videoTime,proto3" json:"video_time,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -507,6 +606,83 @@ func (x *MessageEvent) GetSenderUsername() string {
 func (x *MessageEvent) GetClientMsgId() string {
 	if x != nil {
 		return x.ClientMsgId
+	}
+	return ""
+}
+
+func (x *MessageEvent) GetMediaUrl() string {
+	if x != nil {
+		return x.MediaUrl
+	}
+	return ""
+}
+
+func (x *MessageEvent) GetThumbUrl() string {
+	if x != nil {
+		return x.ThumbUrl
+	}
+	return ""
+}
+
+func (x *MessageEvent) GetFileId() string {
+	if x != nil {
+		return x.FileId
+	}
+	return ""
+}
+
+func (x *MessageEvent) GetThumbFileId() string {
+	if x != nil {
+		return x.ThumbFileId
+	}
+	return ""
+}
+
+func (x *MessageEvent) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+func (x *MessageEvent) GetFileSize() int64 {
+	if x != nil {
+		return x.FileSize
+	}
+	return 0
+}
+
+func (x *MessageEvent) GetWidth() int32 {
+	if x != nil {
+		return x.Width
+	}
+	return 0
+}
+
+func (x *MessageEvent) GetHeight() int32 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
+func (x *MessageEvent) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *MessageEvent) GetStickerId() string {
+	if x != nil {
+		return x.StickerId
+	}
+	return ""
+}
+
+func (x *MessageEvent) GetPackId() string {
+	if x != nil {
+		return x.PackId
 	}
 	return ""
 }
@@ -776,7 +952,7 @@ const file_ws_proto_rawDesc = "" +
 	"\x11MessageReadAckReq\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\"\n" +
 	"\rlast_read_seq\x18\x02 \x01(\x03R\vlastReadSeq\x12\x1b\n" +
-	"\tsender_id\x18\x03 \x01(\tR\bsenderId\"\xdc\x01\n" +
+	"\tsender_id\x18\x03 \x01(\tR\bsenderId\"\x94\x04\n" +
 	"\n" +
 	"MessageReq\x12\"\n" +
 	"\rclient_msg_id\x18\x01 \x01(\tR\vclientMsgId\x12\x17\n" +
@@ -786,7 +962,21 @@ const file_ws_proto_rawDesc = "" +
 	"\acontent\x18\x05 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +
 	"video_time\x18\x06 \x01(\x03R\tvideoTime\x12$\n" +
-	"\x0ehas_video_time\x18\a \x01(\bR\fhasVideoTime\"\x9a\x01\n" +
+	"\x0ehas_video_time\x18\a \x01(\bR\fhasVideoTime\x12\x1b\n" +
+	"\tmedia_url\x18\b \x01(\tR\bmediaUrl\x12\x1b\n" +
+	"\tthumb_url\x18\t \x01(\tR\bthumbUrl\x12\x17\n" +
+	"\afile_id\x18\n" +
+	" \x01(\tR\x06fileId\x12\"\n" +
+	"\rthumb_file_id\x18\v \x01(\tR\vthumbFileId\x12\x1b\n" +
+	"\tfile_name\x18\f \x01(\tR\bfileName\x12\x1b\n" +
+	"\tfile_size\x18\r \x01(\x03R\bfileSize\x12\x14\n" +
+	"\x05width\x18\x0e \x01(\x05R\x05width\x12\x16\n" +
+	"\x06height\x18\x0f \x01(\x05R\x06height\x12\x1f\n" +
+	"\vduration_ms\x18\x10 \x01(\x03R\n" +
+	"durationMs\x12\x1d\n" +
+	"\n" +
+	"sticker_id\x18\x11 \x01(\tR\tstickerId\x12\x17\n" +
+	"\apack_id\x18\x12 \x01(\tR\x06packId\"\x9a\x01\n" +
 	"\n" +
 	"MessageAck\x12\"\n" +
 	"\rclient_msg_id\x18\x01 \x01(\tR\vclientMsgId\x12\x1d\n" +
@@ -801,7 +991,7 @@ const file_ws_proto_rawDesc = "" +
 	"\rlast_read_seq\x18\x03 \x01(\x03R\vlastReadSeq\x12\x1b\n" +
 	"\tconv_type\x18\x04 \x01(\x05R\bconvType\x12\x1b\n" +
 	"\tsender_id\x18\x05 \x01(\tR\bsenderId\x12\x16\n" +
-	"\x06avatar\x18\x06 \x01(\tR\x06avatar\"\x97\x03\n" +
+	"\x06avatar\x18\x06 \x01(\tR\x06avatar\"\xcf\x05\n" +
 	"\fMessageEvent\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12'\n" +
@@ -815,10 +1005,23 @@ const file_ws_proto_rawDesc = "" +
 	"\tsend_time\x18\t \x01(\x03R\bsendTime\x12'\n" +
 	"\x0fsender_username\x18\n" +
 	" \x01(\tR\x0esenderUsername\x12\"\n" +
-	"\rclient_msg_id\x18\v \x01(\tR\vclientMsgId\x12$\n" +
-	"\x0ehas_video_time\x18\f \x01(\bR\fhasVideoTime\x12\x1d\n" +
+	"\rclient_msg_id\x18\v \x01(\tR\vclientMsgId\x12\x1b\n" +
+	"\tmedia_url\x18\f \x01(\tR\bmediaUrl\x12\x1b\n" +
+	"\tthumb_url\x18\r \x01(\tR\bthumbUrl\x12\x17\n" +
+	"\afile_id\x18\x0e \x01(\tR\x06fileId\x12\"\n" +
+	"\rthumb_file_id\x18\x0f \x01(\tR\vthumbFileId\x12\x1b\n" +
+	"\tfile_name\x18\x10 \x01(\tR\bfileName\x12\x1b\n" +
+	"\tfile_size\x18\x11 \x01(\x03R\bfileSize\x12\x14\n" +
+	"\x05width\x18\x12 \x01(\x05R\x05width\x12\x16\n" +
+	"\x06height\x18\x13 \x01(\x05R\x06height\x12\x1f\n" +
+	"\vduration_ms\x18\x14 \x01(\x03R\n" +
+	"durationMs\x12\x1d\n" +
 	"\n" +
-	"video_time\x18\r \x01(\x03R\tvideoTime\"\xa4\x02\n" +
+	"sticker_id\x18\x15 \x01(\tR\tstickerId\x12\x17\n" +
+	"\apack_id\x18\x16 \x01(\tR\x06packId\x12$\n" +
+	"\x0ehas_video_time\x18\x17 \x01(\bR\fhasVideoTime\x12\x1d\n" +
+	"\n" +
+	"video_time\x18\x18 \x01(\x03R\tvideoTime\"\xa4\x02\n" +
 	"\x11WatchVideoControl\x12\x17\n" +
 	"\aroom_id\x18\x01 \x01(\tR\x06roomId\x12\x16\n" +
 	"\x06action\x18\x02 \x01(\tR\x06action\x12\x19\n" +

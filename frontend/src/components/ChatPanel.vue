@@ -28,7 +28,26 @@
           <div class="bubble-stack" :class="{ mine: isMine(msg) }">
             <div v-if="isGroupChat && !isMine(msg)" class="bubble-sender">{{ senderName(msg) }}</div>
             <div class="bubble-shell" :class="{ mine: isMine(msg) }">
-              <div class="bubble-content">{{ msg.content }}</div>
+              <template v-if="isImageMessage(msg) || isStickerMessage(msg)">
+                <img class="bubble-media bubble-image" :src="mediaSource(msg)" :alt="messageTextPreview(msg)" />
+                <p v-if="msg.content && msg.content !== messageTextPreview(msg)" class="bubble-caption">{{ msg.content }}</p>
+              </template>
+              <template v-else-if="isVideoMessage(msg)">
+                <video class="bubble-media bubble-video" :src="mediaSource(msg)" controls preload="metadata"></video>
+                <p class="bubble-caption">{{ videoCaption(msg) }}</p>
+                <p v-if="msg.content && msg.content !== messageTextPreview(msg)" class="bubble-caption">{{ msg.content }}</p>
+              </template>
+              <template v-else-if="isFileMessage(msg)">
+                <a class="bubble-file" :href="mediaSource(msg)" target="_blank" rel="noreferrer">
+                  <span class="bubble-file-icon">FILE</span>
+                  <span class="bubble-file-meta">
+                    <strong>{{ fileDisplayName(msg) }}</strong>
+                    <small>{{ fileSizeText(msg) }}</small>
+                  </span>
+                </a>
+                <p v-if="msg.content && msg.content !== messageTextPreview(msg)" class="bubble-caption">{{ msg.content }}</p>
+              </template>
+              <div v-else class="bubble-content">{{ msg.content }}</div>
             </div>
           </div>
         </article>
@@ -58,11 +77,14 @@
 
         <div class="composer-toolbar">
           <div class="composer-tools">
-            <button class="composer-tool" type="button" :disabled="!wsConnected" title="表情">
-              <Smile :size="16" />
+            <button class="composer-tool" type="button" :disabled="!wsConnected" title="图片" @click="openImagePicker">
+              <ImageIcon :size="16" />
             </button>
-            <button class="composer-tool" type="button" :disabled="!wsConnected" title="文件">
+            <button class="composer-tool" type="button" :disabled="!wsConnected" title="文件" @click="openFilePicker">
               <Paperclip :size="16" />
+            </button>
+            <button class="composer-tool" type="button" :disabled="!wsConnected" title="视频" @click="openVideoPicker">
+              <Film :size="16" />
             </button>
             <button class="composer-tool" type="button" :disabled="!wsConnected" title="更多">
               <MoreHorizontal :size="16" />
@@ -85,13 +107,16 @@
           </div>
         </div>
       </div>
+      <input ref="imagePickerRef" type="file" accept="image/*" hidden @change="handleImagePicked" />
+      <input ref="filePickerRef" type="file" hidden @change="handleFilePicked" />
+      <input ref="videoPickerRef" type="file" accept="video/*" hidden @change="handleVideoPicked" />
     </footer>
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Film, MessageCircle, MoreHorizontal, Paperclip, Send, Smile, Volume2 } from "@lucide/vue";
+import { Film, Image as ImageIcon, MessageCircle, MoreHorizontal, Paperclip, Send, Volume2 } from "@lucide/vue";
 
 const props = defineProps({
   activeConversation: { type: Object, default: null },
@@ -109,7 +134,7 @@ const props = defineProps({
   watchEntryDisabled: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["update:messageText", "send-message", "open-watch"]);
+const emit = defineEmits(["update:messageText", "send-message", "send-image", "send-file", "send-video", "open-watch"]);
 
 const isGroupChat = computed(() => props.activeConversation?.convType === 2);
 const readReceiversPreview = computed(() => (Array.isArray(props.readReceivers) ? props.readReceivers.slice(0, 4) : []));
@@ -125,6 +150,9 @@ const readBoundaryIndex = computed(() => {
   return boundary;
 });
 const messageInputRef = ref(null);
+const imagePickerRef = ref(null);
+const filePickerRef = ref(null);
+const videoPickerRef = ref(null);
 const composerMinHeight = 124;
 const composerMaxHeight = 180;
 const composerHeight = ref(composerMinHeight);
@@ -133,6 +161,18 @@ let composerResizeStartHeight = composerMinHeight;
 
 function setMessageList(el) {
   props.setMessageListRef(el);
+}
+
+function openImagePicker() {
+  imagePickerRef.value?.click();
+}
+
+function openFilePicker() {
+  filePickerRef.value?.click();
+}
+
+function openVideoPicker() {
+  videoPickerRef.value?.click();
 }
 
 function isMine(msg) {
@@ -151,6 +191,67 @@ function avatarText(msg) {
 
 function avatarUrl(msg) {
   return msg.senderAvatar || msg.avatar || (isMine(msg) ? props.currentUser.avatar : "");
+}
+
+function mediaSource(msg) {
+  return msg.mediaUrl || msg.thumbUrl || "";
+}
+
+function isImageMessage(msg) {
+  return Number(msg?.cType) === 2;
+}
+
+function isVideoMessage(msg) {
+  return Number(msg?.cType) === 3;
+}
+
+function isStickerMessage(msg) {
+  return Number(msg?.cType) === 4;
+}
+
+function isFileMessage(msg) {
+  return Number(msg?.cType) === 5;
+}
+
+function messageTextPreview(msg) {
+  if (!msg) return "";
+  if (isImageMessage(msg)) return "[图片]";
+  if (isStickerMessage(msg)) return "[表情包]";
+  if (isVideoMessage(msg)) return "[视频]";
+  if (isFileMessage(msg)) return "[文件]";
+  return msg.content || "";
+}
+
+function fileDisplayName(msg) {
+  return msg.fileName || msg.content || "文件";
+}
+
+function fileSizeText(msg) {
+  const size = Number(msg.fileSize) || 0;
+  if (!size) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}
+
+function videoCaption(msg) {
+  const parts = [];
+  if (msg.fileName) parts.push(msg.fileName);
+  if (msg.durationMs) parts.push(formatDuration(msg.durationMs));
+  if (msg.width && msg.height) parts.push(`${msg.width}×${msg.height}`);
+  return parts.join(" · ") || "视频";
+}
+
+function formatDuration(durationMs) {
+  const totalSeconds = Math.max(0, Math.floor(Number(durationMs) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function readAvatarText(reader) {
@@ -178,6 +279,27 @@ function handleMessageInput(event) {
   resizeMessageInput();
   const target = event.target;
   emit("update:messageText", target.value);
+}
+
+function handleImagePicked(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  emit("send-image", file);
+  event.target.value = "";
+}
+
+function handleFilePicked(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  emit("send-file", file);
+  event.target.value = "";
+}
+
+function handleVideoPicked(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  emit("send-video", file);
+  event.target.value = "";
 }
 
 function handleEnterSend(event) {
@@ -387,6 +509,82 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
 }
 
+.bubble-media {
+  position: relative;
+  z-index: 1;
+  display: block;
+  max-width: 320px;
+  border: 1px solid var(--chat-bubble-other-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-md);
+}
+
+.bubble-image {
+  max-width: min(100%, 320px);
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.bubble-video {
+  max-width: min(100%, 360px);
+  max-height: 360px;
+  background: #000;
+}
+
+.bubble-file {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 240px;
+  max-width: 360px;
+  padding: 12px;
+  border: 1px solid var(--chat-bubble-other-border);
+  border-radius: 14px;
+  background: var(--chat-bubble-other-bg);
+  color: var(--text);
+  text-decoration: none;
+  box-shadow: var(--shadow-md);
+}
+
+.bubble-file-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.bubble-file-meta {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bubble-file-meta strong,
+.bubble-file-meta small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bubble-caption {
+  position: relative;
+  z-index: 1;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .bubble-shell::before {
   content: "";
   position: absolute;
@@ -413,6 +611,20 @@ onBeforeUnmount(() => {
   background: var(--chat-bubble-mine-bg);
   color: #fff;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
+}
+
+.bubble-shell.mine .bubble-media,
+.bubble-shell.mine .bubble-file {
+  border-color: var(--chat-bubble-mine-border);
+}
+
+.bubble-shell.mine .bubble-file {
+  background: var(--chat-bubble-mine-bg);
+  color: #fff;
+}
+
+.bubble-shell.mine .bubble-caption {
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .read-boundary {

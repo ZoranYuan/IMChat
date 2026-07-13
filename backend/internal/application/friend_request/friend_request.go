@@ -207,7 +207,7 @@ func (fa *FriendApplication) Accept(requestId string, userId string) error {
 
 	conversationId := messageentity.GetConversationID(record.ToUserId, record.FromUserId, int(messagevo.PrivateChat))
 	if err := fa.conversationCache.SetMembers(ctx, conversationId, []string{record.FromUserId, record.ToUserId}, 1); err != nil {
-		// TODO: 异步补偿
+		// best-effort cache warmup; the DB state is already authoritative
 		log.Println("failed to create conversation cache")
 	}
 

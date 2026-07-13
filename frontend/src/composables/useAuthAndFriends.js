@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import {
   createFriendRequest,
   getFriendRequests,
@@ -14,7 +14,7 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
   const token = ref(localStorage.getItem("im_token") || "");
   const currentUser = reactive(JSON.parse(localStorage.getItem("im_user") || "{}"));
   const authMode = ref("login");
-  const authForm = reactive({ account: "", phone: "", password: "" });
+  const authForm = reactive({ phone: "", password: "" });
   const friends = ref([]);
   const friendRequests = ref([]);
   const friendForm = reactive({ keyword: "", toUserId: "", message: "你好，我想加你为好友" });
@@ -30,6 +30,15 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
   let wsManualClose = false;
   let messageTimer = 0;
   let frameHandler = onWsFrame || (() => {});
+
+  function resetAuthForm() {
+    authForm.phone = "";
+    authForm.password = "";
+  }
+
+  watch(authMode, () => {
+    resetAuthForm();
+  });
 
   const wsStatusText = computed(() => {
     if (wsConnected.value) return "在线";

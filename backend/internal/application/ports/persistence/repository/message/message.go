@@ -53,3 +53,31 @@ type MessageRepository interface {
 
 	WithTx(tx any) MessageRepository
 }
+
+type MessageImageRepository interface {
+	Create(ctx context.Context, item *messageentity.MessageImage) error
+	GetByMessageID(ctx context.Context, messageId string) (*messageentity.MessageImage, error)
+	BatchGetByMessageIDs(ctx context.Context, messageIds []string) (map[string]*messageentity.MessageImage, error)
+	WithTx(tx any) MessageImageRepository
+}
+
+type MessageFileRepository interface {
+	Create(ctx context.Context, item *messageentity.MessageFile) error
+	GetByMessageID(ctx context.Context, messageId string) (*messageentity.MessageFile, error)
+	BatchGetByMessageIDs(ctx context.Context, messageIds []string) (map[string]*messageentity.MessageFile, error)
+	WithTx(tx any) MessageFileRepository
+}
+
+type MessageStickerRepository interface {
+	Create(ctx context.Context, item *messageentity.MessageSticker) error
+	GetByMessageID(ctx context.Context, messageId string) (*messageentity.MessageSticker, error)
+	BatchGetByMessageIDs(ctx context.Context, messageIds []string) (map[string]*messageentity.MessageSticker, error)
+	WithTx(tx any) MessageStickerRepository
+}
+
+type MessageVideoRepository interface {
+	Create(ctx context.Context, item *messageentity.MessageVideo) error
+	GetByMessageID(ctx context.Context, messageId string) (*messageentity.MessageVideo, error)
+	BatchGetByMessageIDs(ctx context.Context, messageIds []string) (map[string]*messageentity.MessageVideo, error)
+	WithTx(tx any) MessageVideoRepository
+}

@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"slices"
 	"sort"
+	"time"
 
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
@@ -36,6 +38,10 @@ type MessageApplication struct {
 	conversationRepository     messagerepo.ConversationRepository
 	friendRepository           friendrepo.FriendRepository
 	fileRepository             filerepo.FileRepository
+	messageImageRepository     messagerepo.MessageImageRepository
+	messageFileRepository      messagerepo.MessageFileRepository
+	messageStickerRepository   messagerepo.MessageStickerRepository
+	messageVideoRepository     messagerepo.MessageVideoRepository
 	messageOutboxRepository    messagerepo.MessageOutboxRepository
 	userRepository             userrepo.UserRepository
 	roomUserRepository         roomrepo.RoomUserRepository
@@ -54,6 +60,10 @@ func NewMessageApplication(
 	messageOutboxRepository messagerepo.MessageOutboxRepository,
 	friendRepository friendrepo.FriendRepository,
 	fileRepository filerepo.FileRepository,
+	messageImageRepository messagerepo.MessageImageRepository,
+	messageFileRepository messagerepo.MessageFileRepository,
+	messageStickerRepository messagerepo.MessageStickerRepository,
+	messageVideoRepository messagerepo.MessageVideoRepository,
 	userRepository userrepo.UserRepository,
 	messageRepository messagerepo.MessageRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
@@ -73,6 +83,10 @@ func NewMessageApplication(
 		roomUserRepository:         roomUserRepository,
 		friendRepository:           friendRepository,
 		fileRepository:             fileRepository,
+		messageImageRepository:     messageImageRepository,
+		messageFileRepository:      messageFileRepository,
+		messageStickerRepository:   messageStickerRepository,
+		messageVideoRepository:     messageVideoRepository,
 	}
 }
 
@@ -144,10 +158,8 @@ func (ma *MessageApplication) checkConvMember(
 		if cacheErr != nil {
 			return false, cacheErr
 		}
-		for _, memberID := range members {
-			if memberID == userId {
-				return true, nil
-			}
+		if slices.Contains(members, userId) {
+			return true, nil
 		}
 
 		return false, ErrNotRoomMember
@@ -172,7 +184,7 @@ func (ma *MessageApplication) HandleMessageReadAck(
 	lastReadSeq int64,
 	senderId string,
 ) error {
-	if senderId == "" || senderId == userId {
+	if senderId == "" {
 		return nil
 	}
 
@@ -182,7 +194,6 @@ func (ma *MessageApplication) HandleMessageReadAck(
 	}
 
 	if lastReadSeq <= uconv.LastReadSeq {
-		// TODO: 如何处理之前的应答消息
 		return nil
 	}
 
@@ -196,27 +207,29 @@ func (ma *MessageApplication) HandleMessageReadAck(
 	}
 	uconv.UpdateReadSeq(lastReadSeq)
 
-	avatar := ""
-	if conv.Convtype == messagevo.RoomChat && ma.userRepository != nil {
-		if user, err := ma.userRepository.FindByUserID(userId); err == nil && user != nil {
-			avatar = user.Avatar
-		}
-	}
-
-	ackEvent := protocol.MessageReadAckEvent{
-		ConversationId: conversationId,
-		LastReadSeq:    lastReadSeq,
-		UserId:         userId,
-		ConvType:       protocol.ConvType(conv.Convtype),
-		SenderId:       senderId,
-		Avatar:         avatar,
-	}
 	if ma.txManager == nil || ma.messageOutboxRepository == nil {
 		return fmt.Errorf("message outbox is not configured")
 	}
 	return ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
 		if err := ma.userConversationRepository.WithTx(tx).UpdateReadSeq(ctx, uconv); err != nil {
 			return err
+		}
+		if senderId == userId {
+			return nil
+		}
+		avatar := ""
+		if conv.Convtype == messagevo.RoomChat && ma.userRepository != nil {
+			if user, err := ma.userRepository.FindByUserID(userId); err == nil && user != nil {
+				avatar = user.Avatar
+			}
+		}
+		ackEvent := protocol.MessageReadAckEvent{
+			ConversationId: conversationId,
+			LastReadSeq:    lastReadSeq,
+			UserId:         userId,
+			ConvType:       protocol.ConvType(conv.Convtype),
+			SenderId:       senderId,
+			Avatar:         avatar,
 		}
 		payload, err := json.Marshal(ackEvent)
 		if err != nil {
@@ -294,9 +307,100 @@ func (ma *MessageApplication) GetRoomMemberIDs(ctx context.Context, roomId strin
 		return nil, ErrNotRoomMember
 	}
 	if cacheErr := ma.conversationCache.SetMembers(ctx, roomId, members, room.Version); cacheErr != nil {
-		// TODO: 异步补偿
+		// best-effort cache warmup; the DB state is already authoritative
 	}
 	return members, nil
+}
+
+func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId string) (func(context.Context, *gorm.DB) error, error) {
+	if dto == nil {
+		return nil, nil
+	}
+
+	switch messagevo.CType(dto.CType) {
+	case messagevo.Image:
+		if ma.messageImageRepository == nil {
+			return nil, fmt.Errorf("message image repository is not configured")
+		}
+		if dto.FileId == "" && dto.MediaURL == "" {
+			return nil, fmt.Errorf("image media is required")
+		}
+		item := messageentity.NewMessageImage(
+			messageId,
+			dto.FileId,
+			dto.ThumbFileId,
+			"",
+			dto.MediaURL,
+			dto.Width,
+			dto.Height,
+			dto.FileSize,
+		)
+		return func(ctx context.Context, tx *gorm.DB) error {
+			return ma.messageImageRepository.WithTx(tx).Create(ctx, item)
+		}, nil
+	case messagevo.File:
+		if ma.messageFileRepository == nil {
+			return nil, fmt.Errorf("message file repository is not configured")
+		}
+		if dto.FileId == "" && dto.MediaURL == "" {
+			return nil, fmt.Errorf("file media is required")
+		}
+		item := messageentity.NewMessageFile(
+			messageId,
+			dto.FileId,
+			dto.FileName,
+			dto.FileName,
+			"",
+			dto.MediaURL,
+			dto.FileSize,
+		)
+		return func(ctx context.Context, tx *gorm.DB) error {
+			return ma.messageFileRepository.WithTx(tx).Create(ctx, item)
+		}, nil
+	case messagevo.Sticker:
+		if ma.messageStickerRepository == nil {
+			return nil, fmt.Errorf("message sticker repository is not configured")
+		}
+		if dto.StickerId == "" && dto.MediaURL == "" {
+			return nil, fmt.Errorf("sticker media is required")
+		}
+		item := messageentity.NewMessageSticker(
+			messageId,
+			dto.StickerId,
+			dto.PackId,
+			dto.MediaURL,
+			dto.Width,
+			dto.Height,
+		)
+		return func(ctx context.Context, tx *gorm.DB) error {
+			return ma.messageStickerRepository.WithTx(tx).Create(ctx, item)
+		}, nil
+	case messagevo.Video:
+		if ma.messageVideoRepository == nil {
+			return nil, fmt.Errorf("message video repository is not configured")
+		}
+		if dto.FileId == "" && dto.MediaURL == "" {
+			return nil, fmt.Errorf("video media is required")
+		}
+		duration := int64(0)
+		if dto.DurationMs != nil {
+			duration = *dto.DurationMs
+		}
+		item := messageentity.NewMessageVideo(
+			messageId,
+			dto.FileId,
+			dto.ThumbFileId,
+			dto.MediaURL,
+			duration,
+			dto.Width,
+			dto.Height,
+		)
+		return func(ctx context.Context, tx *gorm.DB) error {
+			return ma.messageVideoRepository.WithTx(tx).Create(ctx, item)
+		}, nil
+	default:
+		return nil, nil
+	}
 }
 
 func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
@@ -307,6 +411,17 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 			ClientMsgId: dto.ClientMsgId,
 			Status:      string(protocol.AckStatusFailed),
 		}, err
+	}
+
+	// 幂等检查：同一 clientMsgId 在 5 分钟内只处理一次
+	if dto.ClientMsgId != "" && ma.conversationCache != nil {
+		if existingMsgId, err := ma.conversationCache.GetDedupEntry(ctx, dto.ClientMsgId); err == nil && existingMsgId != "" {
+			return &MessageAppeDTO{
+				ClientMsgId: dto.ClientMsgId,
+				MessageId:   existingMsgId,
+				Status:      string(protocol.AckStatusSent),
+			}, nil
+		}
 	}
 
 	ok, err := ma.checkConvMember(
@@ -339,18 +454,28 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		}, err
 	}
 
-	message := messageentity.BuildMessage(
+	messageType := messagevo.CType(dto.CType)
+	message := messageentity.NewMessage(
 		messageId,
 		conversationId,
 		dto.SendId,
 		seq,
+		messageType,
 		dto.Content,
 		dto.VideoId,
 		dto.VideoTime,
-		messagevo.CType(dto.CType),
 	)
 
-	conv := messageentity.BuildConversation(
+	mediaWriter, err := ma.buildMediaWriter(&dto, messageId)
+	if err != nil {
+		return &MessageAppeDTO{
+			ClientMsgId: dto.ClientMsgId,
+			MessageId:   messageId,
+			Status:      string(protocol.AckStatusFailed),
+		}, err
+	}
+
+	conv := messageentity.NewConversation(
 		conversationId,
 		dto.SendId,
 		dto.RecvId,
@@ -367,39 +492,8 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	)
 
 	isDanmaku := dto.ConvType == int(messagevo.RoomChat) && dto.VideoTime != nil
-	err = ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
-		msgRepo := ma.messageRepository.WithTx(tx)
-		convRepo := ma.conversationRepository.WithTx(tx)
-		userConvRepo := ma.userConversationRepository.WithTx(tx)
-
-		if err := msgRepo.Save(ctx, message); err != nil {
-			// TODO 异步补偿机制
-			return ErrMessageSave
-		}
-
-		if !isDanmaku {
-			if err = convRepo.Upsert(ctx, conv); err != nil {
-				return ErrConversationSequenceUpdate
-			}
-
-			if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
-				log.Printf("warn: update sender uc failed: %v", err)
-			}
-
-			if err := userConvRepo.UpdateSyncSeq(ctx, userConv); err != nil {
-				log.Printf("warn: update sender uc failed: %v", err)
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return &MessageAppeDTO{
-			ClientMsgId: dto.ClientMsgId,
-			MessageId:   messageId,
-			Status:      string(protocol.AckStatusFailed),
-		}, err
+	if ma.txManager == nil || ma.messageOutboxRepository == nil {
+		return nil, fmt.Errorf("message outbox is not configured")
 	}
 
 	value := ctx.Value("op")
@@ -421,21 +515,82 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		Content:        dto.Content,
 		SendTime:       message.SendTime,
 		ClientMsgId:    dto.ClientMsgId,
+		MediaURL:       dto.MediaURL,
+		ThumbURL:       dto.ThumbURL,
+		FileId:         dto.FileId,
+		ThumbFileId:    dto.ThumbFileId,
+		FileName:       dto.FileName,
+		FileSize:       dto.FileSize,
+		Width:          dto.Width,
+		Height:         dto.Height,
+		DurationMs:     dto.DurationMs,
+		StickerId:      dto.StickerId,
+		PackId:         dto.PackId,
 		HasVideoTime:   dto.VideoTime != nil,
 		VideoTime:      dto.VideoTime,
 	}
+	eventPayload, err := json.Marshal(messageEvent)
+	if err != nil {
+		return nil, err
+	}
 
-	go func() {
-		if err := ma.taskManager.SendMessage(
-			context.Background(),
-			protocol.EventTypeMessage,
-			conversationId,
-			messageEvent,
-		); err != nil {
-			log.Printf("mq send failed: %v", err)
-			// TODO: 后续做补偿（Outbox）
+	// TODO： 这里直接操作了数据库，几乎一条消息就会进行一次处理，解决：这一步写入到 kafka 中，前端根据是否接收到 ack，继而重试（保持 clientMessageId 不变）
+	err = ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+		msgRepo := ma.messageRepository.WithTx(tx)
+		convRepo := ma.conversationRepository.WithTx(tx)
+		userConvRepo := ma.userConversationRepository.WithTx(tx)
+		outboxRepo := ma.messageOutboxRepository.WithTx(tx)
+
+		if err := msgRepo.Save(ctx, message); err != nil {
+			// write failure is fatal; outbox only covers the downstream MQ dispatch
+			return ErrMessageSave
 		}
-	}()
+
+		if !isDanmaku {
+			if err = convRepo.Upsert(ctx, conv); err != nil {
+				return ErrConversationSequenceUpdate
+			}
+
+			if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
+				log.Printf("warn: update sender uc failed: %v", err)
+			}
+
+			if err := userConvRepo.UpdateSyncSeq(ctx, userConv); err != nil {
+				log.Printf("warn: update sender uc failed: %v", err)
+			}
+		}
+
+		if mediaWriter != nil {
+			if err := mediaWriter(ctx, tx); err != nil {
+				return err
+			}
+		}
+
+		outbox := &messageentity.MessageOutbox{
+			EventType:  string(protocol.EventTypeMessage),
+			Topic:      string(protocol.EventTypeMessage),
+			MessageKey: conversationId,
+			Payload:    eventPayload,
+		}
+		if err := outboxRepo.Create(ctx, outbox); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return &MessageAppeDTO{
+			ClientMsgId: dto.ClientMsgId,
+			MessageId:   messageId,
+			Status:      string(protocol.AckStatusFailed),
+		}, err
+	}
+
+	// 标记已处理，5 分钟内同一 clientMsgId 幂等返回
+	if dto.ClientMsgId != "" && ma.conversationCache != nil {
+		_, _ = ma.conversationCache.SetDedupEntry(ctx, dto.ClientMsgId, messageId, 5*time.Minute)
+	}
 
 	return &MessageAppeDTO{
 		ClientMsgId:    dto.ClientMsgId,
@@ -464,7 +619,6 @@ func (ma *MessageApplication) GetHistoryMessages(
 		// 首次查询
 		uc, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
 		if err != nil || uc == nil {
-			// TODO: 当前会话找不到，解决办法是什么？
 			return nil, -1, false, ErrConversationNotFound
 		}
 
@@ -494,6 +648,7 @@ func (ma *MessageApplication) GetHistoryMessages(
 
 	msgsApp := toMessagesAppDTO(msgs)
 	ma.fillSenderUsernames(msgsApp)
+	ma.fillMediaFields(ctx, msgsApp)
 
 	sort.Slice(msgsApp, func(i, j int) bool {
 		return msgsApp[i].Seq < msgsApp[j].Seq
@@ -550,6 +705,94 @@ func (ma *MessageApplication) fillSenderUsernames(messages []MessageAppeDTO) {
 	}
 	for i := range messages {
 		messages[i].SenderUsername = usernameById[messages[i].SendId]
+	}
+}
+
+// fillMediaFields batch-fetches media sub-entities (image/video/file/sticker)
+// and merges their fields into the DTOs. This replaces the old pattern of storing
+// media fields directly on the messages table.
+func (ma *MessageApplication) fillMediaFields(ctx context.Context, messages []MessageAppeDTO) {
+	if len(messages) == 0 {
+		return
+	}
+
+	// Collect message IDs grouped by type
+	imageIDs := make([]string, 0)
+	videoIDs := make([]string, 0)
+	fileIDs := make([]string, 0)
+	stickerIDs := make([]string, 0)
+
+	for _, m := range messages {
+		switch messagevo.CType(m.CType) {
+		case messagevo.Image:
+			imageIDs = append(imageIDs, m.MessageId)
+		case messagevo.Video:
+			videoIDs = append(videoIDs, m.MessageId)
+		case messagevo.File:
+			fileIDs = append(fileIDs, m.MessageId)
+		case messagevo.Sticker:
+			stickerIDs = append(stickerIDs, m.MessageId)
+		}
+	}
+
+	// Batch-fetch from sub-repositories
+	var (
+		images   map[string]*messageentity.MessageImage
+		videos   map[string]*messageentity.MessageVideo
+		files    map[string]*messageentity.MessageFile
+		stickers map[string]*messageentity.MessageSticker
+	)
+
+	if len(imageIDs) > 0 && ma.messageImageRepository != nil {
+		images, _ = ma.messageImageRepository.BatchGetByMessageIDs(ctx, imageIDs)
+	}
+	if len(videoIDs) > 0 && ma.messageVideoRepository != nil {
+		videos, _ = ma.messageVideoRepository.BatchGetByMessageIDs(ctx, videoIDs)
+	}
+	if len(fileIDs) > 0 && ma.messageFileRepository != nil {
+		files, _ = ma.messageFileRepository.BatchGetByMessageIDs(ctx, fileIDs)
+	}
+	if len(stickerIDs) > 0 && ma.messageStickerRepository != nil {
+		stickers, _ = ma.messageStickerRepository.BatchGetByMessageIDs(ctx, stickerIDs)
+	}
+
+	// Populate DTO fields from sub-entities
+	for i := range messages {
+		switch messagevo.CType(messages[i].CType) {
+		case messagevo.Image:
+			if img, ok := images[messages[i].MessageId]; ok && img != nil {
+				messages[i].FileId = img.FileId
+				messages[i].ThumbFileId = img.ThumbFileId
+				messages[i].Width = img.Width
+				messages[i].Height = img.Height
+				messages[i].FileSize = img.Size
+				messages[i].MediaURL = img.URL
+			}
+		case messagevo.Video:
+			if vid, ok := videos[messages[i].MessageId]; ok && vid != nil {
+				messages[i].FileId = vid.FileId
+				messages[i].ThumbFileId = vid.CoverFileId
+				messages[i].Width = vid.Width
+				messages[i].Height = vid.Height
+				messages[i].DurationMs = &vid.DurationMs
+				messages[i].MediaURL = vid.URL
+			}
+		case messagevo.File:
+			if f, ok := files[messages[i].MessageId]; ok && f != nil {
+				messages[i].FileId = f.FileId
+				messages[i].FileName = f.FileName
+				messages[i].FileSize = f.Size
+				messages[i].MediaURL = f.URL
+			}
+		case messagevo.Sticker:
+			if s, ok := stickers[messages[i].MessageId]; ok && s != nil {
+				messages[i].StickerId = s.StickerId
+				messages[i].PackId = s.PackId
+				messages[i].Width = s.Width
+				messages[i].Height = s.Height
+				messages[i].MediaURL = s.URL
+			}
+		}
 	}
 }
 
@@ -834,38 +1077,31 @@ func (ma *MessageApplication) GetOfflineMessages(
 		return nil, nil, err
 	}
 
-	syncItems := make([]protocol.ConversationSyncSeqItem, 0, len(uconvs))
+	syncItems := make([]*messageentity.UserConversation, 0, len(uconvs))
 
 	for _, uconv := range uconvs {
 		latestSeq := syncMap[uconv.ConversationId]
 		if latestSeq == uconv.LatestSyncSeq {
-			// 当前会话的最大值不需要再更新了
 			continue
 		}
 
-		syncItems = append(syncItems, protocol.ConversationSyncSeqItem{
-			UserId:         uconv.UserId,
-			ConversationId: uconv.ConversationId,
-			LatestSeq:      latestSeq,
-		})
+		syncItems = append(syncItems, messageentity.BuildUserConversation(
+			uconv.UserId,
+			uconv.ConversationId,
+			0,
+			latestSeq,
+		))
 	}
 
 	if len(syncItems) > 0 {
-		go func(items []protocol.ConversationSyncSeqItem) {
-			event := protocol.ConversationSyncSeqEvent{Items: items}
-			if err := ma.taskManager.SendConversationSyncSeq(
-				context.Background(),
-				protocol.EventConversationSyncSeq,
-				userId,
-				event,
-			); err != nil {
-				log.Printf("mq send conversation sync seq failed: %v", err)
-			}
-		}(syncItems)
+		if err := ma.userConversationRepository.BatchUpdateSyncSeq(ctx, syncItems); err != nil {
+			log.Printf("warn: batch update sync seq failed: %v", err)
+		}
 	}
 
 	msgsApp := toMessagesAppDTO(msgs)
 	ma.fillSenderUsernames(msgsApp)
+	ma.fillMediaFields(ctx, msgsApp)
 	ma.fillConversationDisplayNames(msgsApp, convs, userId)
 	return msgsApp, unreadMap, nil
 }

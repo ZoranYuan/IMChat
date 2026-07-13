@@ -13,3 +13,7 @@ func ConversationSeqKeys(convId string) string {
 func ConversationMembersVerKey(conversation string) string {
 	return cachekey.ConversationMembersVersion(conversation)
 }
+
+func MessageDedupKey(clientMsgId string) string {
+	return cachekey.MessageDedup(clientMsgId)
+}

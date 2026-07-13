@@ -34,6 +34,17 @@ type Message struct {
 	SendTime       int64  `json:"sendTime"`
 	VideoId        string `json:"videoId,omitempty"`
 	VideoTime      *int64 `json:"videoTime,omitempty"`
+	MediaURL       string `json:"mediaUrl,omitempty"`
+	ThumbURL       string `json:"thumbUrl,omitempty"`
+	FileId         string `json:"fileId,omitempty"`
+	ThumbFileId    string `json:"thumbFileId,omitempty"`
+	FileName       string `json:"fileName,omitempty"`
+	FileSize       int64  `json:"fileSize,omitempty"`
+	Width          int    `json:"width,omitempty"`
+	Height         int    `json:"height,omitempty"`
+	DurationMs     *int64 `json:"durationMs,omitempty"`
+	StickerId      string `json:"stickerId,omitempty"`
+	PackId         string `json:"packId,omitempty"`
 }
 
 type OfflineMessageRes struct {
@@ -90,6 +101,17 @@ func toHistoryMessageRes(messages []messageapp.MessageAppeDTO, nextCursor int64,
 			SendTime:       m.SendTime,
 			VideoId:        m.VideoId,
 			VideoTime:      m.VideoTime,
+			MediaURL:       m.MediaURL,
+			ThumbURL:       m.ThumbURL,
+			FileId:         m.FileId,
+			ThumbFileId:    m.ThumbFileId,
+			FileName:       m.FileName,
+			FileSize:       m.FileSize,
+			Width:          m.Width,
+			Height:         m.Height,
+			DurationMs:     m.DurationMs,
+			StickerId:      m.StickerId,
+			PackId:         m.PackId,
 		}
 
 		ms = append(ms, message)
@@ -144,6 +166,17 @@ func toOfflineMessageRes(messages []messageapp.MessageAppeDTO, unreadMap map[str
 			SendTime:       m.SendTime,
 			VideoId:        m.VideoId,
 			VideoTime:      m.VideoTime,
+			MediaURL:       m.MediaURL,
+			ThumbURL:       m.ThumbURL,
+			FileId:         m.FileId,
+			ThumbFileId:    m.ThumbFileId,
+			FileName:       m.FileName,
+			FileSize:       m.FileSize,
+			Width:          m.Width,
+			Height:         m.Height,
+			DurationMs:     m.DurationMs,
+			StickerId:      m.StickerId,
+			PackId:         m.PackId,
 		}
 
 		om := OfflineMessageRes{

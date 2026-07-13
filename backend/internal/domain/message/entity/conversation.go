@@ -14,7 +14,7 @@ type Conversation struct {
 	LatestSeq       int64
 }
 
-func BuildConversation(
+func NewConversation(
 	conversationId,
 	sendId, recvId string,
 	convTye int,

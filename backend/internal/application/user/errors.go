@@ -1,9 +1,14 @@
 package user
 
-import "errors"
+import (
+	userentity "IM_backend/internal/domain/user/entity"
+	"errors"
+)
 
 var (
-	ErrUserAlreadyExists = errors.New("user already exists")
-	ErrPasswordMismatch  = errors.New("passwords do not match")
-	ErrUserNotFound      = errors.New("user not found")
+	ErrUserAlreadyExists  = userentity.ErrUserAlreadyExists
+	ErrUserNotFound       = userentity.ErrUserNotFound
+	ErrIncorrectPassword  = userentity.ErrIncorrectPassword
+	ErrInvalidPhoneNumber = userentity.ErrInvalidPhoneNumber
+	ErrPasswordMismatch   = errors.New("passwords do not match")
 )

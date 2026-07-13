@@ -8,6 +8,7 @@ import (
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"time"
@@ -46,7 +47,7 @@ func (w *ReadAckOutboxWorker) Start(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		if err := w.dispatchPendingOnce(ctx); err != nil {
-			log.Printf("read ack outbox worker failed: %v", err)
+			log.Printf("outbox worker failed: %v", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -85,19 +86,35 @@ func (w *ReadAckOutboxWorker) dispatchPendingOnce(ctx context.Context) error {
 }
 
 func (w *ReadAckOutboxWorker) dispatchOne(ctx context.Context, item *messageentity.MessageOutbox) error {
-	if item.EventType != protocol.EventMessageReadAck {
-		return w.markRetry(ctx, item, "unsupported outbox event type")
+	switch item.EventType {
+	case protocol.EventTypeMessage:
+		return w.dispatchMessage(ctx, item)
+	case protocol.EventMessageReadAck:
+		return w.dispatchMessageReadAck(ctx, item)
+	default:
+		return w.markRetry(ctx, item, fmt.Sprintf("unsupported outbox event type: %s", item.EventType))
 	}
+}
 
+func (w *ReadAckOutboxWorker) dispatchMessage(ctx context.Context, item *messageentity.MessageOutbox) error {
+	var event protocol.MessageEvent
+	if err := json.Unmarshal(item.Payload, &event); err != nil {
+		return w.markRetry(ctx, item, err.Error())
+	}
+	if err := w.taskManager.SendMessage(ctx, item.Topic, item.MessageKey, event); err != nil {
+		return w.markRetry(ctx, item, err.Error())
+	}
+	return w.outboxRepo.MarkSent(ctx, item.ID, time.Now())
+}
+
+func (w *ReadAckOutboxWorker) dispatchMessageReadAck(ctx context.Context, item *messageentity.MessageOutbox) error {
 	var event protocol.MessageReadAckEvent
 	if err := json.Unmarshal(item.Payload, &event); err != nil {
 		return w.markRetry(ctx, item, err.Error())
 	}
-
 	if err := w.taskManager.PublishMessageReadAck(ctx, item.Topic, item.MessageKey, event); err != nil {
 		return w.markRetry(ctx, item, err.Error())
 	}
-
 	return w.outboxRepo.MarkSent(ctx, item.ID, time.Now())
 }
 

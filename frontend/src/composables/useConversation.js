@@ -1,5 +1,5 @@
 import { nextTick, ref, watch } from "vue";
-import { getHistoryMessages, getOfflineMessages } from "../api";
+import { getHistoryMessages, getOfflineMessages, uploadFile } from "../api";
 
 export function useConversation({ token, currentUser, showMessage, sendFrame, onRoomConversationSelected, getWatchVideoTime }) {
   const conversations = ref([]);
@@ -39,12 +39,19 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
 
     const nextItem = {
       conversationId,
-      displayName: patch.displayName,
-      avatar: patch.avatar,
+      displayName: existing?.displayName || "会话",
+      avatar: existing?.avatar || "",
       unread: nextUnread,
       latestMessage: patch.latestMessage ?? existing?.latestMessage ?? null,
       convType: patch.convType ?? existing?.convType ?? patch.latestMessage?.convType ?? 2,
     };
+
+    if (Object.prototype.hasOwnProperty.call(patch, "displayName")) {
+      nextItem.displayName = patch.displayName || nextItem.displayName;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "avatar")) {
+      nextItem.avatar = patch.avatar || "";
+    }
 
     if (existing) {
       Object.assign(existing, nextItem);
@@ -108,6 +115,84 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       message?.clientMsgId ||
       `${message?.conversationId || ""}:${message?.seq || 0}:${message?.sendTime || 0}:${message?.content || ""}`
     );
+  }
+
+  function getMessagePreviewText(message) {
+    if (!message) return "暂无消息";
+    switch (Number(message.cType) || 0) {
+      case 2:
+        return message.content && message.content !== "[图片]" ? message.content : "[图片]";
+      case 3:
+        return message.content && message.content !== "[视频]" ? message.content : "[视频]";
+      case 4:
+        return message.content && message.content !== "[表情包]" ? message.content : "[表情包]";
+      case 5:
+        return message.content && message.content !== `[文件] ${message.fileName || ""}`
+          ? message.content
+          : message.fileName
+            ? `[文件] ${message.fileName}`
+            : "[文件]";
+      default:
+        return message.content || "暂无消息";
+    }
+  }
+
+  function cloneMessageBase(msg) {
+    return {
+      clientMsgId: msg.clientMsgId,
+      messageId: msg.messageId,
+      conversationId: msg.conversationId,
+      senderId: msg.senderId,
+      senderUsername: msg.senderUsername,
+      content: msg.content,
+      seq: msg.seq,
+      convType: msg.convType,
+      cType: msg.cType,
+      sendTime: msg.sendTime || Date.now(),
+      videoId: msg.videoId || "",
+      videoTime: msg.videoTime || null,
+      mediaUrl: msg.mediaUrl || "",
+      thumbUrl: msg.thumbUrl || "",
+      fileId: msg.fileId || "",
+      thumbFileId: msg.thumbFileId || "",
+      fileName: msg.fileName || "",
+      fileSize: msg.fileSize || 0,
+      width: msg.width || 0,
+      height: msg.height || 0,
+      durationMs: msg.durationMs || null,
+      stickerId: msg.stickerId || "",
+      packId: msg.packId || "",
+    };
+  }
+
+  function buildLatestMessage(message) {
+    if (!message) return null;
+    return {
+      content: getMessagePreviewText(message),
+      convType: message.convType,
+      senderUsername: message.senderUsername,
+      sendTime: message.sendTime || Date.now(),
+      mediaUrl: message.mediaUrl || "",
+      thumbUrl: message.thumbUrl || "",
+      fileId: message.fileId || "",
+      fileName: message.fileName || "",
+      cType: message.cType,
+    };
+  }
+
+  function formatOutgoingMediaContent(cType, fileName = "") {
+    switch (Number(cType) || 0) {
+      case 2:
+        return "[图片]";
+      case 3:
+        return "[视频]";
+      case 4:
+        return "[表情包]";
+      case 5:
+        return fileName ? `[文件] ${fileName}` : "[文件]";
+      default:
+        return fileName || "";
+    }
   }
 
   function mergeConversationMessages(existing = [], incoming = []) {
@@ -192,12 +277,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
     upsertConversationPreview(
       msg.conversationId,
       {
-        latestMessage: {
-          content: msg.content,
-          convType: msg.convType,
-          senderUsername: msg.senderUsername,
-          sendTime: msg.sendTime || Date.now(),
-        },
+        latestMessage: buildLatestMessage(msg),
         unread: isActiveConversation ? 0 : undefined,
         unreadDelta: isActiveConversation ? 0 : 1,
         convType: msg.convType,
@@ -205,19 +285,32 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       true,
     );
     if (isActiveConversation) {
-      messages.value.push({
-        clientMsgId: msg.clientMsgId,
-        messageId: msg.messageId,
-        conversationId: msg.conversationId,
-        senderId: msg.sendId,
-        senderUsername: msg.senderUsername,
-        content: msg.content,
-        seq: msg.seq,
-        convType: msg.convType,
-        cType: msg.cType,
-        sendTime: msg.sendTime || Date.now(),
-        videoTime: msg.videoTime || null,
-      });
+      messages.value.push(
+        cloneMessageBase({
+          clientMsgId: msg.clientMsgId,
+          messageId: msg.messageId,
+          conversationId: msg.conversationId,
+          senderId: msg.sendId,
+          senderUsername: msg.senderUsername,
+          content: msg.content,
+          seq: msg.seq,
+          convType: msg.convType,
+          cType: msg.cType,
+          sendTime: msg.sendTime || Date.now(),
+          videoTime: msg.videoTime || null,
+          mediaUrl: msg.mediaUrl,
+          thumbUrl: msg.thumbUrl,
+          fileId: msg.fileId,
+          thumbFileId: msg.thumbFileId,
+          fileName: msg.fileName,
+          fileSize: msg.fileSize,
+          width: msg.width,
+          height: msg.height,
+          durationMs: msg.durationMs,
+          stickerId: msg.stickerId,
+          packId: msg.packId,
+        }),
+      );
       setConversationMessagesCache(msg.conversationId, messages.value);
       scrollToBottom();
     }
@@ -282,21 +375,265 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
     return true;
   }
 
+  async function sendTextPayload({ content, videoTime, withVideoContext = false }) {
+    if (!content || !activeConversation.value) return false;
+    const clientMsgId = crypto.randomUUID();
+    const ok = sendFrame("msg", "messageReq", {
+      clientMsgId,
+      recvId: activeConversation.value.conversationId,
+      convType: activeConversation.value.convType || 2,
+      cType: 1,
+      content,
+      videoTime,
+      hasVideoTime: Boolean(withVideoContext),
+    });
+    if (!ok) return false;
+    const localMessage = cloneMessageBase({
+      clientMsgId,
+      senderId: currentUser.userId,
+      senderUsername: currentUser.username,
+      content,
+      sendTime: Date.now(),
+      convType: activeConversation.value.convType,
+      cType: 1,
+      videoTime: withVideoContext ? videoTime : null,
+    });
+    trackPendingLocalMessage({
+      clientMsgId,
+      conversationId: activeConversation.value.conversationId,
+      sendId: currentUser.userId,
+      content,
+      cType: 1,
+      sendTime: Date.now(),
+    });
+    messages.value.push(localMessage);
+    setConversationMessagesCache(activeConversation.value.conversationId, messages.value);
+    upsertConversationPreview(
+      activeConversation.value.conversationId,
+      {
+        displayName: activeConversation.value.displayName,
+        unread: 0,
+        resetUnread: true,
+        latestMessage: buildLatestMessage(localMessage),
+        convType: activeConversation.value.convType,
+      },
+      true,
+    );
+    messageText.value = "";
+    scrollToBottom();
+    return true;
+  }
+
+  async function sendMediaPayload(file, cType) {
+    if (!file || !activeConversation.value) return false;
+    const caption = messageText.value.trim();
+
+    let uploaded;
+    try {
+      uploaded = await uploadFile(token.value, file);
+    } catch (err) {
+      showMessage(err.message);
+      return false;
+    }
+    const meta = {
+      fileId: uploaded.fileId || "",
+      mediaUrl: uploaded.url || "",
+      fileName: uploaded.fileName || file.name || "",
+      fileSize: uploaded.size || file.size || 0,
+      thumbUrl: uploaded.url || "",
+      thumbFileId: "",
+      width: 0,
+      height: 0,
+      durationMs: null,
+      stickerId: "",
+      packId: "",
+    };
+
+    if (cType === 2 || cType === 4) {
+      const size = await getImageDimensions(file).catch(() => ({ width: 0, height: 0 }));
+      meta.width = size.width;
+      meta.height = size.height;
+    }
+    if (cType === 3) {
+      const videoMeta = await getVideoMetadata(file).catch(() => ({ width: 0, height: 0, durationMs: null }));
+      meta.width = videoMeta.width;
+      meta.height = videoMeta.height;
+      meta.durationMs = videoMeta.durationMs;
+    }
+
+    const content = caption || formatOutgoingMediaContent(cType, meta.fileName || file.name || "");
+    const clientMsgId = crypto.randomUUID();
+    const ok = sendFrame("msg", "messageReq", {
+      clientMsgId,
+      recvId: activeConversation.value.conversationId,
+      convType: activeConversation.value.convType || 2,
+      cType,
+      content,
+      mediaUrl: meta.mediaUrl,
+      thumbUrl: meta.thumbUrl,
+      fileId: meta.fileId,
+      thumbFileId: meta.thumbFileId,
+      fileName: meta.fileName,
+      fileSize: meta.fileSize,
+      width: meta.width,
+      height: meta.height,
+      durationMs: meta.durationMs || 0,
+      stickerId: meta.stickerId,
+      packId: meta.packId,
+      hasVideoTime: false,
+    });
+    if (!ok) return false;
+
+    const localMessage = cloneMessageBase({
+      clientMsgId,
+      senderId: currentUser.userId,
+      senderUsername: currentUser.username,
+      content,
+      sendTime: Date.now(),
+      convType: activeConversation.value.convType,
+      cType,
+      mediaUrl: meta.mediaUrl,
+      thumbUrl: meta.thumbUrl,
+      fileId: meta.fileId,
+      thumbFileId: meta.thumbFileId,
+      fileName: meta.fileName,
+      fileSize: meta.fileSize,
+      width: meta.width,
+      height: meta.height,
+      durationMs: meta.durationMs,
+      stickerId: meta.stickerId,
+      packId: meta.packId,
+    });
+    trackPendingLocalMessage({
+      clientMsgId,
+      conversationId: activeConversation.value.conversationId,
+      sendId: currentUser.userId,
+      content,
+      cType,
+      sendTime: Date.now(),
+    });
+    messages.value.push(localMessage);
+    setConversationMessagesCache(activeConversation.value.conversationId, messages.value);
+    upsertConversationPreview(
+      activeConversation.value.conversationId,
+      {
+        displayName: activeConversation.value.displayName,
+        unread: 0,
+        resetUnread: true,
+        latestMessage: buildLatestMessage(localMessage),
+        convType: activeConversation.value.convType,
+      },
+      true,
+    );
+    messageText.value = "";
+    scrollToBottom();
+    return true;
+  }
+
+  function sendStickerMessageImpl(sticker) {
+    if (!sticker || !activeConversation.value) return false;
+    const clientMsgId = crypto.randomUUID();
+    const content = sticker.alt || "[表情包]";
+    const ok = sendFrame("msg", "messageReq", {
+      clientMsgId,
+      recvId: activeConversation.value.conversationId,
+      convType: activeConversation.value.convType || 2,
+      cType: 4,
+      content,
+      mediaUrl: sticker.url || "",
+      thumbUrl: sticker.url || "",
+      stickerId: sticker.stickerId || "",
+      packId: sticker.packId || "",
+      width: sticker.width || 0,
+      height: sticker.height || 0,
+      hasVideoTime: false,
+    });
+    if (!ok) return false;
+
+    const localMessage = cloneMessageBase({
+      clientMsgId,
+      senderId: currentUser.userId,
+      senderUsername: currentUser.username,
+      content,
+      sendTime: Date.now(),
+      convType: activeConversation.value.convType,
+      cType: 4,
+      mediaUrl: sticker.url || "",
+      thumbUrl: sticker.url || "",
+      fileName: sticker.alt || "",
+      stickerId: sticker.stickerId || "",
+      packId: sticker.packId || "",
+      width: sticker.width || 0,
+      height: sticker.height || 0,
+    });
+    trackPendingLocalMessage({
+      clientMsgId,
+      conversationId: activeConversation.value.conversationId,
+      sendId: currentUser.userId,
+      content,
+      cType: 4,
+      sendTime: Date.now(),
+    });
+    messages.value.push(localMessage);
+    setConversationMessagesCache(activeConversation.value.conversationId, messages.value);
+    upsertConversationPreview(
+      activeConversation.value.conversationId,
+      {
+        displayName: activeConversation.value.displayName,
+        unread: 0,
+        resetUnread: true,
+        latestMessage: buildLatestMessage(localMessage),
+        convType: activeConversation.value.convType,
+      },
+      true,
+    );
+    scrollToBottom();
+    return true;
+  }
+
+  function getImageDimensions(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve({ width: image.naturalWidth || 0, height: image.naturalHeight || 0 });
+      };
+      image.onerror = (err) => {
+        URL.revokeObjectURL(url);
+        reject(err || new Error("图片读取失败"));
+      };
+      image.src = url;
+    });
+  }
+
+  function getVideoMetadata(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(url);
+        resolve({
+          width: video.videoWidth || 0,
+          height: video.videoHeight || 0,
+          durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : null,
+        });
+      };
+      video.onerror = (err) => {
+        URL.revokeObjectURL(url);
+        reject(err || new Error("视频读取失败"));
+      };
+      video.src = url;
+    });
+  }
+
   async function selectConversation(item) {
     if (!item?.conversationId) return;
 
-    // 离开当前会话时，ack 最后读到的那条消息
-    const prevConversation = activeConversation.value;
-    if (prevConversation && prevConversation.conversationId !== item.conversationId) {
-      const prevMsgs = getConversationMessagesCache(prevConversation.conversationId) || messages.value;
-      const lastMsg = prevMsgs.filter((msg) => Number(msg.seq) > 0).at(-1);
-      if (lastMsg) {
-        sendReadAck(prevConversation.conversationId, lastMsg.seq, lastMsg.senderId || "");
-      }
-    }
-
     const loadSeq = ++conversationLoadSeq;
     const requestedConversationId = item.conversationId;
+    const currentReadState = getConversationReadState(requestedConversationId);
     const current = upsertConversationPreview(item.conversationId, {
       displayName: item.displayName,
       convType: item.convType,
@@ -327,7 +664,9 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       setConversationMessagesCache(requestedConversationId, mergedMessages);
       const lastSeq = mergedMessages.filter((msg) => Number(msg.seq) > 0).at(-1)?.seq || 0;
       const lastSender = mergedMessages.filter((msg) => Number(msg.seq) > 0).at(-1)?.senderId || "";
-      sendReadAck(item.conversationId, lastSeq, lastSender);
+      if (lastSeq > (Number(currentReadState.lastReadSeq) || 0)) {
+        sendReadAck(item.conversationId, lastSeq, lastSender);
+      }
       scrollToBottom();
       if (current?.convType === 2 && typeof onRoomConversationSelected === "function") {
         onRoomConversationSelected(current);
@@ -372,56 +711,24 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
 
   function sendMessage(options = {}) {
     const content = messageText.value.trim();
-    if (!content || !activeConversation.value) return;
-    const clientMsgId = crypto.randomUUID();
     const videoTime = options.videoTime ?? (typeof getWatchVideoTime === "function" ? getWatchVideoTime() : 0);
-    const ok = sendFrame("msg", "messageReq", {
-      clientMsgId,
-      recvId: activeConversation.value.conversationId,
-      convType: activeConversation.value.convType || 2,
-      cType: 1,
-      content,
-      videoTime,
-      hasVideoTime: Boolean(options.withVideoContext),
-    });
-    if (!ok) return;
-    trackPendingLocalMessage({
-      clientMsgId,
-      conversationId: activeConversation.value.conversationId,
-      sendId: currentUser.userId,
-      content,
-      cType: 1,
-      sendTime: Date.now(),
-    });
-    messages.value.push({
-      clientMsgId,
-      senderId: currentUser.userId,
-      senderUsername: currentUser.username,
-      content,
-      sendTime: Date.now(),
-      convType: activeConversation.value.convType,
-      videoId: "",
-      videoTime: options.withVideoContext ? videoTime : null,
-    });
-    setConversationMessagesCache(activeConversation.value.conversationId, messages.value);
-    upsertConversationPreview(
-      activeConversation.value.conversationId,
-      {
-        displayName: activeConversation.value.displayName,
-        unread: 0,
-        resetUnread: true,
-        latestMessage: {
-          content,
-          convType: activeConversation.value.convType,
-          senderUsername: currentUser.username,
-          sendTime: Date.now(),
-        },
-        convType: activeConversation.value.convType,
-      },
-      true,
-    );
-    messageText.value = "";
-    scrollToBottom();
+    return sendTextPayload({ content, videoTime, withVideoContext: Boolean(options.withVideoContext) });
+  }
+
+  function sendImageMessage(file) {
+    return sendMediaPayload(file, 2);
+  }
+
+  function sendVideoMessage(file) {
+    return sendMediaPayload(file, 3);
+  }
+
+  function sendFileMessage(file) {
+    return sendMediaPayload(file, 5);
+  }
+
+  function sendStickerMessage(sticker) {
+    return sendStickerMessageImpl(sticker);
   }
 
   function resetConversationState() {
@@ -468,6 +775,10 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
     openConversation,
     openPrivateConversation,
     sendMessage,
+    sendImageMessage,
+    sendVideoMessage,
+    sendFileMessage,
+    sendStickerMessage,
     handleWsFrame,
     setMessageListRef,
     resetConversationState,

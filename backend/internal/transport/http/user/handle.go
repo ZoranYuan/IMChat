@@ -4,6 +4,7 @@ import (
 	userapp "IM_backend/internal/application/user"
 	uservo "IM_backend/internal/domain/user/value_object"
 	"IM_backend/internal/transport/http/response"
+	"errors"
 	"log"
 	"net/http"
 
@@ -48,13 +49,6 @@ func (uh *UserHandle) Login(c *gin.Context) {
 		}
 
 		userApp, err = uh.app.LoginWithPhone(req.Phone, req.Password)
-	case int(uservo.UserNameType):
-		if req.UserName == "" || req.Password == "" {
-			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
-			return
-		}
-
-		userApp, err = uh.app.LoginWithUserName(req.UserName, req.Password)
 	case int(uservo.WxType):
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "暂不支持该登录方式"))
 		return
@@ -64,7 +58,16 @@ func (uh *UserHandle) Login(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+		switch {
+		case errors.Is(err, userapp.ErrUserNotFound):
+			c.JSON(http.StatusNotFound, response.Error(http.StatusNotFound, err.Error()))
+		case errors.Is(err, userapp.ErrIncorrectPassword):
+			c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, err.Error()))
+		case errors.Is(err, userapp.ErrInvalidPhoneNumber), errors.Is(err, userapp.ErrPasswordMismatch):
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+		default:
+			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "登录失败"))
+		}
 		return
 	}
 

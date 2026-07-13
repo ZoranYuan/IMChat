@@ -24,7 +24,7 @@ type User struct {
 
 func RegisterWithPhone(phone uservo.Phone, password uservo.Password) (*User, error) {
 	if !phone.Validate() {
-		return nil, errInvalidPhoneNumber
+		return nil, ErrInvalidPhoneNumber
 	}
 
 	// hash 加密
@@ -51,12 +51,12 @@ func RegisterWithPhone(phone uservo.Phone, password uservo.Password) (*User, err
 
 func LoginWithPhone(phone uservo.Phone, password uservo.Password, hPassword string) error {
 	if !phone.Validate() {
-		return errInvalidPhoneNumber
+		return ErrInvalidPhoneNumber
 	}
 
 	// 解密
 	if isCheck := password.VerifyPasswordHash([]byte(hPassword)); !isCheck {
-		return errIncorrectPassword
+		return ErrInvalidPhoneNumber
 	}
 
 	return nil

@@ -79,12 +79,9 @@ http.interceptors.response.use(
 );
 
 export function login(form) {
-  const account = (form.account || form.phone || "").trim();
-  const isPhone = /^\d{11}$/.test(account);
   return http.post("/users/login", {
-    loginType: isPhone ? 1 : 2,
-    phone: isPhone ? account : "",
-    userName: isPhone ? "" : account,
+    loginType: 1,
+    phone: (form.phone || "").trim(),
     password: form.password,
   });
 }

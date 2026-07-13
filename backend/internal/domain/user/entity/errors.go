@@ -5,6 +5,6 @@ import "errors"
 var (
 	ErrUserAlreadyExists  = errors.New("user already exists")
 	ErrUserNotFound       = errors.New("user not found")
-	errIncorrectPassword  = errors.New("incorrect password")
-	errInvalidPhoneNumber = errors.New("invalid phone number")
+	ErrIncorrectPassword  = errors.New("incorrect password")
+	ErrInvalidPhoneNumber = errors.New("invalid phone number")
 )

@@ -25,6 +25,10 @@ func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
 		v := pb.GetVideoTime()
 		videoTime = &v
 	}
+	var durationMs *int64
+	if v := pb.GetDurationMs(); v > 0 {
+		durationMs = &v
+	}
 
 	return MessageReq{
 		ClientMsgId: pb.GetClientMsgId(),
@@ -32,6 +36,17 @@ func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
 		ConvType:    int(pb.GetConvType()),
 		CType:       int(pb.GetCType()),
 		Content:     pb.GetContent(),
+		MediaURL:    pb.GetMediaUrl(),
+		ThumbURL:    pb.GetThumbUrl(),
+		FileId:      pb.GetFileId(),
+		ThumbFileId: pb.GetThumbFileId(),
+		FileName:    pb.GetFileName(),
+		FileSize:    pb.GetFileSize(),
+		Width:       int(pb.GetWidth()),
+		Height:      int(pb.GetHeight()),
+		DurationMs:  durationMs,
+		StickerId:   pb.GetStickerId(),
+		PackId:      pb.GetPackId(),
 		VideoTime:   videoTime,
 	}
 }
@@ -74,8 +89,24 @@ func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
 		Content:        event.Content,
 		SendTime:       event.SendTime,
 		ClientMsgId:    event.ClientMsgId,
-		HasVideoTime:   event.HasVideoTime,
-		VideoTime:      videoTime,
+		MediaUrl:       event.MediaURL,
+		ThumbUrl:       event.ThumbURL,
+		FileId:         event.FileId,
+		ThumbFileId:    event.ThumbFileId,
+		FileName:       event.FileName,
+		FileSize:       event.FileSize,
+		Width:          int32(event.Width),
+		Height:         int32(event.Height),
+		DurationMs: func() int64 {
+			if event.DurationMs != nil {
+				return *event.DurationMs
+			}
+			return 0
+		}(),
+		StickerId:    event.StickerId,
+		PackId:       event.PackId,
+		HasVideoTime: event.HasVideoTime,
+		VideoTime:    videoTime,
 	}
 }
 

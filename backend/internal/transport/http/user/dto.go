@@ -22,7 +22,6 @@ type UserLoginReq struct {
 	LoginType int    `json:"loginType" binding:"required"`
 	Phone     string `json:"phone"`
 	Password  string `json:"password"`
-	UserName  string `json:"userName"`
 }
 
 type UserLoginRes struct {

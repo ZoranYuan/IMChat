@@ -19,6 +19,17 @@ type MessageAppeDTO struct {
 	SendTime       int64  `json:"sendTime"`
 	VideoId        string `json:"videoId"`
 	VideoTime      *int64 `json:"videoTime"` // 视频时长（毫秒，可选）
+	MediaURL       string `json:"mediaUrl,omitempty"`
+	ThumbURL       string `json:"thumbUrl,omitempty"`
+	FileId         string `json:"fileId,omitempty"`
+	ThumbFileId    string `json:"thumbFileId,omitempty"`
+	FileName       string `json:"fileName,omitempty"`
+	FileSize       int64  `json:"fileSize,omitempty"`
+	Width          int    `json:"width,omitempty"`
+	Height         int    `json:"height,omitempty"`
+	DurationMs     *int64 `json:"durationMs,omitempty"`
+	StickerId      string `json:"stickerId,omitempty"`
+	PackId         string `json:"packId,omitempty"`
 }
 
 type DanmakuDTO struct {
@@ -59,6 +70,7 @@ func toMessagesAppDTO(ms []*messageentity.Message) []MessageAppeDTO {
 			SendTime:       m.SendTime,
 			VideoId:        m.VideoId,
 			VideoTime:      m.VideoTime,
+			// Media fields are populated later via fillMediaFields from sub-entity tables.
 		})
 	}
 

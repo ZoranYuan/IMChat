@@ -69,7 +69,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 	roomUser := roomentity.NewRoomUser(userId, roomId, roomvo.HomeOwner)
 	roomUser.Join()
 
-	conversation := messageentity.BuildConversation(
+	conversation := messageentity.NewConversation(
 		conversationId,
 		userId,
 		roomId,
@@ -98,7 +98,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 			return err
 		}
 
-		if _, err := roomUserRepository.Create(roomUser); err != nil {
+		if _, err := roomUserRepository.JoinRoom(roomUser); err != nil {
 			return err
 		}
 
@@ -118,7 +118,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 	inviteCode, inviteErr := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
 
 	if err := ra.conversationCache.AddMember(ctx, conversationId, userId, 1); err != nil {
-		// TODO: 异步补偿
+		// best-effort cache warmup; the DB state is already authoritative
 		log.Println("failed to create join room cache ", err)
 	}
 
@@ -197,8 +197,8 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		userConversationRepository := ra.userConversationRepository.WithTx(tx)
 		conversationRepository := ra.conversationRepository.WithTx(tx)
 
-		if err := roomUserRepository.JoinRoom(roomUser); err != nil {
-			if !errors.Is(err, roomentity.ErrDuplicateJoin) {
+		if _, err := roomUserRepository.JoinRoom(roomUser); err != nil {
+			if !errors.Is(err, roomentity.ErrDuplicateCreation) {
 				return err
 			}
 		}
@@ -232,7 +232,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 	}
 
 	if err := ra.conversationCache.AddMember(ctx, conversationId, userId, version); err != nil {
-		// TODO: 异步补偿
+		// best-effort cache warmup; the DB state is already authoritative
 		log.Println("failed to update join room cache ", err)
 	}
 
@@ -256,18 +256,14 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 
 	var version int64
 	if err := ra.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
-		roomUserRepository := ra.roomUserRepository.WithTx(tx)
-		if err := roomUserRepository.JoinRoom(roomUser); err != nil {
-			if !errors.Is(err, roomentity.ErrDuplicateJoin) {
-				return err
-			}
-		}
+		roomRepo := ra.roomRepository.WithTx(tx)
+		roomUserRepo := ra.roomUserRepository.WithTx(tx)
 
-		if version, err = ra.roomRepository.UpdateRoomVersion(roomId); err != nil {
+		if version, err = roomRepo.UpdateRoomVersion(roomId); err != nil {
 			return err
 		}
 
-		if err := ra.roomUserRepository.Leave(roomUser, []int{int(roomvo.Activate), int(roomvo.BeMuted)}); err != nil {
+		if err := roomUserRepo.LeaveRoom(roomUser, []int{int(roomvo.Activate), int(roomvo.BeMuted)}); err != nil {
 			if errors.Is(err, roomentity.ErrVersionConflict) {
 				return ErrConcurrentUpdate
 			}
@@ -280,7 +276,7 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 	}
 
 	if err := ra.conversationCache.RemoveMember(ctx, conversationId, userId, version); err != nil {
-		// TODO: 异步补偿
+		// best-effort cache warmup; the DB state is already authoritative
 		log.Println("failed to update remove room cache ", err)
 	}
 

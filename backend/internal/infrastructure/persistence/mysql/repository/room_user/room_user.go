@@ -49,7 +49,7 @@ func (rur *RoomUserRepository) ListActiveUserIDs(roomId string) ([]string, error
 	return userIds, err
 }
 
-func (rur *RoomUserRepository) Create(domain *roomentity.RoomUser) (*roomentity.RoomUser, error) {
+func (rur *RoomUserRepository) JoinRoom(domain *roomentity.RoomUser) (*roomentity.RoomUser, error) {
 	model := ToModel(domain)
 
 	res := rur.db.Clauses(clause.OnConflict{
@@ -73,29 +73,7 @@ func (rur *RoomUserRepository) Create(domain *roomentity.RoomUser) (*roomentity.
 	return ToDomain(model), nil
 }
 
-func (rur *RoomUserRepository) JoinRoom(domain *roomentity.RoomUser) error {
-	var m = ToModel(domain)
-
-	result := rur.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{
-			{Name: "room_id"},
-			{Name: "user_id"},
-		},
-		DoNothing: true,
-	}).Create(&m)
-
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if result.RowsAffected == 0 {
-		return roomentity.ErrDuplicateJoin
-	}
-
-	return nil
-}
-
-func (rur *RoomUserRepository) Leave(domain *roomentity.RoomUser, status []int) error {
+func (rur *RoomUserRepository) LeaveRoom(domain *roomentity.RoomUser, status []int) error {
 	var m = ToModel(domain)
 
 	updates := map[string]interface{}{

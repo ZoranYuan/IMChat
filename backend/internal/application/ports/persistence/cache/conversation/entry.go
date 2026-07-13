@@ -1,6 +1,9 @@
 package conversation
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type ConversationCache interface {
 	IsMemberWithVersion(ctx context.Context, convId, userId string) (bool, int64, error)
@@ -15,4 +18,8 @@ type ConversationCache interface {
 		ctx context.Context,
 		convId string,
 	) ([]string, int64, error)
+	// DedupEntry atomically stores clientMsgId → messageId mapping.
+	// Returns false if the key already exists (duplicate request).
+	SetDedupEntry(ctx context.Context, clientMsgId, messageId string, ttl time.Duration) (bool, error)
+	GetDedupEntry(ctx context.Context, clientMsgId string) (string, error)
 }

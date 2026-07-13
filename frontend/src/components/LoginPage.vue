@@ -29,15 +29,7 @@
         <button :class="{ active: authMode === 'register' }" @click="$emit('update:authMode', 'register')">注册</button>
       </div>
 
-      <label v-if="authMode === 'login'">
-        <span>账号</span>
-        <input
-          :value="authForm.account"
-          placeholder="请输入手机号或用户名"
-          @input="authForm.account = $event.target.value.trim()"
-        />
-      </label>
-      <label v-else>
+      <label>
         <span>手机号</span>
         <input :value="authForm.phone" placeholder="请输入手机号" @input="authForm.phone = $event.target.value.trim()" />
       </label>

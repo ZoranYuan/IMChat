@@ -55,6 +55,7 @@
         :set-message-list-ref="setMessageListRef" :last-read-seq="activeReadState.lastReadSeq"
         :read-receivers="activeReadState.readers" :show-watch-entry="Boolean(activeConversation?.convType === 2)"
         :watch-entry-label="watchActionLabel" :watch-entry-hint="watchStatusLabel" @send-message="sendMessage"
+        @send-image="sendImageMessage" @send-file="sendFileMessage" @send-video="sendVideoMessage"
         @open-watch="openWatchRoom" />
     </section>
 
@@ -78,7 +79,9 @@
             :messages="watchMessages" :conversation-loading="false" :current-user="currentUser" :ws-connected="wsConnected"
             :set-message-list-ref="setMessageListRef" :last-read-seq="activeReadState.lastReadSeq"
             :read-receivers="activeReadState.readers" :show-watch-entry="true" :watch-entry-label="watchActionLabel"
-            :watch-entry-hint="watchStatusLabel" @send-message="sendWatchMessage" @open-watch="openWatchRoom" />
+            :watch-entry-hint="watchStatusLabel" @send-message="sendWatchMessage" @send-image="sendImageMessage"
+            @send-file="sendFileMessage" @send-video="sendVideoMessage"
+            @open-watch="openWatchRoom" />
         </template>
       </aside>
 
@@ -180,6 +183,9 @@ const {
   retryWsConnection,
   logout,
   sendMessage,
+  sendImageMessage,
+  sendFileMessage,
+  sendVideoMessage,
   handleCreateRoom,
   handleJoinRoom,
   handleInvite,
@@ -246,7 +252,7 @@ watch(
 async function sendWatchMessage() {
   await focusWatchRoomConversation();
   if (activeConversation.value?.conversationId !== activeRoomId.value) return;
-  sendMessage({ withVideoContext: true });
+  await sendMessage({ withVideoContext: true });
 }
 
 function openWatchRoom() {

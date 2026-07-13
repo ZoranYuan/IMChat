@@ -6,10 +6,12 @@ import (
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	messageentity "IM_backend/internal/domain/message/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
+	mq "IM_backend/internal/infrastructure/messaging"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
 	"log"
+	"time"
 
 	"github.com/IBM/sarama"
 	"golang.org/x/sync/singleflight"
@@ -22,6 +24,7 @@ type GroupHandler struct {
 	sf                         singleflight.Group
 	roomRepository             roomrepo.RoomRepository
 	userConversationRepository messagerepo.UserConversationRepository
+	batcher                    *mq.MessageBatcher
 }
 
 func NewGroupHandler(dispatcher ClientDispatcher,
@@ -35,6 +38,7 @@ func NewGroupHandler(dispatcher ClientDispatcher,
 		userConversationRepository: userConversationRepository,
 		roomRepository:             roomRepository,
 		workerPool:                 newWorkerPool(100, 1000),
+		batcher:                    mq.NewMessageBatcher(dispatcher, 20, 50*time.Millisecond, 30*time.Second),
 	}
 }
 
@@ -74,7 +78,8 @@ func (h *GroupHandler) getConvMembers(ctx context.Context, conversationId string
 		}
 
 		if err := h.conversationCache.SetMembers(ctx, conversationId, members, room.Version); err != nil {
-			// TODO: 异步补偿（MQ / retry）
+			// best-effort cache warmup; the DB state is already authoritative
+			log.Printf("warn: cache warmup failed for conversation %s: %v", conversationId, err)
 		}
 
 		return members, nil
@@ -100,7 +105,7 @@ func (h *GroupHandler) handleMessage(
 	switch event.ConvType {
 	case protocol.PrivateChat:
 		if err := h.dispatch.SendToClient(topic, envelope.To, envelope.Payload); err != nil {
-			// TODO:补偿
+			return err
 		}
 
 		uc := messageentity.BuildUserConversation(
@@ -111,49 +116,30 @@ func (h *GroupHandler) handleMessage(
 		)
 
 		if err := h.userConversationRepository.UpdateSyncSeq(ctx, uc); err != nil {
-			// TODO:补偿
+			return err
 		}
 
 	case protocol.RoomChat:
 		members, err := h.getConvMembers(ctx, conversationId, conversationId)
 		if err != nil {
-			// TODO: 补偿
+			return err
 		}
 
-		memberCount := len(members)
-		if memberCount <= 100 {
-			payload := envelope.Payload
+		// Push via batcher — messages are accumulated per-conversation
+		// and flushed in batches, reducing per-message push overhead.
+		if err := h.batcher.Add(topic, conversationId, members, event); err != nil {
+			log.Printf("warn: batcher enqueue failed: %v", err)
+			return err
+		}
 
-			userConvs := make([]*messageentity.UserConversation, 0, memberCount)
-
-			for _, uid := range members {
-				id := uid
-				h.workerPool.submit(func() {
-					if err = h.dispatch.SendToClient(
-						topic,
-						id,
-						payload,
-					); err != nil {
-						// TODO:补偿
-					}
-				})
-
-				userConvs = append(userConvs,
-					messageentity.BuildUserConversation(
-						id,
-						conversationId,
-						0,
-						event.Seq,
-					),
-				)
-			}
-
-			if err := h.userConversationRepository.BatchUpdateSyncSeq(ctx, userConvs); err != nil {
-				// TODO:补偿
-
-			}
-		} else {
-			// TODO: 以某种方式通知前端群聊有新消息，让前端主动去拉取消息
+		userConvs := make([]*messageentity.UserConversation, 0, len(members))
+		for _, uid := range members {
+			userConvs = append(userConvs,
+				messageentity.BuildUserConversation(uid, conversationId, 0, event.Seq),
+			)
+		}
+		if err := h.userConversationRepository.BatchUpdateSyncSeq(ctx, userConvs); err != nil {
+			return err
 		}
 	default:
 		return ErrUnknownConversationType
@@ -185,7 +171,6 @@ func (h *GroupHandler) dispatchMessageReadNotify(senderId string, payload []byte
 		return nil
 	}
 	if err := h.dispatch.SendToClient(protocol.EventMessageReadNotify, senderId, payload); err != nil {
-		// TODO: 补偿
 		return err
 	}
 	return nil
@@ -247,6 +232,7 @@ func (h *GroupHandler) ConsumeClaim(
 
 		if err != nil {
 			log.Printf("consume topic %s failed: %v", claim.Topic(), err)
+			continue
 		}
 		session.MarkMessage(msg, "")
 	}

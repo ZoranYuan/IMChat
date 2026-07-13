@@ -155,8 +155,6 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 		AccessToken:  accessToken,
 	}
 
-	// TODO 将之前的缓存删除
-
 	return userAppDTO, nil
 }
 
