@@ -235,16 +235,13 @@ func (mc *ConversationCache) GetConvLatestSeq(ctx context.Context, convId string
 }
 
 func (mc *ConversationCache) SetConvSeq(ctx context.Context, convId string, seq int64) error {
-	key := ConversationSeqKeys(convId)
-	return mc.store.SetNXInt64(ctx, key, seq)
+	return mc.store.SetNXInt64(ctx, ConversationSeqKeys(convId), seq)
 }
 
 func (mc *ConversationCache) SetDedupEntry(ctx context.Context, clientMsgId, messageId string, ttl time.Duration) (bool, error) {
-	key := MessageDedupKey(clientMsgId)
-	return mc.store.SetNXString(ctx, key, messageId, ttl)
+	return mc.store.SetNXString(ctx, MessageDedupKey(clientMsgId), messageId, ttl)
 }
 
 func (mc *ConversationCache) GetDedupEntry(ctx context.Context, clientMsgId string) (string, error) {
-	key := MessageDedupKey(clientMsgId)
-	return mc.store.GetString(ctx, key)
+	return mc.store.GetString(ctx, MessageDedupKey(clientMsgId))
 }

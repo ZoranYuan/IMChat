@@ -26,6 +26,7 @@ export function useChunkUpload(options = {}) {
 
     status.value = "hashing";
     totalBytes.value = file.size;
+    // 返回文件 hash
     const fileHash = await createFileFingerprint(file);
     const totalChunks = Math.ceil(file.size / chunkSize);
 
@@ -58,6 +59,8 @@ export function useChunkUpload(options = {}) {
     }
 
     let cursor = 0;
+
+    // 不阻塞当前线程，开启 worker 去进行文件 hash
     async function worker() {
       while (cursor < queue.length) {
         if (canceled.value) throw new Error("上传已取消");

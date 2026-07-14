@@ -65,6 +65,7 @@ type MinIOConfig struct {
 	UseSSL          bool   `yaml:"use_ssl"`
 	CacheTTLSeconds int    `yaml:"cache_ttl_seconds"`
 	URLTTLSeconds   int    `yaml:"url_ttl_seconds"`
+	MultipartTTL    int    `yaml:"multipartTTL"`
 }
 
 type App struct {

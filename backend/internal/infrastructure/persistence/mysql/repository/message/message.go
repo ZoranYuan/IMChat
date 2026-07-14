@@ -39,6 +39,7 @@ func (r *MessageRepository) GetHistoryMessage(
 
 	var models []*model.Message
 
+	// 只找出聊天的历史消息
 	err := r.db.WithContext(ctx).
 		Where("conversation_id = ? AND seq < ? AND (video_id = '' OR video_id IS NULL)", conversationId, maxSeq).
 		Order("seq DESC").

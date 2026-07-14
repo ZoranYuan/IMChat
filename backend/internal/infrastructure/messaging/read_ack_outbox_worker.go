@@ -35,7 +35,7 @@ func NewReadAckOutboxWorker(
 		txManager:     txManager,
 		outboxRepo:    outboxRepo,
 		taskManager:   taskManager,
-		batchSize:     50,
+		batchSize:     10,
 		interval:      2 * time.Second,
 		staleAfter:    30 * time.Second,
 		baseRetryWait: 2 * time.Second,

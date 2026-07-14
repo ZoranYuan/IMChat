@@ -90,6 +90,7 @@ func NewMessageApplication(
 	}
 }
 
+// 这个逻辑有问题
 func (ma *MessageApplication) checkConvMember(
 	ctx context.Context,
 	convType messagevo.ConvType,
@@ -100,6 +101,7 @@ func (ma *MessageApplication) checkConvMember(
 	isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
 		ctx, conversationId, userId,
 	)
+
 	if err == nil && cacheVersion > 0 && convType == messagevo.PrivateChat {
 		return isMember, nil
 	}
@@ -218,6 +220,7 @@ func (ma *MessageApplication) HandleMessageReadAck(
 			return nil
 		}
 		avatar := ""
+		// 找到用户需要显示的头像（下一步将用户画像信息加入缓存，这一步可以直接从缓存中读取）
 		if conv.Convtype == messagevo.RoomChat && ma.userRepository != nil {
 			if user, err := ma.userRepository.FindByUserID(userId); err == nil && user != nil {
 				avatar = user.Avatar
@@ -235,11 +238,14 @@ func (ma *MessageApplication) HandleMessageReadAck(
 		if err != nil {
 			return err
 		}
+
+		// 加入 outbox ，便于后续的异步事件分发
 		outbox := &messageentity.MessageOutbox{EventType: string(protocol.EventMessageReadAck), Topic: string(protocol.EventMessageReadAck), MessageKey: userId + ":" + conversationId, Payload: payload}
 		return ma.messageOutboxRepository.WithTx(tx).Create(ctx, outbox)
 	})
 }
 
+// 处理消息已读回执
 func (ma *MessageApplication) publishMessageReadAck(
 	ctx context.Context,
 	userId string,
@@ -264,6 +270,7 @@ func (ma *MessageApplication) publishMessageReadAck(
 		Avatar:         avatar,
 	}
 
+	// 这里是否要加入 outbox
 	if ma.taskManager != nil {
 		_ = ma.taskManager.PublishMessageReadAck(
 			ctx,
@@ -312,6 +319,7 @@ func (ma *MessageApplication) GetRoomMemberIDs(ctx context.Context, roomId strin
 	return members, nil
 }
 
+// 返回一个闭包函数，用于后续的执行
 func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId string) (func(context.Context, *gorm.DB) error, error) {
 	if dto == nil {
 		return nil, nil
@@ -444,6 +452,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		log.Println("failed to add member in conv cache ", err)
 	}
 
+	// 从缓存中获取到当前会话的 Seq
 	seq, err := ma.conversationCache.IncrConvLatestSeq(ctx, conversationId)
 
 	if err != nil {
@@ -491,6 +500,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		seq,
 	)
 
+	// 弹幕需要同时满足前端发送有视频时间以及在房间内
 	isDanmaku := dto.ConvType == int(messagevo.RoomChat) && dto.VideoTime != nil
 	if ma.txManager == nil || ma.messageOutboxRepository == nil {
 		return nil, fmt.Errorf("message outbox is not configured")
@@ -529,12 +539,13 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		HasVideoTime:   dto.VideoTime != nil,
 		VideoTime:      dto.VideoTime,
 	}
+
 	eventPayload, err := json.Marshal(messageEvent)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO： 这里直接操作了数据库，几乎一条消息就会进行一次处理，解决：这一步写入到 kafka 中，前端根据是否接收到 ack，继而重试（保持 clientMessageId 不变）
+	// TODO： 这里直接操作了数据库，这一步先不发送，而是进入缓冲队列，等到对了慢了或者超过最大等待时间，再去处理
 	err = ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
 		msgRepo := ma.messageRepository.WithTx(tx)
 		convRepo := ma.conversationRepository.WithTx(tx)
@@ -600,6 +611,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	}, nil
 }
 
+// 通过游标的方式来获取历史记录
 func (ma *MessageApplication) GetHistoryMessages(
 	ctx context.Context,
 	conversationId string,
@@ -609,24 +621,21 @@ func (ma *MessageApplication) GetHistoryMessages(
 ) ([]MessageAppeDTO, int64, bool, error) {
 
 	// 限制 limit 大小
-	if limit < 0 || limit > 50 {
+	if limit <= 0 || limit >= 31 {
 		limit = 20
 	}
 
 	var maxSeq int64
 	switch cursor {
 	case 0:
-		// 首次查询
 		uc, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
 		if err != nil || uc == nil {
 			return nil, -1, false, ErrConversationNotFound
 		}
 
 		if uc.LastReadSeq > 0 {
-			// 之前读过，从未读开始
 			maxSeq = uc.LastReadSeq + 1
 		} else {
-			// 从未读过，直接从最新的开始读
 			maxSeq = math.MaxInt64
 		}
 	case -1:
@@ -679,6 +688,7 @@ func (ma *MessageApplication) getUsername(userId string) string {
 	return user.UserName
 }
 
+// 批量回填 userName，用于前端展示
 func (ma *MessageApplication) fillSenderUsernames(messages []MessageAppeDTO) {
 	if len(messages) == 0 || ma.userRepository == nil {
 		return
@@ -686,9 +696,6 @@ func (ma *MessageApplication) fillSenderUsernames(messages []MessageAppeDTO) {
 	seen := make(map[string]struct{}, len(messages))
 	userIds := make([]string, 0, len(messages))
 	for _, msg := range messages {
-		if msg.SendId == "" {
-			continue
-		}
 		if _, ok := seen[msg.SendId]; ok {
 			continue
 		}
@@ -812,9 +819,6 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 	roomSeen := make(map[string]struct{}, len(conversations))
 
 	for _, conv := range conversations {
-		if conv == nil {
-			continue
-		}
 		conversationById[conv.ConversationId] = conv
 
 		switch conv.Convtype {
@@ -823,11 +827,9 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 			if peerId == userId {
 				peerId = conv.UserId2
 			}
-			if peerId != "" {
-				if _, ok := privateSeen[peerId]; !ok {
-					privateSeen[peerId] = struct{}{}
-					privatePeerIds = append(privatePeerIds, peerId)
-				}
+			if _, ok := privateSeen[peerId]; !ok {
+				privateSeen[peerId] = struct{}{}
+				privatePeerIds = append(privatePeerIds, peerId)
 			}
 		case messagevo.RoomChat:
 			if conv.RoomId != "" {
@@ -852,6 +854,7 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 		displayName string
 		avatar      string
 	}
+
 	roomMetaByID := make(map[string]roomMeta, len(roomIds))
 	if len(roomIds) > 0 && ma.roomRepository != nil {
 		for _, roomID := range roomIds {
@@ -885,6 +888,8 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 				messages[i].Avatar = user.Avatar
 				continue
 			}
+
+			// 批量查询结果优先，单条查询兜底
 			messages[i].DisplayName = ma.getUserDisplayName(peerId)
 			messages[i].Avatar = ma.getUserAvatar(peerId)
 		case messagevo.RoomChat:

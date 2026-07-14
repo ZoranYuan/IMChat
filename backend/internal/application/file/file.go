@@ -79,6 +79,7 @@ func (a *Application) InitMultipartUpload(ctx context.Context, dto MultipartInit
 		return nil, ErrInvalidPart
 	}
 
+	// 文件成功上传后，会记录 hash 值，以此来实现后续的秒传
 	if fileId, err := a.cache.GetFileIdByHash(ctx, dto.FileHash); err != nil {
 		return nil, err
 	} else if fileId != "" {
@@ -93,6 +94,7 @@ func (a *Application) InitMultipartUpload(ctx context.Context, dto MultipartInit
 		}
 	}
 
+	// 文件未上传完整
 	if uploadId, err := a.cache.GetActiveUploadId(ctx, dto.FileHash); err != nil {
 		return nil, err
 	} else if uploadId != "" {
@@ -101,6 +103,7 @@ func (a *Application) InitMultipartUpload(ctx context.Context, dto MultipartInit
 			return nil, err
 		}
 		if meta != nil && meta.UploaderId == dto.UploaderId && meta.FileHash == dto.FileHash {
+			// 获取所有已经上传的切片索引
 			uploadedParts, err := a.uploadedPartNumbers(ctx, uploadId)
 			if err != nil {
 				return nil, err
@@ -115,6 +118,7 @@ func (a *Application) InitMultipartUpload(ctx context.Context, dto MultipartInit
 		}
 	}
 
+	// 新的文件上传
 	fileId, err := snow.GenerateSnowID(int(a.config.App.MachineID))
 	if err != nil {
 		return nil, err
@@ -210,6 +214,8 @@ func (a *Application) CompleteMultipartUpload(ctx context.Context, uploadId stri
 	if len(parts) != meta.TotalChunks {
 		return nil, ErrUploadNotCompleted
 	}
+
+	// 判断当前上传的文件是否有缺失的
 	sort.Slice(parts, func(i, j int) bool {
 		return parts[i].PartNumber < parts[j].PartNumber
 	})
@@ -243,6 +249,7 @@ func (a *Application) CompleteMultipartUpload(ctx context.Context, uploadId stri
 		return nil, err
 	}
 	_ = a.cache.Set(ctx, entity, a.cacheTTL())
+	// 文件上传成功后，在 redis 中记录已经上传成功的 文件的总 hash
 	_ = a.cache.SetFileHash(ctx, meta.FileHash, meta.FileId, a.multipartTTL())
 	_ = a.cache.DeleteMultipartUpload(ctx, uploadId)
 	_ = a.cache.DeleteActiveUpload(ctx, meta.FileHash)
@@ -302,7 +309,13 @@ func (a *Application) buildObjectKey(uploaderId string, fileId string, fileName 
 }
 
 func (a *Application) multipartTTL() time.Duration {
-	return 24 * time.Hour
+	ttl := a.config.Storage.MinIO.MultipartTTL
+
+	if ttl <= 0 {
+		ttl = 24 * 60 * 60
+	}
+
+	return time.Duration(ttl) * time.Second
 }
 
 func (a *Application) cacheTTL() time.Duration {

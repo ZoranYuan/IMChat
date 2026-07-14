@@ -113,7 +113,7 @@ func (g *Gateway) saveWatchState(ctx context.Context, state WatchVideoState) err
 	return nil
 }
 
-// 监听协程
+// 监听协程——用于心跳检测
 func (g *Gateway) KeepAlive(interval int, pongWait int) {
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 
