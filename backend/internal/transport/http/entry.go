@@ -13,9 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterUserRouter(r *gin.RouterGroup, uh *userhttp.UserHandle, auth *middleware.AuthMiddleware) {
+func RegisterUserRouter(r *gin.RouterGroup, uh *userhttp.UserHandle, auth *middleware.AuthMiddleware, limter *middleware.LimitMiddleware) {
 	userGroup := r.Group("/users")
-	userhttp.RegisterRoutes(userGroup, uh, auth)
+	userhttp.RegisterRoutes(userGroup, uh, auth, limter)
 }
 
 func RegisterFriendRequestRouter(r *gin.RouterGroup, fh *friendrequesthttp.FriendRequestHandle, authMiddle *middleware.AuthMiddleware) {

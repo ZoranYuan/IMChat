@@ -5,10 +5,6 @@ import (
 	"log"
 )
 
-type ClientDispatcher interface {
-	SendToClient(string, string, []byte) error
-}
-
 type Consumer struct {
 	client       *Client
 	topic        []string

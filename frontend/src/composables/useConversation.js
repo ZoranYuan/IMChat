@@ -1,7 +1,7 @@
 import { nextTick, ref, watch } from "vue";
 import { getHistoryMessages, getOfflineMessages, uploadFile } from "../api";
 
-export function useConversation({ token, currentUser, showMessage, sendFrame, onRoomConversationSelected, getWatchVideoTime }) {
+export function useConversation({ token, currentUser, showMessage, sendFrame }) {
   const conversations = ref([]);
   const activeConversation = ref(null);
   const messages = ref([]);
@@ -375,7 +375,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
     return true;
   }
 
-  async function sendTextPayload({ content, videoTime, withVideoContext = false }) {
+  async function sendTextPayload(content) {
     if (!content || !activeConversation.value) return false;
     const clientMsgId = crypto.randomUUID();
     const ok = sendFrame("msg", "messageReq", {
@@ -384,8 +384,8 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       convType: activeConversation.value.convType || 2,
       cType: 1,
       content,
-      videoTime,
-      hasVideoTime: Boolean(withVideoContext),
+      videoTime: 0,
+      hasVideoTime: false,
     });
     if (!ok) return false;
     const localMessage = cloneMessageBase({
@@ -396,7 +396,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
       sendTime: Date.now(),
       convType: activeConversation.value.convType,
       cType: 1,
-      videoTime: withVideoContext ? videoTime : null,
+      videoTime: null,
     });
     trackPendingLocalMessage({
       clientMsgId,
@@ -668,9 +668,6 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
         sendReadAck(item.conversationId, lastSeq, lastSender);
       }
       scrollToBottom();
-      if (current?.convType === 2 && typeof onRoomConversationSelected === "function") {
-        onRoomConversationSelected(current);
-      }
     } finally {
       if (loadSeq === conversationLoadSeq) conversationLoading.value = false;
     }
@@ -709,10 +706,9 @@ export function useConversation({ token, currentUser, showMessage, sendFrame, on
     selectConversation(item);
   }
 
-  function sendMessage(options = {}) {
+  function sendMessage() {
     const content = messageText.value.trim();
-    const videoTime = options.videoTime ?? (typeof getWatchVideoTime === "function" ? getWatchVideoTime() : 0);
-    return sendTextPayload({ content, videoTime, withVideoContext: Boolean(options.withVideoContext) });
+    return sendTextPayload(content);
   }
 
   function sendImageMessage(file) {

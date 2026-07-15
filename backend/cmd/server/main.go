@@ -9,7 +9,7 @@ import (
 	roomapp "IM_backend/internal/application/room"
 	testdataapp "IM_backend/internal/application/testdata"
 	userapp "IM_backend/internal/application/user"
-	"IM_backend/internal/infrastructure/messaging"
+	mq "IM_backend/internal/infrastructure/messaging"
 	"IM_backend/internal/infrastructure/messaging/client/kafka"
 	"IM_backend/internal/infrastructure/persistence"
 	"IM_backend/internal/infrastructure/persistence/mysql"
@@ -25,6 +25,8 @@ import (
 	conversationredis "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
 	fileredis "IM_backend/internal/infrastructure/persistence/redis/cache/file"
 	roomredis "IM_backend/internal/infrastructure/persistence/redis/cache/room"
+	"IM_backend/internal/infrastructure/ratelimit"
+	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
 	authsvc "IM_backend/internal/infrastructure/security/auth"
 	minioobj "IM_backend/internal/infrastructure/storage/minio"
 	"IM_backend/internal/shared/protocol"
@@ -76,8 +78,8 @@ func main() {
 
 	txManager := persistence.NewGormTxManager(db)
 
-	gateway := ws.NewGateway(redisClient)
-	gateway.KeepAlive(cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
+	realtimeGateway := realtimews.NewGateway()
+	realtimeGateway.KeepAlive(ctx, cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
 
 	authCache := authredis.NewAuthCache(redisClient)
 	roomCache := roomredis.NewRoomCache(redisClient)
@@ -146,7 +148,7 @@ func main() {
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
 
 	groupHandler := kafka.NewGroupHandler(
-		gateway,
+		realtimeGateway,
 		roomRepository,
 		userConversationRepository,
 		conversationCache,
@@ -197,7 +199,7 @@ func main() {
 		messageApplication,
 		cfg,
 		dispatcher,
-		gateway,
+		realtimeGateway,
 	)
 
 	testdataApplication := testdataapp.NewBootstrapApplication(
@@ -219,10 +221,14 @@ func main() {
 	// 注册中间件
 	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
 
+	limiter := ratelimit.NewRedisLimit(redisClient, "rate:limit")
+	limiterMiddleware := middleware.NewLimitMiddleware(limiter, true)
+	wsHandle.SetLimiter(limiter)
+
 	// 注册路由
 	apiGroup := r.Group("/api/v1")
 	httpapi.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
-	httpapi.RegisterUserRouter(apiGroup, userHandle, authMiddle)
+	httpapi.RegisterUserRouter(apiGroup, userHandle, authMiddle, limiterMiddleware)
 	httpapi.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	httpapi.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
 	httpapi.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)

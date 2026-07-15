@@ -1,6 +1,5 @@
 import { useAuthAndFriends } from "./useAuthAndFriends";
 import { useConversation } from "./useConversation";
-import { useRoomWatch } from "./useRoomWatch";
 
 export function useImClient() {
   const auth = useAuthAndFriends({
@@ -8,26 +7,15 @@ export function useImClient() {
       conversation.loadOffline();
     },
   });
-  const room = useRoomWatch({
-    token: auth.token,
-    currentUser: auth.currentUser,
-    showMessage: auth.showMessage,
-    sendFrame: auth.sendFrame,
-    wsConnected: auth.wsConnected,
-    openConversation: (conversationId, convType, content) => conversation.openConversation(conversationId, convType, content),
-  });
   const conversation = useConversation({
     token: auth.token,
     currentUser: auth.currentUser,
     showMessage: auth.showMessage,
     sendFrame: auth.sendFrame,
-    onRoomConversationSelected: room.selectRoomConversation,
-    getWatchVideoTime: () => Math.floor((room.videoRef.value?.currentTime || 0) * 1000),
   });
 
   auth.setWsFrameHandler((frame) => {
     conversation.handleWsFrame(frame);
-    room.handleWsFrame(frame);
   });
 
   async function submitAuth() {
@@ -43,7 +31,6 @@ export function useImClient() {
   function logout() {
     auth.logout();
     conversation.resetConversationState();
-    room.resetRoomState();
   }
 
   return {
@@ -68,22 +55,6 @@ export function useImClient() {
     message: auth.message,
     messageType: auth.messageType,
     showMessage: auth.showMessage,
-    roomForm: room.roomForm,
-    activeRoomId: room.activeRoomId,
-    fileIdInput: room.fileIdInput,
-    uploadName: room.uploadName,
-    chunkUpload: room.chunkUpload,
-    video: room.video,
-    watchSession: room.watchSession,
-    applyingWatchState: room.applyingWatchState,
-    videoRef: room.videoRef,
-    visibleDanmaku: room.visibleDanmaku,
-    canControlWatchVideo: room.canControlWatchVideo,
-    canStartWatchSession: room.canStartWatchSession,
-    canStopWatchSession: room.canStopWatchSession,
-    watchActionLabel: room.watchActionLabel,
-    watchStatusLabel: room.watchStatusLabel,
-    watchOwnerLabel: room.watchOwnerLabel,
     submitAuth,
     loadOffline: conversation.loadOffline,
     loadFriends: auth.loadFriends,
@@ -100,17 +71,6 @@ export function useImClient() {
     sendVideoMessage: conversation.sendVideoMessage,
     sendFileMessage: conversation.sendFileMessage,
     sendStickerMessage: conversation.sendStickerMessage,
-    handleCreateRoom: room.handleCreateRoom,
-    handleJoinRoom: room.handleJoinRoom,
-    handleInvite: room.handleInvite,
-    handleUpload: room.handleUpload,
-    loadFile: room.loadFile,
-    loadVideoToRoom: room.loadVideoToRoom,
-    stopWatchSession: room.stopWatchSession,
-    sendWatchControl: room.sendWatchControl,
-    seekBy: room.seekBy,
-    onVideoTimeUpdate: room.onVideoTimeUpdate,
-    setVideoElement: room.setVideoElement,
     formatTime: (ts) => {
       if (!ts) return "刚刚";
       return new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });

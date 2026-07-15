@@ -31,8 +31,6 @@ const (
 	EventMessageReadNotify   = "msg_read_notify"
 	EventTypeMsgAck          = "msg_ack"
 	EventTypeMessage         = "msg"
-	EventWatchVideoCtrl      = "watch_video_control"
-	EventWatchVideoSync      = "watch_video_sync"
 	EventConversationSyncSeq = "conversation_sync_seq"
 )
 

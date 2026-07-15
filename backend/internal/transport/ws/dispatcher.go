@@ -1,11 +1,12 @@
 package ws
 
 import (
+	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
 	"context"
 	"log"
 )
 
-type DispatchHandle func(ctx context.Context, client *Client, data []byte) error
+type DispatchHandle func(ctx context.Context, session *realtimews.Session, data []byte) error
 
 type Dispatcher struct {
 	handlers map[string]DispatchHandle
@@ -21,7 +22,7 @@ func (d *Dispatcher) RegisterHandler(op string, dh DispatchHandle) {
 	d.handlers[op] = dh
 }
 
-func (r *Dispatcher) Dispatch(ctx context.Context, client *Client, op string, data []byte) {
+func (r *Dispatcher) Dispatch(ctx context.Context, session *realtimews.Session, op string, data []byte) {
 	handler, ok := r.handlers[op]
 	if !ok {
 		// 未知类型，可以打印日志或忽略
@@ -29,7 +30,7 @@ func (r *Dispatcher) Dispatch(ctx context.Context, client *Client, op string, da
 	}
 
 	ctx = context.WithValue(ctx, "op", op)
-	err := handler(ctx, client, data)
+	err := handler(ctx, session, data)
 
 	if err != nil {
 		log.Println("failed to handle message, ", err)

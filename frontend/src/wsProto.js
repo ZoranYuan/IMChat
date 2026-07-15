@@ -80,32 +80,6 @@ message MessageEvent {
   int64 video_time = 24;
 }
 
-message WatchVideoControl {
-  string room_id = 1;
-  string action = 2;
-  string video_id = 3;
-  string video_url = 4;
-  int64 position_ms = 5;
-  int64 delta_ms = 6;
-  int64 duration_ms = 7;
-  double playback_rate = 8;
-  int64 client_time_ms = 9;
-}
-
-message WatchVideoState {
-  string room_id = 1;
-  string action = 2;
-  string video_id = 3;
-  string video_url = 4;
-  int64 position_ms = 5;
-  int64 delta_ms = 6;
-  int64 duration_ms = 7;
-  double playback_rate = 8;
-  bool is_playing = 9;
-  string updated_by = 10;
-  int64 updated_at_ms = 11;
-  int64 client_time_ms = 12;
-}
 `;
 
 const root = protobuf.parse(schema).root;
@@ -116,8 +90,6 @@ const types = {
   messageEvent: root.lookupType("im.ws.MessageEvent"),
   readAck: root.lookupType("im.ws.MessageReadAckReq"),
   readAckEvent: root.lookupType("im.ws.MessageReadAckEvent"),
-  watchControl: root.lookupType("im.ws.WatchVideoControl"),
-  watchState: root.lookupType("im.ws.WatchVideoState"),
 };
 
 function toPlain(type, message) {

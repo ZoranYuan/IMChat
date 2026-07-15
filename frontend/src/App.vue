@@ -10,11 +10,11 @@
       </div>
 
       <nav class="menu-nav">
-        <button :class="{ active: viewMode === 'chat' && directoryMode === 'conversations' }" title="会话"
+        <button :class="{ active: directoryMode === 'conversations' }" title="会话"
           @click="showConversations">
           <MessageCircle :size="22" />
         </button>
-        <button :class="{ active: viewMode === 'chat' && directoryMode === 'friends' }" title="好友" @click="showFriends">
+        <button :class="{ active: directoryMode === 'friends' }" title="好友" @click="showFriends">
           <Users :size="22" />
         </button>
       </nav>
@@ -34,7 +34,7 @@
       </button>
     </aside>
 
-    <section v-if="viewMode === 'chat'" key="chat-workspace" class="chat-workspace"
+    <section class="chat-workspace"
       :style="{ gridTemplateColumns: `${chatSidebarWidth}px minmax(0, 1fr)` }">
       <aside class="chat-directory">
         <div class="chat-resize-handle" @pointerdown="startChatSidebarResize"></div>
@@ -53,50 +53,9 @@
       <ChatPanel v-model:message-text="messageText" :active-conversation="activeConversation" :messages="messages"
         :conversation-loading="conversationLoading" :current-user="currentUser" :ws-connected="wsConnected"
         :set-message-list-ref="setMessageListRef" :last-read-seq="activeReadState.lastReadSeq"
-        :read-receivers="activeReadState.readers" :show-watch-entry="Boolean(activeConversation?.convType === 2)"
-        :watch-entry-label="watchActionLabel" :watch-entry-hint="watchStatusLabel" @send-message="sendMessage"
+        :read-receivers="activeReadState.readers" @send-message="sendMessage"
         @send-image="sendImageMessage" @send-file="sendFileMessage" @send-video="sendVideoMessage"
-        @open-watch="openWatchRoom" />
-    </section>
-
-    <section v-else key="watch-workspace" :class="['watch-workspace', { 'chat-collapsed': watchChatCollapsed }]"
-      :style="{ gridTemplateColumns: watchChatCollapsed ? '44px minmax(0, 1fr)' : `${watchSidebarWidth}px minmax(0, 1fr)` }">
-      <aside class="watch-chat-sidebar">
-        <button class="collapse-tab" @click="watchChatCollapsed = !watchChatCollapsed">
-          <PanelLeftClose v-if="!watchChatCollapsed" :size="18" />
-          <PanelLeftOpen v-else :size="18" />
-        </button>
-
-        <div v-if="!watchChatCollapsed" class="watch-resize-handle" @pointerdown="startWatchSidebarResize"></div>
-
-        <template v-if="!watchChatCollapsed">
-          <div class="watch-room-chat-head">
-            <span>房间聊天</span>
-            <strong>{{ activeRoomName || "未进入房间" }}</strong>
-          </div>
-
-          <ChatPanel v-model:message-text="messageText" :active-conversation="watchConversation"
-            :messages="watchMessages" :conversation-loading="false" :current-user="currentUser" :ws-connected="wsConnected"
-            :set-message-list-ref="setMessageListRef" :last-read-seq="activeReadState.lastReadSeq"
-            :read-receivers="activeReadState.readers" :show-watch-entry="true" :watch-entry-label="watchActionLabel"
-            :watch-entry-hint="watchStatusLabel" @send-message="sendWatchMessage" @send-image="sendImageMessage"
-            @send-file="sendFileMessage" @send-video="sendVideoMessage"
-            @open-watch="openWatchRoom" />
-        </template>
-      </aside>
-
-        <WatchPanel v-model:file-id-input="fileIdInput" :token="token" :active-room-id="activeRoomId"
-        :active-room-name="activeRoomName" :can-control-video="canControlWatchVideo" :room-form="roomForm"
-        :upload-name="uploadName" :chunk-upload="chunkUpload" :video="video"
-        :visible-danmaku="visibleDanmaku" :watch-session="watchSession" :watch-action-label="watchActionLabel"
-        :watch-status-label="watchStatusLabel" :watch-owner-label="watchOwnerLabel"
-        :can-start-watch-session="canStartWatchSession" :can-stop-watch-session="canStopWatchSession"
-        :suppress-native-controls="applyingWatchState"
-        @update:video-el="setVideoElement"
-        @watch-control="sendWatchControl" @seek-by="seekBy" @video-time-update="onVideoTimeUpdate"
-        @create-room="handleCreateRoom" @join-room="handleJoinRoom" @invite="handleInvite" @upload="handleUpload"
-        @load-file="loadFile" @load-video="loadVideoToRoom" @stop-watch="stopWatchSession"
-        @native-video-control="handleNativeVideoControl" />
+        />
     </section>
   </main>
 
@@ -112,11 +71,9 @@ import ChatPanel from "./components/ChatPanel.vue";
 import ConversationList from "./components/ConversationList.vue";
 import FriendsPanel from "./components/FriendsPanel.vue";
 import LoginPage from "./components/LoginPage.vue";
-import WatchPanel from "./components/WatchPanel.vue";
 import { useImClient } from "./composables/useImClient";
-import { LogOut, MessageCircle, MoonStar, PanelLeftClose, PanelLeftOpen, SunMedium, Users } from "@lucide/vue";
+import { LogOut, MessageCircle, MoonStar, SunMedium, Users } from "@lucide/vue";
 
-const viewMode = ref("chat");
 const themeMode = ref(resolveInitialTheme());
 const directoryMode = ref("conversations");
 const chatSidebarWidth = ref(330);
@@ -124,12 +81,6 @@ const chatSidebarMinWidth = 280;
 const chatSidebarMaxWidth = 520;
 let chatSidebarResizeStartX = 0;
 let chatSidebarResizeStartWidth = 0;
-const watchChatCollapsed = ref(false);
-const watchSidebarWidth = ref(430);
-const watchSidebarMinWidth = 320;
-const watchSidebarMaxWidth = 560;
-let watchSidebarResizeStartX = 0;
-let watchSidebarResizeStartWidth = 0;
 let oauthToastTimer = 0;
 const refreshingOffline = ref(false);
 const refreshingFriends = ref(false);
@@ -156,22 +107,6 @@ const {
   wsStatusText,
   message,
   messageType,
-  showMessage,
-  roomForm,
-  activeRoomId,
-  fileIdInput,
-  uploadName,
-  chunkUpload,
-  video,
-  watchSession,
-  canControlWatchVideo,
-  canStartWatchSession,
-  canStopWatchSession,
-  applyingWatchState,
-  visibleDanmaku,
-  watchActionLabel,
-  watchStatusLabel,
-  watchOwnerLabel,
   submitAuth,
   loadOffline,
   loadFriends,
@@ -186,17 +121,6 @@ const {
   sendImageMessage,
   sendFileMessage,
   sendVideoMessage,
-  handleCreateRoom,
-  handleJoinRoom,
-  handleInvite,
-  handleUpload,
-  loadFile,
-  loadVideoToRoom,
-  sendWatchControl,
-  stopWatchSession,
-  seekBy,
-  onVideoTimeUpdate,
-  setVideoElement,
   formatTime,
 } = useImClient();
 
@@ -205,38 +129,6 @@ const setMessageListRef = (el) => {
 };
 
 const themeLabel = computed(() => (themeMode.value === "dark" ? "切换白天模式" : "切换黑夜模式"));
-
-const activeRoomName = computed(() => {
-  if (!activeRoomId.value) return "";
-  const roomConversation = conversations.value.find((item) => item.conversationId === activeRoomId.value);
-  return roomConversation?.displayName || roomForm.roomName || "一起看房间";
-});
-
-const watchConversation = computed(() => {
-  if (!activeRoomId.value) return null;
-  return (
-    conversations.value.find((item) => item.conversationId === activeRoomId.value) || {
-      conversationId: activeRoomId.value,
-      displayName: activeRoomName.value,
-      convType: 2,
-    }
-  );
-});
-
-const watchMessages = computed(() => {
-  if (activeConversation.value?.conversationId !== activeRoomId.value) return [];
-  return messages.value;
-});
-
-function focusWatchRoomConversation() {
-  if (!activeRoomId.value) return Promise.resolve();
-  if (activeConversation.value?.conversationId === activeRoomId.value) return Promise.resolve();
-  return selectConversation(watchConversation.value);
-}
-
-watch(viewMode, (mode) => {
-  if (mode === "watch") focusWatchRoomConversation();
-});
 
 watch(
   themeMode,
@@ -249,36 +141,15 @@ watch(
   { immediate: true },
 );
 
-async function sendWatchMessage() {
-  await focusWatchRoomConversation();
-  if (activeConversation.value?.conversationId !== activeRoomId.value) return;
-  await sendMessage({ withVideoContext: true });
-}
-
-function openWatchRoom() {
-  if (!activeConversation.value || activeConversation.value.convType !== 2) {
-    showMessage("只有群聊房间可以一起看");
-    return;
-  }
-  viewMode.value = "watch";
-  focusWatchRoomConversation();
-}
-
-function handleNativeVideoControl(action) {
-  sendWatchControl(action);
-}
-
 function toggleTheme() {
   themeMode.value = themeMode.value === "dark" ? "light" : "dark";
 }
 
 function showConversations() {
-  viewMode.value = "chat";
   directoryMode.value = "conversations";
 }
 
 function showFriends() {
-  viewMode.value = "chat";
   directoryMode.value = "friends";
 }
 
@@ -301,26 +172,6 @@ function stopChatSidebarResize() {
   setSidebarResizing(false);
 }
 
-function startWatchSidebarResize(event) {
-  if (watchChatCollapsed.value) return;
-  event.preventDefault();
-  setSidebarResizing(true);
-  watchSidebarResizeStartX = event.clientX;
-  watchSidebarResizeStartWidth = watchSidebarWidth.value;
-  window.addEventListener("pointermove", resizeWatchSidebar);
-  window.addEventListener("pointerup", stopWatchSidebarResize, { once: true });
-}
-
-function resizeWatchSidebar(event) {
-  const nextWidth = watchSidebarResizeStartWidth + event.clientX - watchSidebarResizeStartX;
-  watchSidebarWidth.value = Math.min(watchSidebarMaxWidth, Math.max(watchSidebarMinWidth, nextWidth));
-}
-
-function stopWatchSidebarResize() {
-  window.removeEventListener("pointermove", resizeWatchSidebar);
-  setSidebarResizing(false);
-}
-
 function setSidebarResizing(next) {
   if (typeof document === "undefined") return;
   document.body.classList.toggle("sidebar-resizing", next);
@@ -328,7 +179,6 @@ function setSidebarResizing(next) {
 
 onBeforeUnmount(() => {
   window.removeEventListener("pointermove", resizeChatSidebar);
-  window.removeEventListener("pointermove", resizeWatchSidebar);
   setSidebarResizing(false);
 });
 
@@ -511,86 +361,6 @@ function resolveInitialTheme() {
   background: rgba(141, 91, 255, 0.28);
 }
 
-.watch-workspace {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(320px, 440px) minmax(0, 1fr);
-  min-height: 0;
-  overflow: hidden;
-}
-
-.watch-workspace.chat-collapsed {
-  grid-template-columns: 44px minmax(0, 1fr);
-}
-
-.watch-chat-sidebar {
-  position: relative;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-  border-right: 1px solid var(--border);
-  background: rgba(16, 13, 27, 0.74);
-  backdrop-filter: blur(18px);
-}
-
-.watch-workspace.chat-collapsed .watch-chat-sidebar {
-  display: block;
-  overflow: hidden;
-}
-
-.watch-resize-handle {
-  position: absolute;
-  top: 0;
-  right: -4px;
-  z-index: 8;
-  width: 8px;
-  height: 100%;
-  cursor: col-resize;
-}
-
-.watch-resize-handle::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 3px;
-  width: 1px;
-  height: 100%;
-  background: rgba(141, 91, 255, 0.28);
-}
-
-.collapse-tab {
-  position: absolute;
-  top: 12px;
-  right: 10px;
-  z-index: 6;
-  background: var(--surface-strong);
-}
-
-.watch-workspace.chat-collapsed .collapse-tab {
-  left: 1px;
-  right: auto;
-  top: 16px;
-}
-
-.watch-room-chat-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.watch-room-chat-head strong {
-  overflow: hidden;
-  color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .message-bar {
   position: fixed;
   top: 20px;
@@ -702,13 +472,11 @@ function resolveInitialTheme() {
     justify-self: end;
   }
 
-  .chat-workspace,
-  .watch-workspace {
+  .chat-workspace {
     grid-template-columns: 1fr;
   }
 
-  .chat-directory,
-  .watch-chat-sidebar {
+  .chat-directory {
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }

@@ -10,7 +10,7 @@
         <div class="brand-mark">SY</div>
         <div>
           <strong>SYCHAT</strong>
-          <span>聊天与一起看视频</span>
+          <span>聊天与好友</span>
         </div>
       </div>
       <h1 class="stream-title">

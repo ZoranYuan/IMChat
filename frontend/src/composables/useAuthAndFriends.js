@@ -132,8 +132,6 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
         frameHandler({ op: "msg", payload: decodePayload("messageEvent", frame.data) });
       } else if (frame.op === "msg_ack") {
         frameHandler({ op: "msg_ack", payload: decodePayload("messageAck", frame.data) });
-      } else if (frame.op === "watch_video_sync") {
-        frameHandler({ op: "watch_video_sync", payload: decodePayload("watchState", frame.data) });
       } else if (frame.op === "msg_read_notify") {
         const raw = new TextDecoder().decode(frame.data);
         frameHandler({ op: "msg_read_notify", payload: JSON.parse(raw) });

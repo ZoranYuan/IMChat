@@ -95,11 +95,6 @@
             <button class="composer-tool composer-audio" type="button" :disabled="!wsConnected" title="语音">
               <Volume2 :size="16" />
             </button>
-            <button v-if="showWatchEntry && activeConversation.convType === 2" class="composer-watch-entry"
-              type="button" :title="watchEntryHint" :disabled="watchEntryDisabled" @click="$emit('open-watch')">
-              <Film :size="14" />
-              {{ watchEntryLabel }}
-            </button>
             <button class="composer-send" type="button" :disabled="!wsConnected" @click="$emit('send-message')">
               <Send :size="16" />
               发送
@@ -128,13 +123,9 @@ const props = defineProps({
   setMessageListRef: { type: Function, required: true },
   lastReadSeq: { type: Number, default: 0 },
   readReceivers: { type: Array, default: () => [] },
-  showWatchEntry: { type: Boolean, default: false },
-  watchEntryLabel: { type: String, default: "一起看" },
-  watchEntryHint: { type: String, default: "" },
-  watchEntryDisabled: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["update:messageText", "send-message", "send-image", "send-file", "send-video", "open-watch"]);
+const emit = defineEmits(["update:messageText", "send-message", "send-image", "send-file", "send-video"]);
 
 const isGroupChat = computed(() => props.activeConversation?.convType === 2);
 const readReceiversPreview = computed(() => (Array.isArray(props.readReceivers) ? props.readReceivers.slice(0, 4) : []));
@@ -761,18 +752,6 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
-.composer-watch-entry {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(141, 91, 255, 0.08);
-  color: var(--text);
-}
-
 .composer-send {
   display: inline-flex;
   align-items: center;
@@ -791,8 +770,7 @@ onBeforeUnmount(() => {
 }
 
 .composer-send:disabled,
-.composer-tool:disabled,
-.composer-watch-entry:disabled {
+.composer-tool:disabled {
   opacity: 0.46;
 }
 

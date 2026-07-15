@@ -7,6 +7,7 @@ import (
 	messageentity "IM_backend/internal/domain/message/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	mq "IM_backend/internal/infrastructure/messaging"
+	realtime "IM_backend/internal/infrastructure/realtime"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
@@ -18,7 +19,7 @@ import (
 )
 
 type GroupHandler struct {
-	dispatch                   ClientDispatcher
+	dispatch                   realtime.Gateway
 	conversationCache          convcache.ConversationCache
 	workerPool                 *WorkerPool
 	sf                         singleflight.Group
@@ -27,7 +28,7 @@ type GroupHandler struct {
 	batcher                    *mq.MessageBatcher
 }
 
-func NewGroupHandler(dispatcher ClientDispatcher,
+func NewGroupHandler(dispatcher realtime.Gateway,
 	roomRepository roomrepo.RoomRepository,
 	userConversationRepository messagerepo.UserConversationRepository,
 	conversationCache convcache.ConversationCache,
@@ -104,7 +105,7 @@ func (h *GroupHandler) handleMessage(
 
 	switch event.ConvType {
 	case protocol.PrivateChat:
-		if err := h.dispatch.SendToClient(topic, envelope.To, envelope.Payload); err != nil {
+		if err := h.dispatch.DeliverToUser(topic, envelope.To, envelope.Payload); err != nil {
 			return err
 		}
 
@@ -170,7 +171,7 @@ func (h *GroupHandler) dispatchMessageReadNotify(senderId string, payload []byte
 	if senderId == "" {
 		return nil
 	}
-	if err := h.dispatch.SendToClient(protocol.EventMessageReadNotify, senderId, payload); err != nil {
+	if err := h.dispatch.DeliverToUser(protocol.EventMessageReadNotify, senderId, payload); err != nil {
 		return err
 	}
 	return nil

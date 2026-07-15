@@ -1,22 +1,13 @@
 package ws
 
 import (
+	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
 	"IM_backend/internal/shared/protocol"
 	wspb "IM_backend/internal/transport/ws/pb"
 )
 
-func watchVideoControlFromPB(pb *wspb.WatchVideoControl) WatchVideoControlReq {
-	return WatchVideoControlReq{
-		RoomId:       pb.GetRoomId(),
-		Action:       pb.GetAction(),
-		VideoId:      pb.GetVideoId(),
-		VideoURL:     pb.GetVideoUrl(),
-		PositionMs:   pb.GetPositionMs(),
-		DeltaMs:      pb.GetDeltaMs(),
-		DurationMs:   pb.GetDurationMs(),
-		PlaybackRate: pb.GetPlaybackRate(),
-		ClientTimeMs: pb.GetClientTimeMs(),
-	}
+func encodeWebSocketPayload(op string, payload []byte) ([]byte, error) {
+	return realtimews.EncodePayload(op, payload)
 }
 
 func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
@@ -107,22 +98,5 @@ func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
 		PackId:       event.PackId,
 		HasVideoTime: event.HasVideoTime,
 		VideoTime:    videoTime,
-	}
-}
-
-func watchVideoStateToPB(state WatchVideoState) *wspb.WatchVideoState {
-	return &wspb.WatchVideoState{
-		RoomId:       state.RoomId,
-		Action:       state.Action,
-		VideoId:      state.VideoId,
-		VideoUrl:     state.VideoURL,
-		PositionMs:   state.PositionMs,
-		DeltaMs:      state.DeltaMs,
-		DurationMs:   state.DurationMs,
-		PlaybackRate: state.PlaybackRate,
-		IsPlaying:    state.IsPlaying,
-		UpdatedBy:    state.UpdatedBy,
-		UpdatedAtMs:  state.UpdatedAtMs,
-		ClientTimeMs: state.ClientTimeMs,
 	}
 }

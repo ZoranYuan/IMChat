@@ -235,8 +235,8 @@ func (a *BootstrapApplication) buildRooms() []bootstrapRoom {
 		},
 		{
 			OwnerID:     "u05",
-			RoomName:    "一起看实验室",
-			Description: "测试一起看相关消息",
+			RoomName:    "群聊测试室",
+			Description: "测试群聊相关消息",
 			Members:     []string{"u05", "u06", "u08", "u09", "u11"},
 		},
 	}

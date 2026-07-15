@@ -1,6 +1,7 @@
 package mq
 
 import (
+	realtime "IM_backend/internal/infrastructure/realtime"
 	"IM_backend/internal/shared/protocol"
 	"encoding/json"
 	"log"
@@ -8,18 +9,13 @@ import (
 	"time"
 )
 
-// BatcherDispatch is the push interface consumed by MessageBatcher.
-type BatcherDispatch interface {
-	SendToClient(topic string, targetId string, payload []byte) error
-}
-
 // MessageBatcher accumulates room messages per conversation and flushes
 // them in batches. Each conversation is handled by its own lightweight
 // goroutine (actor) so that locks are unnecessary on the hot path.
 //
 // Idle actors exit after idleTimeout to avoid unbounded goroutine growth.
 type MessageBatcher struct {
-	dispatch    BatcherDispatch
+	dispatch    realtime.Gateway
 	batchSize   int
 	flushWindow time.Duration
 	idleTimeout time.Duration
@@ -43,7 +39,7 @@ type msgEnvelope struct {
 //	batchSize  – flush immediately once this many messages are buffered.
 //	flushWindow – max time to hold a message before flushing.
 //	idleTimeout – close an actor after this period of inactivity.
-func NewMessageBatcher(dispatch BatcherDispatch, batchSize int, flushWindow, idleTimeout time.Duration) *MessageBatcher {
+func NewMessageBatcher(dispatch realtime.Gateway, batchSize int, flushWindow, idleTimeout time.Duration) *MessageBatcher {
 	return &MessageBatcher{
 		dispatch:    dispatch,
 		batchSize:   batchSize,
@@ -144,7 +140,7 @@ func (b *MessageBatcher) runActor(conversationId string, ch <-chan msgEnvelope) 
 func (b *MessageBatcher) flushBuffer(conversationId string, buf []msgEnvelope) {
 	for _, env := range buf {
 		for _, uid := range env.Members {
-			if err := b.dispatch.SendToClient(env.Topic, uid, env.Payload); err != nil {
+			if err := b.dispatch.DeliverToUser(env.Topic, uid, env.Payload); err != nil {
 				log.Printf("batcher: push to %s failed: %v", uid, err)
 			}
 		}

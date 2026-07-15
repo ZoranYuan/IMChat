@@ -1,0 +1,117 @@
+package ratelimit
+
+import (
+	shared_ratelimit "IM_backend/internal/shared/ratelimit"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// 使用 redis 实现分布式限流
+type RedisLimit struct {
+	client *redis.Client
+
+	perfix string
+}
+
+func NewRedisLimit(client *redis.Client, perfix string) *RedisLimit {
+	if perfix == "" {
+		perfix = "rate_limit:"
+	}
+
+	return &RedisLimit{
+		client,
+		perfix,
+	}
+}
+
+func (r *RedisLimit) Allow(ctx context.Context, key string, policy shared_ratelimit.Policy) (shared_ratelimit.Decision, error) {
+	if r.client == nil {
+		return shared_ratelimit.Decision{}, errors.New("rate limiter redis client is nil")
+	}
+
+	if key == "" {
+		return shared_ratelimit.Decision{}, errors.New("rate limit key is empty")
+	}
+
+	if policy.Rate <= 0 || policy.Burst <= 0 {
+		return shared_ratelimit.Decision{}, errors.New("policy value is invalid")
+	}
+
+	scriptBytes, err := os.ReadFile("./limit.lua")
+	if err != nil {
+		// lua 脚本读取失败，考虑是否需要降级
+		return shared_ratelimit.Decision{}, errors.New("unknown error")
+	}
+
+	// 执行 lua 脚本
+	result, err := r.client.Eval(
+		ctx,
+		string(scriptBytes),
+		[]string{r.perfix + key},
+		strconv.FormatFloat(
+			policy.Rate,
+			'f',
+			-1,
+			64,
+		),
+		policy.Burst,
+	).Result()
+
+	if err != nil {
+		return shared_ratelimit.Decision{}, err
+	}
+
+	values, ok := result.([]interface{})
+	if !ok || len(values) != 3 {
+		return shared_ratelimit.Decision{},
+			fmt.Errorf(
+				"unexpected rate limit result: %T",
+				result,
+			)
+	}
+
+	allowed, err := redisInt64(values[0])
+	if err != nil {
+		return shared_ratelimit.Decision{}, err
+	}
+
+	retryAfterMs, err := redisInt64(values[2])
+	if err != nil {
+		return shared_ratelimit.Decision{}, err
+	}
+
+	return shared_ratelimit.Decision{
+		Allowed: allowed == 1,
+		RetryAfter: time.Duration(retryAfterMs) *
+			time.Millisecond,
+	}, nil
+}
+
+func redisInt64(value interface{}) (int64, error) {
+	switch v := value.(type) {
+	case int64:
+		return v, nil
+
+	case string:
+		return strconv.ParseInt(v, 10, 64)
+
+	case []byte:
+		return strconv.ParseInt(
+			string(v),
+			10,
+			64,
+		)
+
+	default:
+		return 0, fmt.Errorf(
+			"unexpected redis integer type: %T",
+			value,
+		)
+	}
+}

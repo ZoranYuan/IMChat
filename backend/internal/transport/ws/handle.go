@@ -3,14 +3,17 @@ package ws
 import (
 	"IM_backend/configs"
 	messageapp "IM_backend/internal/application/message"
+	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
 	"IM_backend/internal/shared/protocol"
+	shared_ratelimit "IM_backend/internal/shared/ratelimit"
 	"IM_backend/internal/transport/http/response"
 	wspb "IM_backend/internal/transport/ws/pb"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -23,14 +26,15 @@ type WSHandler struct {
 	app        *messageapp.MessageApplication
 	config     configs.Config
 	dispatcher *Dispatcher
-	gateway    *Gateway
+	realtime   *realtimews.Gateway
+	limiter    shared_ratelimit.Limit
 }
 
-func NewWSHandler(app *messageapp.MessageApplication, config configs.Config, dispatcher *Dispatcher, gateway *Gateway) *WSHandler {
+func NewWSHandler(app *messageapp.MessageApplication, config configs.Config, dispatcher *Dispatcher, realtime *realtimews.Gateway) *WSHandler {
 	wh := &WSHandler{
 		app:        app,
 		config:     config,
-		gateway:    gateway,
+		realtime:   realtime,
 		dispatcher: dispatcher,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -41,37 +45,92 @@ func NewWSHandler(app *messageapp.MessageApplication, config configs.Config, dis
 
 	dispatcher.RegisterHandler(protocol.EventTypeMessage, wh.handleSendMessage)
 	dispatcher.RegisterHandler(protocol.EventMessageReadAck, wh.handleHistoryMessageRead)
-	dispatcher.RegisterHandler(protocol.EventWatchVideoCtrl, wh.handleWatchVideoControl)
 
 	return wh
 }
 
-func (wh *WSHandler) handleHistoryMessageRead(ctx context.Context, c *Client, data []byte) error {
+func (wh *WSHandler) SetLimiter(limiter shared_ratelimit.Limit) {
+	wh.limiter = limiter
+}
+
+func (wh *WSHandler) allowEvent(ctx context.Context, op string, userId string, policy shared_ratelimit.Policy) bool {
+	if wh.limiter == nil {
+		return true
+	}
+
+	key := fmt.Sprintf(
+		"ws:user:%s:op:%s",
+		userId,
+		op,
+	)
+
+	decision, err := wh.limiter.Allow(
+		ctx,
+		key,
+		policy,
+	)
+
+	if err != nil {
+		// WebSocket 普通消息采用 Fail Open。
+		log.Printf(
+			"websocket rate limiter failed: %v",
+			err,
+		)
+		return true
+	}
+
+	return decision.Allowed
+}
+
+func (wh *WSHandler) handleHistoryMessageRead(ctx context.Context, session *realtimews.Session, data []byte) error {
 	var pb wspb.MessageReadAckReq
 
 	if err := proto.Unmarshal(data, &pb); err != nil {
 		return err
 	}
 
-	return wh.app.HandleMessageReadAck(ctx, c.userId, pb.GetConversationId(), pb.GetLastReadSeq(), pb.GetSenderId())
+	return wh.app.HandleMessageReadAck(ctx, session.UserID(), pb.GetConversationId(), pb.GetLastReadSeq(), pb.GetSenderId())
 }
 
-func (wh *WSHandler) handleSendMessage(ctx context.Context, c *Client, data []byte) error {
+func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.Session, data []byte) error {
 	var pb wspb.MessageReq
 	if err := proto.Unmarshal(data, &pb); err != nil {
 		return err
 	}
-	req := messageReqFromPB(&pb)
 
-	videoId := ""
-	if req.ConvType == 2 && req.VideoTime != nil {
-		if state, ok := wh.gateway.GetWatchVideoState(req.RecvId); ok {
-			videoId = state.VideoId
+	allowed := wh.allowEvent(
+		ctx,
+		protocol.EventTypeMessage,
+		session.UserID(),
+		shared_ratelimit.Policy{
+			Rate:  10,
+			Burst: 20,
+		},
+	)
+
+	if !allowed {
+		ack := protocol.MessageAckEvent{
+			ClientMsgId: pb.GetClientMsgId(),
+			Status:      protocol.AckStatusFailed,
+			Extra:       "消息发送过于频繁",
 		}
+
+		payload, err := json.Marshal(ack)
+		if err != nil {
+			return err
+		}
+
+		return wh.replyToClient(
+			session,
+			protocol.EventTypeMsgAck,
+			payload,
+		)
 	}
 
+	req := messageReqFromPB(&pb)
+
 	messageApp, err := wh.app.HandleMessage(ctx, messageapp.MessageAppeDTO{
-		SendId:      c.userId,
+		SendId:      session.UserID(),
 		ClientMsgId: req.ClientMsgId,
 		RecvId:      req.RecvId,
 		ConvType:    req.ConvType,
@@ -88,7 +147,6 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 		DurationMs:  req.DurationMs,
 		StickerId:   req.StickerId,
 		PackId:      req.PackId,
-		VideoId:     videoId,
 		VideoTime:   req.VideoTime,
 	})
 	if messageApp == nil {
@@ -116,112 +174,25 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, c *Client, data []by
 		return err
 	}
 
-	return wh.gateway.SendToClient(protocol.EventTypeMsgAck, c.userId, data)
+	return wh.replyToClient(session, protocol.EventTypeMsgAck, data)
 }
 
-func (wh *WSHandler) handleWatchVideoControl(ctx context.Context, c *Client, data []byte) error {
-	var pb wspb.WatchVideoControl
-	if err := proto.Unmarshal(data, &pb); err != nil {
-		return err
-	}
-	req := watchVideoControlFromPB(&pb)
-
-	if req.RoomId == "" {
-		return nil
-	}
-	if err := wh.app.CheckRoomMember(ctx, c.userId, req.RoomId); err != nil {
-		return err
-	}
-
-	if req.Action == "get_state" {
-		state, ok := wh.gateway.GetWatchVideoState(req.RoomId)
-		if !ok {
-			return nil
-		}
-		return wh.gateway.SendWatchVideoStateToUsers(protocol.EventWatchVideoSync, []string{c.userId}, state)
-	}
-
-	state, err := wh.gateway.UpsertWatchVideoState(req, c.userId)
+func (wh *WSHandler) replyToClient(session *realtimews.Session, op string, payload []byte) error {
+	encodedPayload, err := realtimews.EncodePayload(op, payload)
 	if err != nil {
 		return err
 	}
-
-	members, err := wh.app.GetRoomMemberIDs(ctx, req.RoomId)
-	if err != nil {
+	if err := session.Enqueue(realtimews.Message{Op: op, Data: encodedPayload}); err != nil {
+		if errors.Is(err, realtimews.ErrOutboundQueueFull) {
+			session.Close()
+		}
 		return err
 	}
-
-	return wh.gateway.SendWatchVideoStateToUsers(protocol.EventWatchVideoSync, members, state)
+	return nil
 }
 
-func (wh *WSHandler) readLoop(ctx context.Context, client *Client) {
-	defer func() {
-		client.Close()
-		wh.gateway.RemoveClient(client)
-		released := wh.gateway.ReleaseWatchVideoStatesByUser(client.userId)
-		for _, state := range released {
-			members, err := wh.app.GetRoomMemberIDs(ctx, state.RoomId)
-			if err != nil {
-				log.Println("failed to fetch room members for release:", err)
-				continue
-			}
-			if err := wh.gateway.SendWatchVideoStateToUsers(protocol.EventWatchVideoSync, members, state); err != nil {
-				log.Println("failed to broadcast released watch state:", err)
-			}
-		}
-	}()
-
-	client.conn.SetReadDeadline(time.Now().Add(time.Duration(wh.config.WebSocket.PongWaitSeconds) * time.Second))
-	client.conn.SetPongHandler(func(string) error {
-		// TODO 实际业务可以自行实现 heart 来优化
-		client.mu.Lock()
-		client.idle = time.Now().UnixMilli()
-		client.mu.Unlock()
-
-		client.conn.SetReadDeadline(time.Now().Add(time.Duration(wh.config.WebSocket.PongWaitSeconds) * time.Second))
-		return nil
-	})
-
-	for {
-		msg, err := client.Read(wh.config.WebSocket.PongWaitSeconds)
-		if err != nil {
-			log.Println("failed to read message, ", err)
-			return
-		}
-
-		wh.dispatcher.Dispatch(ctx, client, msg.Op, msg.Data)
-	}
-}
-
-func (wh *WSHandler) writeLoop(client *Client) {
-	ticker := time.NewTicker(time.Duration(wh.config.WebSocket.PingPeriodSeconds) * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case msg, ok := <-client.send:
-			if !ok {
-				return
-			}
-
-			m, err := proto.Marshal(&wspb.WsFrame{
-				Op:   msg.Op,
-				Data: msg.Data,
-			})
-			if err != nil {
-				log.Println("marshal ws message failed ", err)
-				return
-			}
-
-			if err := client.Write(websocket.BinaryMessage, m, wh.config.WebSocket.WriteWaitSeconds); err != nil {
-				return
-			}
-		case <-ticker.C:
-			if err := client.Write(websocket.PingMessage, nil, wh.config.WebSocket.WriteWaitSeconds); err != nil {
-				return
-			}
-		}
-	}
+func (wh *WSHandler) handleClientClosed(session *realtimews.Session) {
+	wh.realtime.Unregister(session)
 }
 
 func (wh *WSHandler) Handler(c *gin.Context) {
@@ -242,9 +213,13 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 	}
 
 	sessionId := uuid.NewString()
-	client := NewClient(ctx, cancel, conn, userId, sessionId, wh.config.WebSocket.MaxMessageSendBufferSize)
-	wh.gateway.AddClient(client)
-
-	go wh.readLoop(client.ctx, client)
-	go wh.writeLoop(client)
+	session := realtimews.NewSession(ctx, cancel, conn, userId, sessionId, wh.config.WebSocket.MaxMessageSendBufferSize)
+	wh.realtime.Register(session)
+	session.Start(
+		wh.config.WebSocket.PongWaitSeconds,
+		wh.config.WebSocket.PingPeriodSeconds,
+		wh.config.WebSocket.WriteWaitSeconds,
+		wh.dispatcher.Dispatch,
+		wh.handleClientClosed,
+	)
 }
