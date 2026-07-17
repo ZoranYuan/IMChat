@@ -1,4 +1,4 @@
-package mq
+package mq_handler
 
 import (
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
@@ -6,6 +6,7 @@ import (
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	messageentity "IM_backend/internal/domain/message/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
+	"IM_backend/internal/infrastructure/messaging/client/kafka"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
@@ -17,14 +18,11 @@ import (
 
 var ErrUnknownConversationType = errors.New("unknown conversation type")
 
-// RealtimeDelivery is defined by the messaging consumer which needs it.
 type RealtimeDelivery interface {
 	DeliverToUser(eventType, userID string, payload []byte) error
 }
 
-// MessagePushHandler consumes persisted message events and pushes them to
-// online users. Kafka-specific lifecycle concerns stay outside this type.
-type MessagePushHandler struct {
+type messageSendHandler struct {
 	delivery                   RealtimeDelivery
 	roomMemberCache            roomcache.RoomMemberCache
 	roomRepository             roomrepo.RoomRepository
@@ -33,23 +31,7 @@ type MessagePushHandler struct {
 	sf                         singleflight.Group
 }
 
-func NewMessagePushHandler(
-	delivery RealtimeDelivery,
-	roomRepository roomrepo.RoomRepository,
-	roomUserRepository roomrepo.RoomUserRepository,
-	userConversationRepository messagerepo.UserConversationRepository,
-	roomMemberCache roomcache.RoomMemberCache,
-) *MessagePushHandler {
-	return &MessagePushHandler{
-		delivery:                   delivery,
-		roomMemberCache:            roomMemberCache,
-		roomRepository:             roomRepository,
-		roomUserRepository:         roomUserRepository,
-		userConversationRepository: userConversationRepository,
-	}
-}
-
-func (h *MessagePushHandler) Handle(ctx context.Context, message ConsumerMessage) error {
+func (h *messageSendHandler) Handle(ctx context.Context, message kafka.ConsumerMessage) error {
 	envelope, err := decodeEnvelope(message.Value)
 	if err != nil {
 		return err
@@ -78,16 +60,24 @@ func (h *MessagePushHandler) Handle(ctx context.Context, message ConsumerMessage
 		if err != nil {
 			return err
 		}
-		for _, userID := range members {
-			if err := h.delivery.DeliverToUser(message.Topic, userID, envelope.Payload); err != nil {
+		for _, userId := range members {
+			if userId == envelope.From {
+				continue
+			}
+
+			if err := h.delivery.DeliverToUser(message.Topic, userId, envelope.Payload); err != nil {
 				return err
 			}
 		}
 
 		userConversations := make([]*messageentity.UserConversation, 0, len(members))
-		for _, userID := range members {
+		for _, userId := range members {
+			if userId == envelope.From {
+				continue
+			}
+
 			userConversations = append(userConversations, messageentity.BuildUserConversation(
-				userID,
+				userId,
 				conversationID,
 				0,
 				event.Seq,
@@ -100,7 +90,7 @@ func (h *MessagePushHandler) Handle(ctx context.Context, message ConsumerMessage
 	}
 }
 
-func (h *MessagePushHandler) roomMembers(ctx context.Context, conversationID string) ([]string, error) {
+func (h *messageSendHandler) roomMembers(ctx context.Context, conversationID string) ([]string, error) {
 	members, cached, err := h.roomMemberCache.GetMemberIDs(ctx, conversationID)
 	if err == nil && cached {
 		return members, nil
@@ -134,4 +124,20 @@ func decodeEnvelope(data []byte) (protocol.Envelope, error) {
 	var envelope protocol.Envelope
 	err := json.Unmarshal(data, &envelope)
 	return envelope, err
+}
+
+func NewSendMessagehandler(
+	delivery RealtimeDelivery,
+	roomRepository roomrepo.RoomRepository,
+	roomUserRepository roomrepo.RoomUserRepository,
+	userConversationRepository messagerepo.UserConversationRepository,
+	roomMemberCache roomcache.RoomMemberCache,
+) kafka.ConsumerHandler {
+	return &messageSendHandler{
+		delivery:                   delivery,
+		roomMemberCache:            roomMemberCache,
+		roomRepository:             roomRepository,
+		roomUserRepository:         roomUserRepository,
+		userConversationRepository: userConversationRepository,
+	}
 }

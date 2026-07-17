@@ -11,7 +11,7 @@ import (
 
 func EncodePayload(eventType string, payload []byte) ([]byte, error) {
 	switch eventType {
-	case string(protocol.EventTypeMessage):
+	case string(protocol.EventTypeSendMessage):
 		var event protocol.MessageEvent
 		if err := json.Unmarshal(payload, &event); err != nil {
 			return nil, err
@@ -23,7 +23,7 @@ func EncodePayload(eventType string, payload []byte) ([]byte, error) {
 			return nil, err
 		}
 		return proto.Marshal(messageAckToPB(event))
-	case string(protocol.EventMessageReadAck), string(protocol.EventMessageReadNotify):
+	case string(protocol.EventReadMessageAck), string(protocol.EventReadMessageNotify):
 		var event protocol.MessageReadAckEvent
 		if err := json.Unmarshal(payload, &event); err != nil {
 			return nil, err

@@ -10,8 +10,7 @@
       </div>
 
       <nav class="menu-nav">
-        <button :class="{ active: directoryMode === 'conversations' }" title="会话"
-          @click="showConversations">
+        <button :class="{ active: directoryMode === 'conversations' }" title="会话" @click="showConversations">
           <MessageCircle :size="22" />
         </button>
         <button :class="{ active: directoryMode === 'friends' }" title="好友" @click="showFriends">
@@ -34,8 +33,7 @@
       </button>
     </aside>
 
-    <section class="chat-workspace"
-      :style="{ gridTemplateColumns: `${chatSidebarWidth}px minmax(0, 1fr)` }">
+    <section class="chat-workspace" :style="{ gridTemplateColumns: `${chatSidebarWidth}px minmax(0, 1fr)` }">
       <aside class="chat-directory">
         <div class="chat-resize-handle" @pointerdown="startChatSidebarResize"></div>
 
@@ -44,8 +42,7 @@
           :refreshing="refreshingOffline" @select-conversation="selectConversation" />
 
         <FriendsPanel v-else key="friends" :token="token" :friends="friends" :friend-requests="friendRequests"
-          :friend-form="friendForm" :format-time="formatTime" @refresh="refreshFriends"
-          :refreshing="refreshingFriends"
+          :friend-form="friendForm" :format-time="formatTime" @refresh="refreshFriends" :refreshing="refreshingFriends"
           @submit-request="submitFriendRequest" @operate-request="handleFriendRequest"
           @open-chat="openPrivateConversation" />
       </aside>
@@ -53,9 +50,8 @@
       <ChatPanel v-model:message-text="messageText" :active-conversation="activeConversation" :messages="messages"
         :conversation-loading="conversationLoading" :current-user="currentUser" :ws-connected="wsConnected"
         :set-message-list-ref="setMessageListRef" :last-read-seq="activeReadState.lastReadSeq"
-        :read-receivers="activeReadState.readers" @send-message="sendMessage"
-        @send-image="sendImageMessage" @send-file="sendFileMessage" @send-video="sendVideoMessage"
-        />
+        :read-receivers="activeReadState.readers" @send-message="sendMessage" @send-image="sendImageMessage"
+        @send-file="sendFileMessage" @send-video="sendVideoMessage" />
     </section>
   </main>
 
@@ -66,13 +62,13 @@
 </template>
 
 <script setup>
+import { LogOut, MessageCircle, MoonStar, SunMedium, Users } from "@lucide/vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import ChatPanel from "./components/ChatPanel.vue";
 import ConversationList from "./components/ConversationList.vue";
 import FriendsPanel from "./components/FriendsPanel.vue";
 import LoginPage from "./components/LoginPage.vue";
 import { useImClient } from "./composables/useImClient";
-import { LogOut, MessageCircle, MoonStar, SunMedium, Users } from "@lucide/vue";
 
 const themeMode = ref(resolveInitialTheme());
 const directoryMode = ref("conversations");
@@ -136,6 +132,7 @@ watch(
     const root = document.documentElement;
     root.dataset.theme = mode;
     root.style.colorScheme = mode === "dark" ? "dark" : "light";
+    // 保存用户风格
     localStorage.setItem("im_theme", mode);
   },
   { immediate: true },

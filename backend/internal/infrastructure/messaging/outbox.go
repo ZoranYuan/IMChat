@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-type ReadAckOutboxWorker struct {
+type OutboxWorker struct {
 	txManager     txmanager.TxManager
 	outboxRepo    messagerepo.MessageOutboxRepository
 	taskManager   mqport.TaskManager
@@ -30,8 +30,8 @@ func NewReadAckOutboxWorker(
 	txManager txmanager.TxManager,
 	outboxRepo messagerepo.MessageOutboxRepository,
 	taskManager mqport.TaskManager,
-) *ReadAckOutboxWorker {
-	return &ReadAckOutboxWorker{
+) *OutboxWorker {
+	return &OutboxWorker{
 		txManager:     txManager,
 		outboxRepo:    outboxRepo,
 		taskManager:   taskManager,
@@ -42,7 +42,7 @@ func NewReadAckOutboxWorker(
 	}
 }
 
-func (w *ReadAckOutboxWorker) Start(ctx context.Context) {
+func (w *OutboxWorker) Start(ctx context.Context) {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 	for {
@@ -57,7 +57,7 @@ func (w *ReadAckOutboxWorker) Start(ctx context.Context) {
 	}
 }
 
-func (w *ReadAckOutboxWorker) dispatchPendingOnce(ctx context.Context) error {
+func (w *OutboxWorker) dispatchPendingOnce(ctx context.Context) error {
 	if w.txManager == nil || w.outboxRepo == nil || w.taskManager == nil {
 		return nil
 	}
@@ -85,40 +85,40 @@ func (w *ReadAckOutboxWorker) dispatchPendingOnce(ctx context.Context) error {
 	return nil
 }
 
-func (w *ReadAckOutboxWorker) dispatchOne(ctx context.Context, item *messageentity.MessageOutbox) error {
+func (w *OutboxWorker) dispatchOne(ctx context.Context, item *messageentity.MessageOutbox) error {
 	switch item.EventType {
-	case protocol.EventTypeMessage:
+	case protocol.EventTypeSendMessage:
 		return w.dispatchMessage(ctx, item)
-	case protocol.EventMessageReadAck:
+	case protocol.EventReadMessageAck:
 		return w.dispatchMessageReadAck(ctx, item)
 	default:
 		return w.markRetry(ctx, item, fmt.Sprintf("unsupported outbox event type: %s", item.EventType))
 	}
 }
 
-func (w *ReadAckOutboxWorker) dispatchMessage(ctx context.Context, item *messageentity.MessageOutbox) error {
+func (w *OutboxWorker) dispatchMessage(ctx context.Context, item *messageentity.MessageOutbox) error {
 	var event protocol.MessageEvent
 	if err := json.Unmarshal(item.Payload, &event); err != nil {
 		return w.markRetry(ctx, item, err.Error())
 	}
-	if err := w.taskManager.SendMessage(ctx, item.Topic, item.MessageKey, event); err != nil {
+	if err := w.taskManager.HandleSendMessage(ctx, item.Topic, item.MessageKey, event); err != nil {
 		return w.markRetry(ctx, item, err.Error())
 	}
 	return w.outboxRepo.MarkSent(ctx, item.ID, time.Now())
 }
 
-func (w *ReadAckOutboxWorker) dispatchMessageReadAck(ctx context.Context, item *messageentity.MessageOutbox) error {
+func (w *OutboxWorker) dispatchMessageReadAck(ctx context.Context, item *messageentity.MessageOutbox) error {
 	var event protocol.MessageReadAckEvent
 	if err := json.Unmarshal(item.Payload, &event); err != nil {
 		return w.markRetry(ctx, item, err.Error())
 	}
-	if err := w.taskManager.PublishMessageReadAck(ctx, item.Topic, item.MessageKey, event); err != nil {
+	if err := w.taskManager.HandleReadMessageAck(ctx, item.Topic, item.MessageKey, event); err != nil {
 		return w.markRetry(ctx, item, err.Error())
 	}
 	return w.outboxRepo.MarkSent(ctx, item.ID, time.Now())
 }
 
-func (w *ReadAckOutboxWorker) markRetry(ctx context.Context, item *messageentity.MessageOutbox, lastError string) error {
+func (w *OutboxWorker) markRetry(ctx context.Context, item *messageentity.MessageOutbox, lastError string) error {
 	retryDelay := w.baseRetryWait * time.Duration(int(math.Pow(2, float64(item.RetryCount))))
 	if retryDelay > 5*time.Minute {
 		retryDelay = 5 * time.Minute

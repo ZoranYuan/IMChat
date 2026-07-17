@@ -1,22 +1,23 @@
-package mq
+package mq_handler
 
 import (
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	messageentity "IM_backend/internal/domain/message/entity"
+	"IM_backend/internal/infrastructure/messaging/client/kafka"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
 )
 
 type ConversationSyncHandler struct {
-	repository messagerepo.UserConversationRepository
+	ucrepository messagerepo.UserConversationRepository
 }
 
-func NewConversationSyncHandler(repository messagerepo.UserConversationRepository) *ConversationSyncHandler {
-	return &ConversationSyncHandler{repository: repository}
+func NewConversationSyncHandler(ucrepository messagerepo.UserConversationRepository) kafka.ConsumerHandler {
+	return &ConversationSyncHandler{ucrepository: ucrepository}
 }
 
-func (h *ConversationSyncHandler) Handle(ctx context.Context, message ConsumerMessage) error {
+func (h *ConversationSyncHandler) Handle(ctx context.Context, message kafka.ConsumerMessage) error {
 	envelope, err := decodeEnvelope(message.Value)
 	if err != nil {
 		return err
@@ -42,5 +43,5 @@ func (h *ConversationSyncHandler) Handle(ctx context.Context, message ConsumerMe
 	if len(userConversations) == 0 {
 		return nil
 	}
-	return h.repository.BatchUpdateSyncSeq(ctx, userConversations)
+	return h.ucrepository.BatchUpdateSyncSeq(ctx, userConversations)
 }

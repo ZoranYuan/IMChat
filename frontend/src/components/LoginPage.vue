@@ -35,13 +35,8 @@
       </label>
       <label>
         <span>密码</span>
-        <input
-          :value="authForm.password"
-          placeholder="请输入密码"
-          type="password"
-          @input="authForm.password = $event.target.value.trim()"
-          @keydown.enter="$emit('submit-auth')"
-        />
+        <input :value="authForm.password" placeholder="请输入密码" type="password"
+          @input="authForm.password = $event.target.value.trim()" @keydown.enter="$emit('submit-auth')" />
       </label>
 
       <button class="primary wide login-submit" @click="$emit('submit-auth')">
@@ -70,8 +65,8 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue";
 import { LogIn, MoonStar, SunMedium } from "@lucide/vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import githubIcon from "../assets/github.svg";
 import wechatIcon from "../assets/wechat.svg";
 
@@ -85,7 +80,7 @@ defineProps({
 defineEmits(["update:authMode", "submit-auth", "oauth-login", "toggle-theme"]);
 
 const titleText = "实时聊天，一起同步观影。";
-const copyText = "房间成员可以聊天、上传视频、同步播放进度，并把历史聊天作为弹幕回放。";
+const sizeTitleText = "房间成员可以聊天、上传视频、同步播放进度，并把历史聊天作为弹幕回放。";
 const streamedTitle = ref("");
 const streamedCopy = ref("");
 const isStreamingTitle = ref(true);

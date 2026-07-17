@@ -6,7 +6,7 @@ import (
 )
 
 type TaskManager interface {
-	SendMessage(ctx context.Context, topic string, key string, event protocol.MessageEvent) error
-	PublishMessageReadAck(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error
-	SendConversationSyncSeq(ctx context.Context, topic string, key string, event protocol.ConversationSyncSeqEvent) error
+	HandleSendMessage(ctx context.Context, topic string, key string, event protocol.MessageEvent) error
+	HandleReadMessageAck(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error
+	HandleConversationSync(ctx context.Context, topic string, key string, event protocol.ConversationSyncSeqEvent) error
 }

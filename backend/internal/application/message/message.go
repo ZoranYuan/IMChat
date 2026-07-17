@@ -100,14 +100,14 @@ func NewMessageApplication(
 	}
 }
 
-func (ma *MessageApplication) HandleMessageReadAck(
+func (ma *MessageApplication) HandleReadMessage(
 	ctx context.Context,
 	userId string,
 	conversationId string,
 	lastReadSeq int64,
 	senderId string,
 ) error {
-	if senderId == "" {
+	if senderId == "" || senderId == userId {
 		return nil
 	}
 
@@ -161,7 +161,7 @@ func (ma *MessageApplication) HandleMessageReadAck(
 		}
 
 		// 加入 outbox ，便于后续的异步事件分发
-		outbox := &messageentity.MessageOutbox{EventType: string(protocol.EventMessageReadAck), Topic: string(protocol.EventMessageReadAck), MessageKey: userId + ":" + conversationId, Payload: payload}
+		outbox := &messageentity.MessageOutbox{EventType: string(protocol.EventReadMessageAck), Topic: string(protocol.EventReadMessageAck), MessageKey: userId + ":" + conversationId, Payload: payload}
 		return ma.messageOutboxRepository.WithTx(tx).Create(ctx, outbox)
 	})
 }
@@ -283,7 +283,7 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 }
 
 func (ma *MessageApplication) isRoomConvMember(ctx context.Context, userID, roomID string) error {
-	key := "room:" + roomID + ":" + userID
+	key := "room_member:" + roomID + ":" + userID
 	// 使用 sf 来减少房间内成员频繁发送消息时造成缓存的频繁查询
 	resultCh := ma.sf.DoChan(key, func() (any, error) {
 		ctx, cancel := context.WithTimeout(
@@ -353,7 +353,7 @@ func (ma *MessageApplication) isPrivateConvMember(ctx context.Context, userID, r
 	resultCh := ma.sf.DoChan(key, func() (any, error) {
 		ctx, cancel := context.WithTimeout(
 			context.WithoutCancel(ctx),
-			3*time.Second,
+			2*time.Second,
 		)
 		defer cancel()
 
@@ -406,7 +406,7 @@ func (ma *MessageApplication) checkConvMember(ctx context.Context, dto MessageAp
 	}
 }
 
-func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
+func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
 	conversationId := messageentity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType)
 	messageId, err := snow.GenerateSnowID(int(ma.config.App.MachineID))
 	if err != nil {
@@ -561,8 +561,8 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		}
 
 		outbox := &messageentity.MessageOutbox{
-			EventType:  string(protocol.EventTypeMessage),
-			Topic:      string(protocol.EventTypeMessage),
+			EventType:  string(protocol.EventTypeSendMessage),
+			Topic:      string(protocol.EventTypeSendMessage),
 			MessageKey: conversationId,
 			Payload:    eventPayload,
 		}

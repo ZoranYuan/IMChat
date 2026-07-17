@@ -18,7 +18,7 @@ func NewProducer(c *Client, topic string) *Producer {
 	}
 }
 
-func (p *Producer) SendMessage(ctx context.Context, topic string, key string, payload []byte) error {
+func (p *Producer) ProduceMessage(ctx context.Context, topic string, key string, payload []byte) error {
 	targetTopic := p.topic
 	if topic != "" {
 		targetTopic = topic

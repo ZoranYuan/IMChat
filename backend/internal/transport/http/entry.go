@@ -7,7 +7,6 @@ import (
 	messagehttp "IM_backend/internal/transport/http/message"
 	"IM_backend/internal/transport/http/middleware"
 	roomhttp "IM_backend/internal/transport/http/room"
-	testdatahttp "IM_backend/internal/transport/http/testdata"
 	userhttp "IM_backend/internal/transport/http/user"
 
 	"github.com/gin-gonic/gin"
@@ -43,7 +42,7 @@ func RegisterFileRouter(r *gin.RouterGroup, fh *filehttp.Handle, authMiddle *mid
 	filehttp.RegisterRoutes(fileGroup, fh)
 }
 
-func RegisterTestDataRouter(r *gin.RouterGroup, th *testdatahttp.Handle) {
-	testdataGroup := r.Group("/testdata")
-	testdatahttp.RegisterRoutes(testdataGroup, th)
-}
+// func RegisterTestDataRouter(r *gin.RouterGroup, th *testdatahttp.Handle) {
+// 	testdataGroup := r.Group("/testdata")
+// 	testdatahttp.RegisterRoutes(testdataGroup, th)
+// }

@@ -50,8 +50,8 @@ type Envelope struct {
 const (
     EventTypeMessage       = "msg"
     EventTypeMsgAck        = "msg_ack"
-    EventMessageReadAck    = "msg_read_ack"
-    EventMessageReadNotify = "msg_read_notify"
+    EventReadMessageAck    = "msg_read_ack"
+    EventReadMessageNotify = "msg_read_notify"
     EventWatchVideoCtrl    = "watch_video_control"
     EventWatchVideoSync    = "watch_video_sync"
 )

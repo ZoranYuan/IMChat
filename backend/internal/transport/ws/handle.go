@@ -43,8 +43,8 @@ func NewWSHandler(app *messageapp.MessageApplication, config configs.Config, dis
 		},
 	}
 
-	dispatcher.RegisterHandler(protocol.EventTypeMessage, wh.handleSendMessage)
-	dispatcher.RegisterHandler(protocol.EventMessageReadAck, wh.handleHistoryMessageRead)
+	dispatcher.RegisterHandler(protocol.EventTypeSendMessage, wh.handleSendMessage)
+	dispatcher.RegisterHandler(protocol.EventReadMessageAck, wh.handleReadMessageAck)
 
 	return wh
 }
@@ -82,14 +82,14 @@ func (wh *WSHandler) allowEvent(ctx context.Context, op string, userId string, p
 	return decision.Allowed
 }
 
-func (wh *WSHandler) handleHistoryMessageRead(ctx context.Context, session *realtimews.Session, data []byte) error {
+func (wh *WSHandler) handleReadMessageAck(ctx context.Context, session *realtimews.Session, data []byte) error {
 	var pb wspb.MessageReadAckReq
 
 	if err := proto.Unmarshal(data, &pb); err != nil {
 		return err
 	}
 
-	return wh.app.HandleMessageReadAck(ctx, session.UserID(), pb.GetConversationId(), pb.GetLastReadSeq(), pb.GetSenderId())
+	return wh.app.HandleReadMessage(ctx, session.UserID(), pb.GetConversationId(), pb.GetLastReadSeq(), pb.GetSenderId())
 }
 
 func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.Session, data []byte) error {
@@ -100,7 +100,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 
 	allowed := wh.allowEvent(
 		ctx,
-		protocol.EventTypeMessage,
+		protocol.EventTypeSendMessage,
 		session.UserID(),
 		shared_ratelimit.Policy{
 			Rate:  10,
@@ -129,7 +129,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 
 	req := messageReqFromPB(&pb)
 
-	messageApp, err := wh.app.HandleMessage(ctx, messageapp.MessageAppeDTO{
+	messageApp, err := wh.app.HandleSendMessage(ctx, messageapp.MessageAppeDTO{
 		SendId:      session.UserID(),
 		ClientMsgId: req.ClientMsgId,
 		RecvId:      req.RecvId,
@@ -149,6 +149,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 		PackId:      req.PackId,
 		VideoTime:   req.VideoTime,
 	})
+
 	if messageApp == nil {
 		messageApp = &messageapp.MessageAppeDTO{
 			ClientMsgId: req.ClientMsgId,

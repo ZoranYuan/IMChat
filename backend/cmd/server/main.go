@@ -7,10 +7,10 @@ import (
 	friendrequestapp "IM_backend/internal/application/friend_request"
 	messageapp "IM_backend/internal/application/message"
 	roomapp "IM_backend/internal/application/room"
-	testdataapp "IM_backend/internal/application/testdata"
 	userapp "IM_backend/internal/application/user"
 	mq "IM_backend/internal/infrastructure/messaging"
 	"IM_backend/internal/infrastructure/messaging/client/kafka"
+	mq_handler "IM_backend/internal/infrastructure/messaging/handler"
 	"IM_backend/internal/infrastructure/persistence"
 	"IM_backend/internal/infrastructure/persistence/mysql"
 	filemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/file"
@@ -39,7 +39,6 @@ import (
 	messagehttp "IM_backend/internal/transport/http/message"
 	"IM_backend/internal/transport/http/middleware"
 	roomhttp "IM_backend/internal/transport/http/room"
-	testdatahttp "IM_backend/internal/transport/http/testdata"
 	userhttp "IM_backend/internal/transport/http/user"
 	"IM_backend/internal/transport/ws"
 	"context"
@@ -150,31 +149,35 @@ func main() {
 	)
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
 
-	messagePushHandler := mq.NewMessagePushHandler(
+	messageSendHandler := mq_handler.NewSendMessagehandler(
 		realtimeGateway,
 		roomRepository,
 		roomUserRepository,
 		userConversationRepository,
 		roomCache,
 	)
-	readAckHandler := mq.NewReadAckHandler(realtimeGateway)
-	conversationSyncHandler := mq.NewConversationSyncHandler(userConversationRepository)
-	consumerRouter := mq.NewConsumerRouter(map[string]mq.ConsumerHandler{
-		protocol.EventTypeMessage:         messagePushHandler,
-		protocol.EventMessageReadAck:      readAckHandler,
+	readNotifyHandler := mq_handler.NewReadMessageAckNotifyHandler(realtimeGateway)
+	conversationSyncHandler := mq_handler.NewConversationSyncHandler(userConversationRepository)
+	consumerRouter := kafka.NewConsumerRouter(map[string]kafka.ConsumerHandler{
+		protocol.EventTypeSendMessage:     messageSendHandler,
+		protocol.EventReadMessageAck:      readNotifyHandler, // 当接收到读消息确认时，将已读用户通知给消息发送方
 		protocol.EventConversationSyncSeq: conversationSyncHandler,
 	})
 
-	messageConsumer := kafka.NewConsumerGroup(kafkaClient, []string{
-		string(protocol.EventMessageReadAck),
-		string(protocol.EventTypeMessage),
+	messageConsumerGroup, err := kafka.NewConsumerGroup(kafkaClient, []string{
+		string(protocol.EventReadMessageAck),
+		string(protocol.EventTypeSendMessage),
 		string(protocol.EventConversationSyncSeq),
 	},
 		consumerRouter,
 	)
 
+	if err != nil {
+		log.Fatal("failed to create message consumer group ", err)
+	}
+
 	go func() {
-		if err := messageConsumer.Start(ctx); err != nil && ctx.Err() == nil {
+		if err := messageConsumerGroup.Start(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("kafka consumer stopped: %v", err)
 		}
 	}()
@@ -183,9 +186,9 @@ func main() {
 
 	dispatcher := ws.NewDispatcher()
 	taskManager := mq.NewTaskManager(messageProducer)
-	readAckOutboxWorker := mq.NewReadAckOutboxWorker(txManager, messageOutboxRepository, taskManager)
+	outboxWorker := mq.NewReadAckOutboxWorker(txManager, messageOutboxRepository, taskManager)
 
-	go readAckOutboxWorker.Start(ctx)
+	go outboxWorker.Start(ctx)
 
 	messageApplication := messageapp.NewMessageApplication(
 		cfg,
@@ -217,21 +220,21 @@ func main() {
 		realtimeGateway,
 	)
 
-	testdataApplication := testdataapp.NewBootstrapApplication(
-		cfg,
-		db,
-		redisClient,
-		userRepository,
-		friendRepository,
-		messageRepository,
-		conversationRepository,
-		userConversationRepository,
-		roomRepository,
-		roomUserRepository,
-		roomApp,
-		messageApplication,
-	)
-	testdataHandle := testdatahttp.NewHandle(testdataApplication)
+	// testdataApplication := testdataapp.NewBootstrapApplication(
+	// 	cfg,
+	// 	db,
+	// 	redisClient,
+	// 	userRepository,
+	// 	friendRepository,
+	// 	messageRepository,
+	// 	conversationRepository,
+	// 	userConversationRepository,
+	// 	roomRepository,
+	// 	roomUserRepository,
+	// 	roomApp,
+	// 	messageApplication,
+	// )
+	// testdataHandle := testdatahttp.NewHandle(testdataApplication)
 
 	// 注册中间件
 	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
@@ -248,9 +251,9 @@ func main() {
 	httpapi.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
 	httpapi.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)
 	httpapi.RegisterFileRouter(apiGroup, fileHandle, authMiddle)
-	if cfg.App.Env == "development" {
-		httpapi.RegisterTestDataRouter(apiGroup.Group("/dev"), testdataHandle)
-	}
+	// if cfg.App.Env == "development" {
+	// 	httpapi.RegisterTestDataRouter(apiGroup.Group("/dev"), testdataHandle)
+	// }
 
 	ws.RegisterWSRouter(apiGroup, wsHandle, authMiddle)
 

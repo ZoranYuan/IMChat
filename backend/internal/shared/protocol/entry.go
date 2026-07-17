@@ -27,11 +27,11 @@ const (
 )
 
 const (
-	EventMessageReadAck      = "msg_read_ack"
-	EventMessageReadNotify   = "msg_read_notify"
-	EventTypeMsgAck          = "msg_ack"
-	EventTypeMessage         = "msg"
-	EventConversationSyncSeq = "conversation_sync_seq"
+	EventReadMessageAck      = "msg_read_ack"          // 前端发送给后端，表示当前用户已经读取了消息
+	EventReadMessageNotify   = "msg_read_notify"       // 发送给前端，表示已经有用户读取消息
+	EventTypeMsgAck          = "msg_ack"               // 发送给前端，表示已经接收到消息
+	EventTypeSendMessage     = "msg"                   // 后端发送给前端，表示新的消息
+	EventConversationSyncSeq = "conversation_sync_seq" // 表示消息的同步
 )
 
 type Event struct {

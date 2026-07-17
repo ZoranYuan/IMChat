@@ -1,23 +1,26 @@
 package mq
 
 import (
-	mqclient "IM_backend/internal/infrastructure/messaging/client"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
 )
 
-type TaskManager struct {
-	client mqclient.Client
+type Client interface {
+	ProduceMessage(context.Context, string, string, []byte) error
 }
 
-func NewTaskManager(c mqclient.Client) *TaskManager {
+type TaskManager struct {
+	client Client
+}
+
+func NewTaskManager(c Client) *TaskManager {
 	return &TaskManager{
 		client: c,
 	}
 }
 
-func (t *TaskManager) handleMessage(ctx context.Context, topic string, key string, event protocol.MessageEvent) error {
+func (t *TaskManager) handleSendMessage(ctx context.Context, topic string, key string, event protocol.MessageEvent) error {
 	var payload []byte
 
 	payload, err := json.Marshal(event)
@@ -36,10 +39,10 @@ func (t *TaskManager) handleMessage(ctx context.Context, topic string, key strin
 		// 补偿措施
 	}
 
-	return t.client.SendMessage(ctx, topic, key, data)
+	return t.client.ProduceMessage(ctx, topic, key, data)
 }
 
-func (t *TaskManager) handleMessageReadAck(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error {
+func (t *TaskManager) handleReadMessageAck(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error {
 	var payload []byte
 
 	payload, err := json.Marshal(event)
@@ -57,10 +60,10 @@ func (t *TaskManager) handleMessageReadAck(ctx context.Context, topic string, ke
 		// 补偿措施
 	}
 
-	return t.client.SendMessage(ctx, topic, key, data)
+	return t.client.ProduceMessage(ctx, topic, key, data)
 }
 
-func (t *TaskManager) handleConversationSyncSeq(ctx context.Context, topic string, key string, event protocol.ConversationSyncSeqEvent) error {
+func (t *TaskManager) handleConversationSync(ctx context.Context, topic string, key string, event protocol.ConversationSyncSeqEvent) error {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -75,36 +78,35 @@ func (t *TaskManager) handleConversationSyncSeq(ctx context.Context, topic strin
 		return err
 	}
 
-	return t.client.SendMessage(ctx, topic, key, data)
+	return t.client.ProduceMessage(ctx, topic, key, data)
 }
 
 func (t *TaskManager) dispatch(ctx context.Context, topic string, key string, event protocol.Event) error {
 	switch event.Type {
-	case protocol.EventTypeMessage:
-		// msg
+	case protocol.EventTypeSendMessage:
 		var message protocol.MessageEvent
 		if err := json.Unmarshal(event.Data, &message); err != nil {
 			return err
 		}
-		return t.handleMessage(ctx, topic, key, message)
-	case protocol.EventMessageReadAck:
+		return t.handleSendMessage(ctx, topic, key, message)
+	case protocol.EventReadMessageAck:
 		var message protocol.MessageReadAckEvent
 		if err := json.Unmarshal(event.Data, &message); err != nil {
 			return err
 		}
-		return t.handleMessageReadAck(ctx, topic, key, message)
+		return t.handleReadMessageAck(ctx, topic, key, message)
 	case protocol.EventConversationSyncSeq:
 		var syncEvent protocol.ConversationSyncSeqEvent
 		if err := json.Unmarshal(event.Data, &syncEvent); err != nil {
 			return err
 		}
-		return t.handleConversationSyncSeq(ctx, topic, key, syncEvent)
+		return t.handleConversationSync(ctx, topic, key, syncEvent)
 	}
 
 	return nil
 }
 
-func (t *TaskManager) SendMessage(ctx context.Context, topic string, key string, event protocol.MessageEvent) error {
+func (t *TaskManager) HandleSendMessage(ctx context.Context, topic string, key string, event protocol.MessageEvent) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -116,19 +118,19 @@ func (t *TaskManager) SendMessage(ctx context.Context, topic string, key string,
 	})
 }
 
-func (t *TaskManager) PublishMessageReadAck(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error {
+func (t *TaskManager) HandleReadMessageAck(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
 
 	return t.dispatch(ctx, topic, key, protocol.Event{
-		Type: protocol.EventMessageReadAck,
+		Type: protocol.EventReadMessageAck,
 		Data: data,
 	})
 }
 
-func (t *TaskManager) SendConversationSyncSeq(ctx context.Context, topic string, key string, event protocol.ConversationSyncSeqEvent) error {
+func (t *TaskManager) HandleConversationSync(ctx context.Context, topic string, key string, event protocol.ConversationSyncSeqEvent) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
