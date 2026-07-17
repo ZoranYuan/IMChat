@@ -1,11 +1,17 @@
 package friend
 
-import "context"
+import (
+	friendvo "IM_backend/internal/domain/friend/value_object"
+	"context"
+)
+
+type RelationState struct {
+	Status friendvo.Status
+}
 
 type FriendCache interface {
-	IsFriend(ctx context.Context, userId, friendUserId string) (bool, error)
-	AddFriend(ctx context.Context, userId, friendUserId string) error
-	GetFriends(ctx context.Context, userId string) ([]string, error)
-	RemoveFriend(ctx context.Context, userId, friendUserId string) error
-	DeleteUserFriends(ctx context.Context, userIds []string) error
+	GetRelation(ctx context.Context, userID, friendID string) (*RelationState, bool, error)
+	SetRelation(ctx context.Context, userID, friendID string, state *RelationState) error
+	SetRelationNotFound(ctx context.Context, userID, friendID string) error
+	DeleteRelation(ctx context.Context, userID, friendID string) error
 }

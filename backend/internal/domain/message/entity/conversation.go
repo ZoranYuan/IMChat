@@ -48,6 +48,6 @@ func GetConversationID(sendId, targetId string, convType int) string {
 		return max(targetId, sendId) + "_" + min(targetId, sendId)
 	}
 
-	// group chat
+	// room chat
 	return targetId
 }

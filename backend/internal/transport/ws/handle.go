@@ -26,15 +26,15 @@ type WSHandler struct {
 	app        *messageapp.MessageApplication
 	config     configs.Config
 	dispatcher *Dispatcher
-	realtime   *realtimews.Gateway
+	gateway    *realtimews.Gateway
 	limiter    shared_ratelimit.Limit
 }
 
-func NewWSHandler(app *messageapp.MessageApplication, config configs.Config, dispatcher *Dispatcher, realtime *realtimews.Gateway) *WSHandler {
+func NewWSHandler(app *messageapp.MessageApplication, config configs.Config, dispatcher *Dispatcher, gateway *realtimews.Gateway) *WSHandler {
 	wh := &WSHandler{
 		app:        app,
 		config:     config,
-		realtime:   realtime,
+		gateway:    gateway,
 		dispatcher: dispatcher,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -192,7 +192,7 @@ func (wh *WSHandler) replyToClient(session *realtimews.Session, op string, paylo
 }
 
 func (wh *WSHandler) handleClientClosed(session *realtimews.Session) {
-	wh.realtime.Unregister(session)
+	wh.gateway.Unregister(session)
 }
 
 func (wh *WSHandler) Handler(c *gin.Context) {
@@ -214,7 +214,7 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 
 	sessionId := uuid.NewString()
 	session := realtimews.NewSession(ctx, cancel, conn, userId, sessionId, wh.config.WebSocket.MaxMessageSendBufferSize)
-	wh.realtime.Register(session)
+	wh.gateway.Register(session)
 	session.Start(
 		wh.config.WebSocket.PongWaitSeconds,
 		wh.config.WebSocket.PingPeriodSeconds,

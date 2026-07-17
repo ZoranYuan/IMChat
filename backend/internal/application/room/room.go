@@ -2,7 +2,6 @@ package room
 
 import (
 	"IM_backend/configs"
-	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
@@ -25,8 +24,8 @@ type RoomApplication struct {
 	userConversationRepository messagerepo.UserConversationRepository
 	conversationRepository     messagerepo.ConversationRepository
 	config                     configs.Config
-	conversationCache          convcache.ConversationCache
 	roomCache                  roomcache.RoomCache
+	roomMemberCache            roomcache.RoomMemberCache
 	txManager                  txmanager.TxManager
 }
 
@@ -36,7 +35,7 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 	conversationRepository messagerepo.ConversationRepository,
 	config configs.Config,
 	roomCache roomcache.RoomCache,
-	conversationCache convcache.ConversationCache,
+	roomMemberCache roomcache.RoomMemberCache,
 	txManager txmanager.TxManager,
 ) *RoomApplication {
 	return &RoomApplication{
@@ -46,7 +45,7 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 		userConversationRepository: userConversationRepository,
 		config:                     config,
 		roomCache:                  roomCache,
-		conversationCache:          conversationCache,
+		roomMemberCache:            roomMemberCache,
 		txManager:                  txManager,
 	}
 }
@@ -117,10 +116,12 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 
 	inviteCode, inviteErr := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
 
-	if err := ra.conversationCache.AddMember(ctx, conversationId, userId, 1); err != nil {
+	memberState := &roomcache.MemberState{Status: roomUser.Status, Role: roomUser.Role, MuteUntil: roomUser.MuteUtil}
+	if err := ra.roomMemberCache.SetMember(ctx, roomId, userId, memberState); err != nil {
 		// best-effort cache warmup; the DB state is already authoritative
 		log.Println("failed to create join room cache ", err)
 	}
+	_ = ra.roomMemberCache.SetMemberIDs(ctx, roomId, []string{userId})
 
 	if inviteErr != nil {
 		log.Println("failed to generate invite code:", inviteErr)
@@ -191,7 +192,6 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 	roomUser := roomentity.NewRoomUser(userId, roomId, roomvo.RegularUser)
 	roomUser.Join()
 
-	var version int64
 	if err := ra.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
 		roomUserRepository := ra.roomUserRepository.WithTx(tx)
 		userConversationRepository := ra.userConversationRepository.WithTx(tx)
@@ -205,10 +205,6 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 
 		conv, err := conversationRepository.GetByID(ctx, conversationId)
 		if err != nil {
-			return err
-		}
-
-		if version, err = ra.roomRepository.UpdateRoomVersion(roomId); err != nil {
 			return err
 		}
 
@@ -231,17 +227,18 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		return nil, nil, err
 	}
 
-	if err := ra.conversationCache.AddMember(ctx, conversationId, userId, version); err != nil {
+	memberState := &roomcache.MemberState{Status: roomUser.Status, Role: roomUser.Role, MuteUntil: roomUser.MuteUtil}
+	if err := ra.roomMemberCache.SetMember(ctx, roomId, userId, memberState); err != nil {
 		// best-effort cache warmup; the DB state is already authoritative
 		log.Println("failed to update join room cache ", err)
 	}
+	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
 
 	return toRoomUserDTO(roomUser), toRoomAppDTO(room, ""), nil
 }
 
 func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) error {
 	roomUser, err := ra.roomUserRepository.GetRelationByIDs(userId, roomId)
-	conversationId := roomId
 	if err != nil {
 		return ErrUnknown
 	}
@@ -254,14 +251,8 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 		return err
 	}
 
-	var version int64
 	if err := ra.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
-		roomRepo := ra.roomRepository.WithTx(tx)
 		roomUserRepo := ra.roomUserRepository.WithTx(tx)
-
-		if version, err = roomRepo.UpdateRoomVersion(roomId); err != nil {
-			return err
-		}
 
 		if err := roomUserRepo.LeaveRoom(roomUser, []int{int(roomvo.Activate), int(roomvo.BeMuted)}); err != nil {
 			if errors.Is(err, roomentity.ErrVersionConflict) {
@@ -275,10 +266,11 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 		return err
 	}
 
-	if err := ra.conversationCache.RemoveMember(ctx, conversationId, userId, version); err != nil {
+	if err := ra.roomMemberCache.SetMemberNotFound(ctx, roomId, userId); err != nil {
 		// best-effort cache warmup; the DB state is already authoritative
 		log.Println("failed to update remove room cache ", err)
 	}
+	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
 
 	return nil
 }

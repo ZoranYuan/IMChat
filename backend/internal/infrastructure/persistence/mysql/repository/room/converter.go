@@ -16,7 +16,6 @@ func toDomain(m model.Room) *roomentity.Room {
 		Avatar:      m.Avatar,
 		MemberCount: m.MemberCount,
 		MaxMembers:  m.MaxMembers,
-		Version:     m.Version,
 	}
 }
 
@@ -30,6 +29,5 @@ func toModel(e *roomentity.Room) model.Room {
 		Avatar:      e.Avatar,
 		MemberCount: e.MemberCount,
 		MaxMembers:  e.MaxMembers,
-		Version:     e.Version,
 	}
 }

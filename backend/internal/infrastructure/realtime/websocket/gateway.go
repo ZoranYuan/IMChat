@@ -6,11 +6,7 @@ import (
 	"log"
 	"sync"
 	"time"
-
-	realtime "IM_backend/internal/infrastructure/realtime"
 )
-
-var _ realtime.Gateway = (*Gateway)(nil)
 
 // Gateway is the local long-connection gateway, equivalent to goim comet or
 // OpenIM msggateway. It owns only session indexing and realtime delivery.

@@ -3,7 +3,7 @@ package friendrequest
 import (
 	"IM_backend/configs"
 	friendapp "IM_backend/internal/application/friend"
-	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
+	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
 	friendrequestrepo "IM_backend/internal/application/ports/persistence/repository/friend_request"
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
@@ -12,8 +12,6 @@ import (
 	friendvo "IM_backend/internal/domain/friend/value_object"
 	friendrequestentity "IM_backend/internal/domain/friend_request/entity"
 	friendrequestvo "IM_backend/internal/domain/friend_request/value_object"
-	messageentity "IM_backend/internal/domain/message/entity"
-	messagevo "IM_backend/internal/domain/message/value_object"
 	"IM_backend/internal/infrastructure/id/snow"
 	"context"
 	"errors"
@@ -28,7 +26,7 @@ type FriendApplication struct {
 	friendRequestRepository friendrequestrepo.FriendRequestRepository
 	userRepository          userrepo.UserRepository
 	friendRepository        friendrepo.FriendRepository
-	conversationCache       convcache.ConversationCache
+	friendCache             friendcache.FriendCache
 	config                  configs.Config
 	txManager               txmanager.TxManager
 }
@@ -38,7 +36,7 @@ func NewFriendApplication(
 	userRepository userrepo.UserRepository,
 	config configs.Config,
 	friendRepository friendrepo.FriendRepository,
-	conversationCache convcache.ConversationCache,
+	friendCache friendcache.FriendCache,
 	txManager txmanager.TxManager,
 ) *FriendApplication {
 	return &FriendApplication{
@@ -46,7 +44,7 @@ func NewFriendApplication(
 		userRepository:          userRepository,
 		config:                  config,
 		friendRepository:        friendRepository,
-		conversationCache:       conversationCache,
+		friendCache:             friendCache,
 		txManager:               txManager,
 	}
 }
@@ -205,10 +203,12 @@ func (fa *FriendApplication) Accept(requestId string, userId string) error {
 		return ErrOperationFailed
 	}
 
-	conversationId := messageentity.GetConversationID(record.ToUserId, record.FromUserId, int(messagevo.PrivateChat))
-	if err := fa.conversationCache.SetMembers(ctx, conversationId, []string{record.FromUserId, record.ToUserId}, 1); err != nil {
-		// best-effort cache warmup; the DB state is already authoritative
-		log.Println("failed to create conversation cache")
+	state := &friendcache.RelationState{Status: friendvo.Friend}
+	if err := fa.friendCache.SetRelation(ctx, record.FromUserId, record.ToUserId, state); err != nil {
+		log.Println("failed to warm friend relation cache:", err)
+	}
+	if err := fa.friendCache.SetRelation(ctx, record.ToUserId, record.FromUserId, state); err != nil {
+		log.Println("failed to warm reverse friend relation cache:", err)
 	}
 
 	return nil

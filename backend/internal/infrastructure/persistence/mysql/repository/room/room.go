@@ -25,35 +25,6 @@ func (rr *RoomRepository) Create(domain *roomentity.Room) error {
 	return rr.db.Create(&model).Error
 }
 
-func (rr *RoomRepository) UpdateRoomVersion(roomId string) (int64, error) {
-	res := rr.db.
-		Model(&model.Room{}).
-		Where("room_id = ?", roomId).
-		Update("version", gorm.Expr("version + 1"))
-
-	if res.Error != nil {
-		return 0, res.Error
-	}
-
-	if res.RowsAffected == 0 {
-		return 0, roomentity.ErrRoomNotFound
-	}
-
-	// Step 2: 查回 version（关键）
-	var version int64
-	err := rr.db.
-		Model(&model.Room{}).
-		Select("version").
-		Where("room_id = ?", roomId).
-		Scan(&version).Error
-
-	if err != nil {
-		return 0, err
-	}
-
-	return version, nil
-}
-
 func (rr *RoomRepository) FindActiveRoom(roomId string, status int) (*roomentity.Room, error) {
 	var m model.Room
 

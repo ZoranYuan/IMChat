@@ -2,12 +2,15 @@ package message
 
 import (
 	"IM_backend/configs"
+	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
+	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
 	fileentity "IM_backend/internal/domain/file/entity"
 	friendentity "IM_backend/internal/domain/friend/entity"
+	friendvo "IM_backend/internal/domain/friend/value_object"
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
 	roomentity "IM_backend/internal/domain/room/entity"
@@ -17,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -31,42 +35,36 @@ func (f *fakeTxManager) WithinTransaction(ctx context.Context, fn func(tx *gorm.
 }
 
 type fakeConversationCache struct {
-	mu                   sync.Mutex
-	memberCheckResult    bool
-	memberCheckVersion   int64
-	memberCheckErr       error
-	setMembersConvID     string
-	setMembersUserIDs    []string
-	setMembersVersion    int64
-	latestSeqByConv      map[string]int64
-	membersByConv        map[string][]string
-	membersVersionByConv map[string]int64
+	mu              sync.Mutex
+	latestSeqByConv map[string]int64
 }
 
-func (c *fakeConversationCache) IsMemberWithVersion(ctx context.Context, convId, userId string) (bool, int64, error) {
-	return c.memberCheckResult, c.memberCheckVersion, c.memberCheckErr
-}
+type fakeFriendCache struct{}
 
-func (c *fakeConversationCache) SetMembers(ctx context.Context, convId string, userIds []string, version int64) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.setMembersConvID = convId
-	c.setMembersUserIDs = append([]string(nil), userIds...)
-	c.setMembersVersion = version
-	if c.membersByConv == nil {
-		c.membersByConv = make(map[string][]string)
-	}
-	if c.membersVersionByConv == nil {
-		c.membersVersionByConv = make(map[string]int64)
-	}
-	c.membersByConv[convId] = append([]string(nil), userIds...)
-	c.membersVersionByConv[convId] = version
+func (c *fakeFriendCache) GetRelation(context.Context, string, string) (*friendcache.RelationState, bool, error) {
+	return &friendcache.RelationState{Status: friendvo.Friend}, true, nil
+}
+func (c *fakeFriendCache) SetRelation(context.Context, string, string, *friendcache.RelationState) error {
 	return nil
 }
+func (c *fakeFriendCache) SetRelationNotFound(context.Context, string, string) error { return nil }
+func (c *fakeFriendCache) DeleteRelation(context.Context, string, string) error      { return nil }
 
-func (c *fakeConversationCache) DeleteConversation(ctx context.Context, convID string) error {
+type fakeRoomMemberCache struct{}
+
+func (c *fakeRoomMemberCache) GetMember(context.Context, string, string) (*roomcache.MemberState, bool, error) {
+	return nil, false, nil
+}
+func (c *fakeRoomMemberCache) SetMember(context.Context, string, string, *roomcache.MemberState) error {
 	return nil
 }
+func (c *fakeRoomMemberCache) SetMemberNotFound(context.Context, string, string) error { return nil }
+func (c *fakeRoomMemberCache) DeleteMember(context.Context, string, string) error      { return nil }
+func (c *fakeRoomMemberCache) GetMemberIDs(context.Context, string) ([]string, bool, error) {
+	return nil, false, nil
+}
+func (c *fakeRoomMemberCache) SetMemberIDs(context.Context, string, []string) error { return nil }
+func (c *fakeRoomMemberCache) DeleteMemberIDs(context.Context, string) error        { return nil }
 
 func (c *fakeConversationCache) IncrConvLatestSeq(ctx context.Context, convId string) (int64, error) {
 	c.mu.Lock()
@@ -97,27 +95,13 @@ func (c *fakeConversationCache) SetConvSeq(ctx context.Context, convId string, s
 	return nil
 }
 
-func (c *fakeConversationCache) AddMember(ctx context.Context, convId, userId string, version int64) error {
-	return nil
-}
-func (c *fakeConversationCache) RemoveMember(ctx context.Context, convId, userId string, version int64) error {
-	return nil
-}
+type fakeMessageCache struct{}
 
-func (c *fakeConversationCache) GetMembersWithVersion(ctx context.Context, convId string) ([]string, int64, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.membersByConv == nil {
-		return nil, 0, nil
-	}
-	return append([]string(nil), c.membersByConv[convId]...), c.membersVersionByConv[convId], nil
-}
-
-func (c *fakeConversationCache) SetDedupEntry(ctx context.Context, clientMsgId, messageId string, ttl time.Duration) (bool, error) {
+func (c *fakeMessageCache) SetDedupEntry(ctx context.Context, clientMsgId, messageId string, ttl time.Duration) (bool, error) {
 	return true, nil
 }
 
-func (c *fakeConversationCache) GetDedupEntry(ctx context.Context, clientMsgId string) (string, error) {
+func (c *fakeMessageCache) GetDedupEntry(ctx context.Context, clientMsgId string) (string, error) {
 	return "", nil
 }
 
@@ -401,9 +385,8 @@ func (r *fakeMessageVideoRepository) WithTx(tx any) messagerepo.MessageVideoRepo
 
 type fakeRoomRepository struct{}
 
-func (r *fakeRoomRepository) Create(domain *roomentity.Room) error           { return nil }
-func (r *fakeRoomRepository) WithTx(tx *gorm.DB) roomrepo.RoomRepository     { return r }
-func (r *fakeRoomRepository) UpdateRoomVersion(roomId string) (int64, error) { return 0, nil }
+func (r *fakeRoomRepository) Create(domain *roomentity.Room) error       { return nil }
+func (r *fakeRoomRepository) WithTx(tx *gorm.DB) roomrepo.RoomRepository { return r }
 func (r *fakeRoomRepository) FindActiveRoom(roomId string, status int) (*roomentity.Room, error) {
 	return nil, nil
 }
@@ -421,38 +404,9 @@ func (r *fakeRoomUserRepository) ListActiveUserIDs(roomId string) ([]string, err
 func (r *fakeRoomUserRepository) JoinRoom(ru *roomentity.RoomUser) (*roomentity.RoomUser, error) {
 	return ru, nil
 }
-func (r *fakeRoomUserRepository) LeaveRoom(*roomentity.RoomUser, []int) error        { return nil }
+func (r *fakeRoomUserRepository) LeaveRoom(*roomentity.RoomUser, []int) error { return nil }
 
-type fakeTaskManager struct {
-	mu                        sync.Mutex
-	sentMessages              []protocol.MessageEvent
-	publishedReadAcks         []protocol.MessageReadAckEvent
-	publishedConversationSync []protocol.ConversationSyncSeqEvent
-}
-
-func (m *fakeTaskManager) SendMessage(ctx context.Context, topic string, key string, event protocol.MessageEvent) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	cp := event
-	m.sentMessages = append(m.sentMessages, cp)
-	return nil
-}
-func (m *fakeTaskManager) PublishMessageReadAck(ctx context.Context, topic string, key string, event protocol.MessageReadAckEvent) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	cp := event
-	m.publishedReadAcks = append(m.publishedReadAcks, cp)
-	return nil
-}
-func (m *fakeTaskManager) SendConversationSyncSeq(ctx context.Context, topic string, key string, event protocol.ConversationSyncSeqEvent) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	cp := event
-	m.publishedConversationSync = append(m.publishedConversationSync, cp)
-	return nil
-}
-
-func newTestMessageApp() (*MessageApplication, *fakeMessageRepository, *fakeUserConversationRepository, *fakeConversationRepository, *fakeMessageOutboxRepository, *fakeTaskManager, *fakeConversationCache, *fakeUserRepository, *fakeMessageImageRepository, *fakeMessageFileRepository, *fakeMessageStickerRepository, *fakeMessageVideoRepository) {
+func newTestMessageApp() (*MessageApplication, *fakeMessageRepository, *fakeUserConversationRepository, *fakeConversationRepository, *fakeMessageOutboxRepository, *fakeConversationCache, *fakeUserRepository, *fakeMessageImageRepository, *fakeMessageFileRepository, *fakeMessageStickerRepository, *fakeMessageVideoRepository) {
 	msgRepo := &fakeMessageRepository{}
 	userConvRepo := &fakeUserConversationRepository{
 		byKey: map[string]*messageentity.UserConversation{},
@@ -461,7 +415,6 @@ func newTestMessageApp() (*MessageApplication, *fakeMessageRepository, *fakeUser
 		byID: map[string]*messageentity.Conversation{},
 	}
 	outboxRepo := &fakeMessageOutboxRepository{}
-	taskManager := &fakeTaskManager{}
 	cache := &fakeConversationCache{
 		latestSeqByConv: make(map[string]int64),
 	}
@@ -483,12 +436,14 @@ func newTestMessageApp() (*MessageApplication, *fakeMessageRepository, *fakeUser
 	app := NewMessageApplication(
 		testConfig(),
 		cache,
+		&fakeFriendCache{},
+		&fakeMessageCache{},
+		&fakeRoomMemberCache{},
 		&fakeTxManager{},
-		taskManager,
 		userConvRepo,
 		convRepo,
 		outboxRepo,
-		&fakeFriendRepository{relation: &friendentity.Friend{UserId: "u1", FriendUserId: "u2", Status: 1}},
+		&fakeFriendRepository{relation: &friendentity.Friend{UserId: "u1", FriendUserId: "u2", Status: friendvo.Friend}},
 		&fakeFileRepository{},
 		imageRepo,
 		fileMsgRepo,
@@ -499,7 +454,7 @@ func newTestMessageApp() (*MessageApplication, *fakeMessageRepository, *fakeUser
 		&fakeRoomUserRepository{},
 		&fakeRoomRepository{},
 	)
-	return app, msgRepo, userConvRepo, convRepo, outboxRepo, taskManager, cache, userRepo, imageRepo, fileMsgRepo, stickerRepo, videoRepo
+	return app, msgRepo, userConvRepo, convRepo, outboxRepo, cache, userRepo, imageRepo, fileMsgRepo, stickerRepo, videoRepo
 }
 
 func testConfig() configs.Config {
@@ -521,7 +476,7 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 }
 
 func TestHandleMessageStoresMessageAndCreatesOutbox(t *testing.T) {
-	app, msgRepo, userConvRepo, convRepo, outboxRepo, _, cache, _, _, _, _, _ := newTestMessageApp()
+	app, msgRepo, userConvRepo, convRepo, outboxRepo, cache, _, _, _, _, _ := newTestMessageApp()
 	ctx := context.WithValue(context.Background(), "op", "msg")
 
 	dto, err := app.HandleMessage(ctx, MessageAppeDTO{
@@ -675,7 +630,7 @@ func TestHandleMessagePersistsMediaSubtables(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			app, _, _, _, _, _, _, _, imageRepo, fileRepo, stickerRepo, videoRepo := newTestMessageApp()
+			app, _, _, _, _, _, _, imageRepo, fileRepo, stickerRepo, videoRepo := newTestMessageApp()
 			ctx := context.WithValue(context.Background(), "op", "msg")
 
 			dto := tc.dto
@@ -689,7 +644,7 @@ func TestHandleMessagePersistsMediaSubtables(t *testing.T) {
 }
 
 func TestHandleMessageReadAckWritesOutboxAndReadSeq(t *testing.T) {
-	app, _, userConvRepo, convRepo, outboxRepo, _, _, _, _, _, _, _ := newTestMessageApp()
+	app, _, userConvRepo, convRepo, outboxRepo, _, _, _, _, _, _ := newTestMessageApp()
 	convRepo.byID["conv-room"] = &messageentity.Conversation{
 		ConversationId: "conv-room",
 		Convtype:       messagevo.RoomChat,
@@ -725,7 +680,7 @@ func TestHandleMessageReadAckWritesOutboxAndReadSeq(t *testing.T) {
 }
 
 func TestHandleMessageReadAckUpdatesReadSeqWithoutNotifyForSelfSender(t *testing.T) {
-	app, _, userConvRepo, convRepo, outboxRepo, _, _, _, _, _, _, _ := newTestMessageApp()
+	app, _, userConvRepo, convRepo, outboxRepo, _, _, _, _, _, _ := newTestMessageApp()
 	convRepo.byID["conv-room"] = &messageentity.Conversation{
 		ConversationId: "conv-room",
 		Convtype:       messagevo.PrivateChat,
@@ -755,7 +710,7 @@ func TestHandleMessageReadAckUpdatesReadSeqWithoutNotifyForSelfSender(t *testing
 }
 
 func TestGetHistoryMessagesUsesCursorAndSortsAscending(t *testing.T) {
-	app, msgRepo, userConvRepo, _, _, _, _, _, _, _, _, _ := newTestMessageApp()
+	app, msgRepo, userConvRepo, _, _, _, _, _, _, _, _ := newTestMessageApp()
 	userConvRepo.byKey["u1:conv-1"] = &messageentity.UserConversation{
 		UserId:         "u1",
 		ConversationId: "conv-1",
@@ -765,13 +720,14 @@ func TestGetHistoryMessagesUsesCursorAndSortsAscending(t *testing.T) {
 	msgRepo.historyMessages = []*messageentity.Message{
 		{MessageId: "m12", ConversationId: "conv-1", SendId: "u2", Seq: 12, Type: messagevo.Text, Content: "b", SendTime: 200},
 		{MessageId: "m11", ConversationId: "conv-1", SendId: "u1", Seq: 11, Type: messagevo.Text, Content: "a", SendTime: 100},
+		{MessageId: "m10", ConversationId: "conv-1", SendId: "u2", Seq: 10, Type: messagevo.Text, Content: "older", SendTime: 50},
 	}
 
 	msgs, nextCursor, hasMore, err := app.GetHistoryMessages(context.Background(), "conv-1", "u1", 2, 0)
 	if err != nil {
 		t.Fatalf("GetHistoryMessages() error = %v", err)
 	}
-	if msgRepo.historyMaxSeq != 13 || msgRepo.historyLimit != 2 {
+	if msgRepo.historyMaxSeq != math.MaxInt64 || msgRepo.historyLimit != 3 {
 		t.Fatalf("unexpected history query args: maxSeq=%d limit=%d", msgRepo.historyMaxSeq, msgRepo.historyLimit)
 	}
 	if len(msgs) != 2 {
@@ -786,7 +742,7 @@ func TestGetHistoryMessagesUsesCursorAndSortsAscending(t *testing.T) {
 }
 
 func TestGetOfflineMessagesCalculatesUnreadAndUpdatesSyncSeq(t *testing.T) {
-	app, msgRepo, userConvRepo, convRepo, outboxRepo, _, _, _, _, _, _, _ := newTestMessageApp()
+	app, msgRepo, userConvRepo, convRepo, outboxRepo, _, _, _, _, _, _ := newTestMessageApp()
 	userConvRepo.listByUserResult = []*messageentity.UserConversation{
 		{UserId: "u1", ConversationId: "conv-1", LastReadSeq: 8, LatestSyncSeq: 10},
 		{UserId: "u1", ConversationId: "conv-2", LastReadSeq: 3, LatestSyncSeq: 5},
@@ -825,7 +781,7 @@ func TestGetOfflineMessagesCalculatesUnreadAndUpdatesSyncSeq(t *testing.T) {
 }
 
 func TestGetOfflineMessagesOnReconnectOnlyUpdatesLaggingSyncSeqs(t *testing.T) {
-	app, _, userConvRepo, convRepo, outboxRepo, _, _, _, _, _, _, _ := newTestMessageApp()
+	app, _, userConvRepo, convRepo, outboxRepo, _, _, _, _, _, _ := newTestMessageApp()
 	userConvRepo.listByUserResult = []*messageentity.UserConversation{
 		{UserId: "u1", ConversationId: "conv-1", LastReadSeq: 11, LatestSyncSeq: 12},
 		{UserId: "u1", ConversationId: "conv-2", LastReadSeq: 4, LatestSyncSeq: 6},

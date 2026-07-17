@@ -1,6 +1,7 @@
 package room
 
 import (
+	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	roomentity "IM_backend/internal/domain/room/entity"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
@@ -10,6 +11,11 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+)
+
+var (
+	_ roomcache.RoomCache       = (*RoomCache)(nil)
+	_ roomcache.RoomMemberCache = (*RoomCache)(nil)
 )
 
 type RoomCache struct {

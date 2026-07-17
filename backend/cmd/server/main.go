@@ -24,6 +24,8 @@ import (
 	authredis "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
 	conversationredis "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
 	fileredis "IM_backend/internal/infrastructure/persistence/redis/cache/file"
+	friendredis "IM_backend/internal/infrastructure/persistence/redis/cache/friend"
+	messageredis "IM_backend/internal/infrastructure/persistence/redis/cache/message"
 	roomredis "IM_backend/internal/infrastructure/persistence/redis/cache/room"
 	"IM_backend/internal/infrastructure/ratelimit"
 	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
@@ -41,7 +43,6 @@ import (
 	userhttp "IM_backend/internal/transport/http/user"
 	"IM_backend/internal/transport/ws"
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -84,6 +85,8 @@ func main() {
 	authCache := authredis.NewAuthCache(redisClient)
 	roomCache := roomredis.NewRoomCache(redisClient)
 	fileCache := fileredis.NewFileCache(redisClient)
+	friendCache := friendredis.NewFriendCache(redisClient)
+	messageCache := messageredis.NewMessageCache(redisClient)
 
 	conversationCache := conversationredis.NewConversationCache(redisClient)
 
@@ -125,7 +128,7 @@ func main() {
 		userRepository,
 		cfg,
 		friendRepository,
-		conversationCache,
+		friendCache,
 		txManager,
 	)
 	friendRequestHandle := friendrequesthttp.NewFriendRequestHandle(friendRequestApp)
@@ -142,29 +145,39 @@ func main() {
 		conversationRepository,
 		cfg,
 		roomCache,
-		conversationCache,
+		roomCache,
 		txManager,
 	)
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
 
-	groupHandler := kafka.NewGroupHandler(
+	messagePushHandler := mq.NewMessagePushHandler(
 		realtimeGateway,
 		roomRepository,
+		roomUserRepository,
 		userConversationRepository,
-		conversationCache,
+		roomCache,
 	)
+	readAckHandler := mq.NewReadAckHandler(realtimeGateway)
+	conversationSyncHandler := mq.NewConversationSyncHandler(userConversationRepository)
+	consumerRouter := mq.NewConsumerRouter(map[string]mq.ConsumerHandler{
+		protocol.EventTypeMessage:         messagePushHandler,
+		protocol.EventMessageReadAck:      readAckHandler,
+		protocol.EventConversationSyncSeq: conversationSyncHandler,
+	})
 
-	messageConsumer := kafka.NewConsumer(kafkaClient, []string{
+	messageConsumer := kafka.NewConsumerGroup(kafkaClient, []string{
 		string(protocol.EventMessageReadAck),
 		string(protocol.EventTypeMessage),
-		string(protocol.EventTypeMsgAck),
 		string(protocol.EventConversationSyncSeq),
 	},
-		fmt.Sprintf("machine-%d-group", cfg.App.MachineID),
-		groupHandler,
+		consumerRouter,
 	)
 
-	go messageConsumer.Start(ctx)
+	go func() {
+		if err := messageConsumer.Start(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("kafka consumer stopped: %v", err)
+		}
+	}()
 
 	messageProducer := kafka.NewProducer(kafkaClient, "msg")
 
@@ -177,8 +190,10 @@ func main() {
 	messageApplication := messageapp.NewMessageApplication(
 		cfg,
 		conversationCache,
+		friendCache,
+		messageCache,
+		roomCache,
 		txManager,
-		taskManager,
 		userConversationRepository,
 		conversationRepository,
 		messageOutboxRepository,

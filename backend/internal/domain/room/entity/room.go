@@ -17,7 +17,6 @@ type Room struct {
 	Avatar      string
 	MemberCount int
 	MaxMembers  int
-	Version     int64
 }
 
 func NewRoom(

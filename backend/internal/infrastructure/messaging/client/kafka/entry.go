@@ -9,7 +9,6 @@ import (
 type Client struct {
 	Producer sarama.SyncProducer
 	Consumer sarama.ConsumerGroup
-	Cfg      configs.KafkaConfig
 }
 
 func NewClient(cfg configs.KafkaConfig) (*Client, error) {
@@ -37,6 +36,5 @@ func NewClient(cfg configs.KafkaConfig) (*Client, error) {
 	return &Client{
 		Producer: producer,
 		Consumer: consumer,
-		Cfg:      cfg,
 	}, nil
 }

@@ -2,26 +2,30 @@ package message
 
 import (
 	"IM_backend/configs"
-	mqport "IM_backend/internal/application/ports/mq"
 	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
+	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
+	messagecache "IM_backend/internal/application/ports/persistence/cache/message"
+	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	filerepo "IM_backend/internal/application/ports/persistence/repository/file"
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
+	friendvo "IM_backend/internal/domain/friend/value_object"
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
+	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	userentity "IM_backend/internal/domain/user/entity"
 	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
-	"slices"
 	"sort"
 	"time"
 
@@ -32,6 +36,9 @@ import (
 type MessageApplication struct {
 	config                     configs.Config
 	conversationCache          convcache.ConversationCache
+	friendCache                friendcache.FriendCache
+	messageCache               messagecache.MessageCache
+	roomMemberCache            roomcache.RoomMemberCache
 	messageRepository          messagerepo.MessageRepository
 	txManager                  txmanager.TxManager
 	userConversationRepository messagerepo.UserConversationRepository
@@ -46,15 +53,16 @@ type MessageApplication struct {
 	userRepository             userrepo.UserRepository
 	roomUserRepository         roomrepo.RoomUserRepository
 	roomRepository             roomrepo.RoomRepository
-	taskManager                mqport.TaskManager
 	sf                         singleflight.Group
 }
 
 func NewMessageApplication(
 	config configs.Config,
 	conversationCache convcache.ConversationCache,
+	friendCache friendcache.FriendCache,
+	messageCache messagecache.MessageCache,
+	roomMemberCache roomcache.RoomMemberCache,
 	txManager txmanager.TxManager,
-	taskManager mqport.TaskManager,
 	userConversationRepository messagerepo.UserConversationRepository,
 	conversationRepository messagerepo.ConversationRepository,
 	messageOutboxRepository messagerepo.MessageOutboxRepository,
@@ -72,8 +80,10 @@ func NewMessageApplication(
 	return &MessageApplication{
 		config:                     config,
 		conversationCache:          conversationCache,
+		friendCache:                friendCache,
+		messageCache:               messageCache,
+		roomMemberCache:            roomMemberCache,
 		txManager:                  txManager,
-		taskManager:                taskManager,
 		messageOutboxRepository:    messageOutboxRepository,
 		messageRepository:          messageRepository,
 		conversationRepository:     conversationRepository,
@@ -88,95 +98,6 @@ func NewMessageApplication(
 		messageStickerRepository:   messageStickerRepository,
 		messageVideoRepository:     messageVideoRepository,
 	}
-}
-
-// 这个逻辑有问题
-func (ma *MessageApplication) checkConvMember(
-	ctx context.Context,
-	convType messagevo.ConvType,
-	conversationId string,
-	userId string,
-	recvId string,
-) (bool, error) {
-	isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
-		ctx, conversationId, userId,
-	)
-
-	if err == nil && cacheVersion > 0 && convType == messagevo.PrivateChat {
-		return isMember, nil
-	}
-
-	key := userId + ":" + conversationId
-
-	v, err, _ := ma.sf.Do(key, func() (any, error) {
-		isMember, cacheVersion, err := ma.conversationCache.IsMemberWithVersion(
-			ctx, conversationId, userId,
-		)
-
-		// double check
-		if err == nil && cacheVersion > 0 && convType == messagevo.PrivateChat {
-			return isMember, nil
-		}
-
-		if convType == messagevo.PrivateChat {
-			friend, err := ma.friendRepository.FindRelation(userId, recvId)
-			if err != nil {
-				return false, err
-			}
-			if friend == nil {
-				return false, ErrNotFriends
-			}
-			cacheErr := ma.conversationCache.SetMembers(
-				ctx,
-				conversationId,
-				[]string{userId, recvId},
-				1,
-			)
-			return true, cacheErr
-		}
-
-		room, err := ma.roomRepository.FindActiveRoom(recvId, int(roomvo.Activate))
-		if err != nil {
-			return false, err
-		}
-
-		if cacheVersion > 0 && cacheVersion == room.Version {
-			return isMember, nil
-		}
-
-		members, err := ma.roomUserRepository.ListActiveUserIDs(recvId)
-		if err != nil {
-			return false, err
-		}
-		if len(members) == 0 {
-			return false, ErrNotRoomMember
-		}
-		cacheErr := ma.conversationCache.SetMembers(
-			ctx,
-			conversationId,
-			members,
-			room.Version,
-		)
-		if cacheErr != nil {
-			return false, cacheErr
-		}
-		if slices.Contains(members, userId) {
-			return true, nil
-		}
-
-		return false, ErrNotRoomMember
-	})
-
-	if err != nil {
-		return false, err
-	}
-
-	res, ok := v.(bool)
-	if !ok {
-		return false, fmt.Errorf("type assert failed")
-	}
-
-	return res, nil
 }
 
 func (ma *MessageApplication) HandleMessageReadAck(
@@ -245,63 +166,13 @@ func (ma *MessageApplication) HandleMessageReadAck(
 	})
 }
 
-// 处理消息已读回执
-func (ma *MessageApplication) publishMessageReadAck(
-	ctx context.Context,
-	userId string,
-	conversationId string,
-	lastReadSeq int64,
-	senderId string,
-	convType int,
-) {
-	avatar := ""
-	if ma.userRepository != nil {
-		if user, err := ma.userRepository.FindByUserID(userId); err == nil && user != nil {
-			avatar = user.Avatar
-		}
-	}
-
-	ackEvent := protocol.MessageReadAckEvent{
-		ConversationId: conversationId,
-		LastReadSeq:    lastReadSeq,
-		UserId:         userId,
-		ConvType:       protocol.ConvType(convType),
-		SenderId:       senderId,
-		Avatar:         avatar,
-	}
-
-	// 这里是否要加入 outbox
-	if ma.taskManager != nil {
-		_ = ma.taskManager.PublishMessageReadAck(
-			ctx,
-			protocol.EventMessageReadAck,
-			userId+":"+conversationId,
-			ackEvent,
-		)
-	}
-}
-
-func (ma *MessageApplication) CheckRoomMember(ctx context.Context, userId string, roomId string) error {
-	ok, err := ma.checkConvMember(ctx, messagevo.RoomChat, roomId, userId, roomId)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrNotRoomMember
-	}
-	return nil
-}
-
 func (ma *MessageApplication) GetRoomMemberIDs(ctx context.Context, roomId string) ([]string, error) {
-	members, cacheVersion, err := ma.conversationCache.GetMembersWithVersion(ctx, roomId)
-	if err == nil && len(members) > 0 {
-		room, roomErr := ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
-		if roomErr == nil && cacheVersion == room.Version {
-			return members, nil
-		}
+	members, cached, err := ma.roomMemberCache.GetMemberIDs(ctx, roomId)
+	if err == nil && cached {
+		return members, nil
 	}
 
-	room, err := ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
+	_, err = ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +184,7 @@ func (ma *MessageApplication) GetRoomMemberIDs(ctx context.Context, roomId strin
 	if len(members) == 0 {
 		return nil, ErrNotRoomMember
 	}
-	if cacheErr := ma.conversationCache.SetMembers(ctx, roomId, members, room.Version); cacheErr != nil {
+	if cacheErr := ma.roomMemberCache.SetMemberIDs(ctx, roomId, members); cacheErr != nil {
 		// best-effort cache warmup; the DB state is already authoritative
 	}
 	return members, nil
@@ -411,6 +282,130 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 	}
 }
 
+func (ma *MessageApplication) isRoomConvMember(ctx context.Context, userID, roomID string) error {
+	key := "room:" + roomID + ":" + userID
+	// 使用 sf 来减少房间内成员频繁发送消息时造成缓存的频繁查询
+	resultCh := ma.sf.DoChan(key, func() (any, error) {
+		ctx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			3*time.Second,
+		)
+		defer cancel()
+
+		state, hit, cacheErr := ma.roomMemberCache.GetMember(ctx, roomID, userID)
+		if cacheErr == nil && hit {
+			if state == nil {
+				return nil, ErrNotRoomMember
+			}
+			return state, nil
+		}
+
+		if _, err := ma.roomRepository.FindActiveRoom(roomID, int(roomvo.Activate)); err != nil {
+			return nil, err
+		}
+		member, err := ma.roomUserRepository.GetRelationByIDs(userID, roomID)
+		if err != nil {
+			if errors.Is(err, roomentity.ErrMemberNotFound) {
+				// 防止缓存击穿
+				_ = ma.roomMemberCache.SetMemberNotFound(ctx, roomID, userID)
+				return nil, ErrNotRoomMember
+			}
+			return nil, err
+		}
+		if member.Status != roomvo.Activate && member.Status != roomvo.BeMuted {
+			_ = ma.roomMemberCache.SetMemberNotFound(ctx, roomID, userID)
+			return nil, ErrNotRoomMember
+		}
+
+		state = &roomcache.MemberState{
+			Status:    member.Status,
+			Role:      member.Role,
+			MuteUntil: member.MuteUtil,
+		}
+		_ = ma.roomMemberCache.SetMember(ctx, roomID, userID, state)
+		return state, nil
+	})
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case result := <-resultCh:
+		if result.Err != nil {
+			return result.Err
+		}
+
+		state, ok := result.Val.(*roomcache.MemberState)
+		if !ok || state == nil {
+			return ErrNotRoomMember
+		}
+
+		// TODO: 需要额外查看用户是否被禁言
+		if state.Status == roomvo.BeKicked {
+			return ErrForbidden
+		}
+	}
+
+	return nil
+}
+
+func (ma *MessageApplication) isPrivateConvMember(ctx context.Context, userID, recvID string) error {
+	key := "friend:" + userID + ":" + recvID
+	resultCh := ma.sf.DoChan(key, func() (any, error) {
+		ctx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			3*time.Second,
+		)
+		defer cancel()
+
+		state, hit, cacheErr := ma.friendCache.GetRelation(ctx, userID, recvID)
+		if cacheErr == nil && hit {
+			if state == nil || state.Status != friendvo.Friend {
+				return nil, ErrNotFriends
+			}
+			return state, nil
+		}
+
+		relation, err := ma.friendRepository.FindRelation(userID, recvID)
+		if err != nil {
+			return nil, err
+		}
+		if relation == nil || relation.Status != friendvo.Friend {
+			_ = ma.friendCache.SetRelationNotFound(ctx, userID, recvID)
+			return nil, ErrNotFriends
+		}
+
+		state = &friendcache.RelationState{Status: relation.Status}
+		_ = ma.friendCache.SetRelation(ctx, userID, recvID, state)
+		return state, nil
+	})
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case result := <-resultCh:
+		state, ok := result.Val.(*friendcache.RelationState)
+		if !ok || state == nil {
+			return ErrNotFriends
+		}
+
+		if state.Status != friendvo.Friend {
+			return ErrForbidden
+		}
+	}
+	return nil
+}
+
+func (ma *MessageApplication) checkConvMember(ctx context.Context, dto MessageAppeDTO) error {
+	switch messagevo.ConvType(dto.ConvType) {
+	case messagevo.PrivateChat:
+		return ma.isPrivateConvMember(ctx, dto.SendId, dto.RecvId)
+	case messagevo.RoomChat:
+		return ma.isRoomConvMember(ctx, dto.SendId, dto.RecvId)
+	default:
+		return ErrConversationNotFound
+	}
+}
+
 func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
 	conversationId := messageentity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType)
 	messageId, err := snow.GenerateSnowID(int(ma.config.App.MachineID))
@@ -421,26 +416,7 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		}, err
 	}
 
-	// 幂等检查：同一 clientMsgId 在 5 分钟内只处理一次
-	if dto.ClientMsgId != "" && ma.conversationCache != nil {
-		if existingMsgId, err := ma.conversationCache.GetDedupEntry(ctx, dto.ClientMsgId); err == nil && existingMsgId != "" {
-			return &MessageAppeDTO{
-				ClientMsgId: dto.ClientMsgId,
-				MessageId:   existingMsgId,
-				Status:      string(protocol.AckStatusSent),
-			}, nil
-		}
-	}
-
-	ok, err := ma.checkConvMember(
-		ctx,
-		messagevo.ConvType(dto.ConvType),
-		conversationId,
-		dto.SendId,
-		dto.RecvId,
-	)
-
-	if !ok {
+	if err := ma.checkConvMember(ctx, dto); err != nil {
 		return &MessageAppeDTO{
 			ClientMsgId: dto.ClientMsgId,
 			MessageId:   messageId,
@@ -448,8 +424,15 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 		}, err
 	}
 
-	if err != nil {
-		log.Println("failed to add member in conv cache ", err)
+	// 幂等检查：同一 clientMsgId 在 5 分钟内只处理一次
+	if dto.ClientMsgId != "" && ma.messageCache != nil {
+		if existingMsgId, err := ma.messageCache.GetDedupEntry(ctx, dto.ClientMsgId); err == nil && existingMsgId != "" {
+			return &MessageAppeDTO{
+				ClientMsgId: dto.ClientMsgId,
+				MessageId:   existingMsgId,
+				Status:      string(protocol.AckStatusSent),
+			}, nil
+		}
 	}
 
 	// 从缓存中获取到当前会话的 Seq
@@ -599,8 +582,8 @@ func (ma *MessageApplication) HandleMessage(ctx context.Context, dto MessageAppe
 	}
 
 	// 标记已处理，5 分钟内同一 clientMsgId 幂等返回
-	if dto.ClientMsgId != "" && ma.conversationCache != nil {
-		_, _ = ma.conversationCache.SetDedupEntry(ctx, dto.ClientMsgId, messageId, 5*time.Minute)
+	if dto.ClientMsgId != "" && ma.messageCache != nil {
+		_, _ = ma.messageCache.SetDedupEntry(ctx, dto.ClientMsgId, messageId, 5*time.Minute)
 	}
 
 	return &MessageAppeDTO{
@@ -633,11 +616,8 @@ func (ma *MessageApplication) GetHistoryMessages(
 			return nil, -1, false, ErrConversationNotFound
 		}
 
-		if uc.LastReadSeq > 0 {
-			maxSeq = uc.LastReadSeq + 1
-		} else {
-			maxSeq = math.MaxInt64
-		}
+		// 表示从最新的消息开始读取
+		maxSeq = math.MaxInt64
 	case -1:
 		// 没有消息了
 		return []MessageAppeDTO{}, -1, false, nil
@@ -649,10 +629,18 @@ func (ma *MessageApplication) GetHistoryMessages(
 		ctx,
 		conversationId,
 		maxSeq,
-		limit,
+		limit+1,
 	)
 	if err != nil {
 		return nil, -1, false, err
+	}
+
+	var nextCursor int64 = -1
+	var hasMore bool = len(msgs) > limit
+
+	if hasMore {
+		msgs = msgs[:limit]
+		nextCursor = msgs[len(msgs)-1].Seq
 	}
 
 	msgsApp := toMessagesAppDTO(msgs)
@@ -662,17 +650,6 @@ func (ma *MessageApplication) GetHistoryMessages(
 	sort.Slice(msgsApp, func(i, j int) bool {
 		return msgsApp[i].Seq < msgsApp[j].Seq
 	})
-
-	var nextCursor int64 = 0
-	var hasMore bool = true
-
-	if len(msgsApp) > 0 && msgsApp[0].Seq != 1 {
-		nextCursor = msgsApp[0].Seq
-		hasMore = true
-	} else {
-		hasMore = false
-		nextCursor = -1
-	}
 
 	return msgsApp, nextCursor, hasMore, nil
 }
@@ -715,9 +692,6 @@ func (ma *MessageApplication) fillSenderUsernames(messages []MessageAppeDTO) {
 	}
 }
 
-// fillMediaFields batch-fetches media sub-entities (image/video/file/sticker)
-// and merges their fields into the DTOs. This replaces the old pattern of storing
-// media fields directly on the messages table.
 func (ma *MessageApplication) fillMediaFields(ctx context.Context, messages []MessageAppeDTO) {
 	if len(messages) == 0 {
 		return
@@ -960,7 +934,7 @@ func (ma *MessageApplication) GetVideoDanmaku(
 	endTime int64,
 	limit int,
 ) ([]DanmakuDTO, error) {
-	if err := ma.CheckRoomMember(ctx, userId, roomId); err != nil {
+	if err := ma.isRoomConvMember(ctx, userId, roomId); err != nil {
 		return nil, err
 	}
 
@@ -997,14 +971,14 @@ func (ma *MessageApplication) GetVideoDanmaku(
 
 	return res, nil
 }
-
 func (ma *MessageApplication) GetRoomVideoHistory(
+
 	ctx context.Context,
 	roomId string,
 	userId string,
 	limit int,
 ) ([]RoomVideoHistoryDTO, error) {
-	if err := ma.CheckRoomMember(ctx, userId, roomId); err != nil {
+	if err := ma.isRoomConvMember(ctx, userId, roomId); err != nil {
 		return nil, err
 	}
 
@@ -1043,7 +1017,6 @@ func (ma *MessageApplication) GetRoomVideoHistory(
 
 	return res, nil
 }
-
 func (ma *MessageApplication) GetOfflineMessages(
 	ctx context.Context,
 	userId string,

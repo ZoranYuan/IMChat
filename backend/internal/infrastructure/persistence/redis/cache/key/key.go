@@ -33,16 +33,8 @@ func AuthRefreshToken(token string) string {
 	return Build("auth", "token", "refresh", token)
 }
 
-func ConversationMembers(conversationId string) string {
-	return Build("conversation", conversationId, "members")
-}
-
 func ConversationSeq(conversationId string) string {
 	return Build("conversation", conversationId, "seq")
-}
-
-func ConversationMembersVersion(conversationId string) string {
-	return Build("conversation", conversationId, "members", "version")
 }
 
 func FileMeta(fileId string) string {
@@ -53,8 +45,8 @@ func UserInfo(userId string) string {
 	return Build("user", userId, "info")
 }
 
-func UserFriends(userId string) string {
-	return Build("user", userId, "friends")
+func FriendRelation(userID, friendID string) string {
+	return Build("friend", "relation", userID, friendID)
 }
 
 func RoomInviteCode(code string) string {
@@ -67,6 +59,10 @@ func RoomInvite(roomId string) string {
 
 func RoomMembers(roomId string) string {
 	return Build("room", roomId, "members")
+}
+
+func RoomMember(roomID, userID string) string {
+	return Build("room", roomID, "member", userID)
 }
 
 func MessageDedup(clientMsgId string) string {
