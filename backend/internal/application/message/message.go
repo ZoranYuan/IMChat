@@ -1,7 +1,7 @@
 package message
 
 import (
-	"IM_backend/configs"
+	idport "IM_backend/internal/application/ports/id"
 	outboxport "IM_backend/internal/application/ports/outbox"
 	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
@@ -22,7 +22,6 @@ import (
 	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	userentity "IM_backend/internal/domain/user/entity"
-	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
@@ -34,11 +33,9 @@ import (
 	"time"
 
 	"golang.org/x/sync/singleflight"
-	"gorm.io/gorm"
 )
 
 type MessageApplication struct {
-	config                     configs.Config
 	conversationCache          convcache.ConversationCache
 	friendCache                friendcache.FriendCache
 	messageCache               messagecache.MessageCache
@@ -58,10 +55,10 @@ type MessageApplication struct {
 	roomUserRepository         roomrepo.RoomUserRepository
 	roomRepository             roomrepo.RoomRepository
 	sf                         singleflight.Group
+	idGenerator                idport.Generator
 }
 
 func NewMessageApplication(
-	config configs.Config,
 	conversationCache convcache.ConversationCache,
 	friendCache friendcache.FriendCache,
 	messageCache messagecache.MessageCache,
@@ -80,9 +77,9 @@ func NewMessageApplication(
 	messageRepository messagerepo.MessageRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
 	roomRepository roomrepo.RoomRepository,
+	idGenerator idport.Generator,
 ) *MessageApplication {
 	return &MessageApplication{
-		config:                     config,
 		conversationCache:          conversationCache,
 		friendCache:                friendCache,
 		messageCache:               messageCache,
@@ -101,6 +98,7 @@ func NewMessageApplication(
 		messageFileRepository:      messageFileRepository,
 		messageStickerRepository:   messageStickerRepository,
 		messageVideoRepository:     messageVideoRepository,
+		idGenerator:                idGenerator,
 	}
 }
 
@@ -137,7 +135,7 @@ func (ma *MessageApplication) HandleReadMessage(
 	if ma.txManager == nil || ma.messageOutboxRepository == nil {
 		return fmt.Errorf("消息 Outbox 未配置")
 	}
-	return ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+	return ma.txManager.WithinTransaction(ctx, func(tx any) error {
 		if err := ma.userConversationRepository.WithTx(tx).UpdateReadSeq(ctx, uconv); err != nil {
 			return err
 		}
@@ -178,7 +176,7 @@ func (ma *MessageApplication) HandleReadMessage(
 }
 
 // 返回一个闭包函数，用于后续的执行
-func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId string) (func(context.Context, *gorm.DB) error, error) {
+func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId string) (func(context.Context, any) error, error) {
 	if dto == nil {
 		return nil, nil
 	}
@@ -201,7 +199,7 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 			dto.Height,
 			dto.FileSize,
 		)
-		return func(ctx context.Context, tx *gorm.DB) error {
+		return func(ctx context.Context, tx any) error {
 			return ma.messageImageRepository.WithTx(tx).Create(ctx, item)
 		}, nil
 	case messagevo.File:
@@ -220,7 +218,7 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 			dto.MediaURL,
 			dto.FileSize,
 		)
-		return func(ctx context.Context, tx *gorm.DB) error {
+		return func(ctx context.Context, tx any) error {
 			return ma.messageFileRepository.WithTx(tx).Create(ctx, item)
 		}, nil
 	case messagevo.Sticker:
@@ -238,7 +236,7 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 			dto.Width,
 			dto.Height,
 		)
-		return func(ctx context.Context, tx *gorm.DB) error {
+		return func(ctx context.Context, tx any) error {
 			return ma.messageStickerRepository.WithTx(tx).Create(ctx, item)
 		}, nil
 	case messagevo.Video:
@@ -261,7 +259,7 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 			dto.Width,
 			dto.Height,
 		)
-		return func(ctx context.Context, tx *gorm.DB) error {
+		return func(ctx context.Context, tx any) error {
 			return ma.messageVideoRepository.WithTx(tx).Create(ctx, item)
 		}, nil
 	default:
@@ -395,7 +393,7 @@ func (ma *MessageApplication) checkConvMember(ctx context.Context, dto MessageAp
 
 func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
 	conversationId := conversationentity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType)
-	messageId, err := snow.GenerateSnowID(int(ma.config.App.MachineID))
+	messageId, err := ma.idGenerator.Generate()
 	if err != nil {
 		return &MessageAppeDTO{
 			ClientMsgId: dto.ClientMsgId,
@@ -524,7 +522,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 	}
 
 	// TODO： 这里直接操作了数据库，这一步先不发送，而是进入缓冲队列，等到对了慢了或者超过最大等待时间，再去处理
-	err = ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+	err = ma.txManager.WithinTransaction(ctx, func(tx any) error {
 		msgRepo := ma.messageRepository.WithTx(tx)
 		convRepo := ma.conversationRepository.WithTx(tx)
 		userConvRepo := ma.userConversationRepository.WithTx(tx)

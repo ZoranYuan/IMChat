@@ -2,13 +2,11 @@ package friend
 
 import (
 	friendentity "IM_backend/internal/domain/friend/entity"
-
-	"gorm.io/gorm"
 )
 
 type FriendRepository interface {
 	Create(domains []friendentity.Friend) error
 	FindRelation(userId, friendId string) (*friendentity.Friend, error)
-	WithTx(tx *gorm.DB) FriendRepository
+	WithTx(tx any) FriendRepository
 	GetUserFriendList(userId string, status int) ([]friendentity.Friend, error)
 }

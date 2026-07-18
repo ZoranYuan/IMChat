@@ -2,18 +2,17 @@ package user
 
 import (
 	userentity "IM_backend/internal/domain/user/entity"
-	"IM_backend/internal/infrastructure/persistence/mysql/model"
-
-	"gorm.io/gorm"
+	"time"
 )
 
 // TODO 定义 usermysql 的接口
 type UserRepository interface {
-	FindUserByPhone(string) (*model.User, error)
-	Create(*model.User) error
-	FindByUserID(userId string) (*model.User, error)
-	FindByUsernameOrPhone(keyword string) (*model.User, error)
+	FindUserByPhone(string) (*userentity.User, error)
+	Create(*userentity.User) error
+	FindByUserID(userId string) (*userentity.User, error)
+	FindByUsernameOrPhone(keyword string) (*userentity.User, error)
 	FindByUserIDs(userIds []string) ([]userentity.User, error)
-	UpdateByUserIDAndPhone(string, string, map[string]interface{}) error
-	WithTx(tx *gorm.DB) UserRepository
+	UpdateOnlineTime(userId, phone string, onlineAt time.Time) error
+	UpdateOfflineTime(userId, phone string, offlineAt time.Time) error
+	WithTx(tx any) UserRepository
 }

@@ -1,8 +1,8 @@
 package conversation
 
 import (
+	conversationport "IM_backend/internal/application/ports/conversation"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
-	serviceport "IM_backend/internal/application/ports/service"
 	conversationentity "IM_backend/internal/domain/conversation/entity"
 	"context"
 )
@@ -15,7 +15,7 @@ func NewApplication(userConversationRepository conversationrepo.UserConversation
 	return &Application{userConversationRepository: userConversationRepository}
 }
 
-func (application *Application) SyncLatestSequences(ctx context.Context, items []serviceport.ConversationSyncItem) error {
+func (application *Application) SyncLatestSequences(ctx context.Context, items []conversationport.SyncItem) error {
 	conversations := make([]*conversationentity.UserConversation, 0, len(items))
 	for _, item := range items {
 		if item.UserId == "" || item.ConversationId == "" {

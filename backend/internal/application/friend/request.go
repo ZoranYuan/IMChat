@@ -1,7 +1,7 @@
 package friend
 
 import (
-	"IM_backend/configs"
+	idport "IM_backend/internal/application/ports/id"
 	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
@@ -19,14 +19,11 @@ import (
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
 
-	"IM_backend/internal/infrastructure/id/snow"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type RequestApplication struct {
@@ -38,8 +35,8 @@ type RequestApplication struct {
 	conversationRepository  conversationrepo.ConversationRepository
 	userConvRepository      conversationrepo.UserConversationRepository
 	friendCache             friendcache.FriendCache
-	config                  configs.Config
 	txManager               txmanager.TxManager
+	idGenerator             idport.Generator
 }
 
 func NewRequestApplication(
@@ -49,22 +46,22 @@ func NewRequestApplication(
 	conversationRepository conversationrepo.ConversationRepository,
 	userConvRepository conversationrepo.UserConversationRepository,
 	conversationCache convcache.ConversationCache,
-	config configs.Config,
 	friendRepository friendrepo.FriendRepository,
 	friendCache friendcache.FriendCache,
 	txManager txmanager.TxManager,
+	idGenerator idport.Generator,
 ) *RequestApplication {
 	return &RequestApplication{
 		friendRequestRepository: friendRequestRepository,
 		userRepository:          userRepository,
 		messageRepository:       messageRepository,
-		config:                  config,
 		userConvRepository:      userConvRepository,
 		conversationRepository:  conversationRepository,
 		conversationCache:       conversationCache,
 		friendRepository:        friendRepository,
 		friendCache:             friendCache,
 		txManager:               txManager,
+		idGenerator:             idGenerator,
 	}
 }
 
@@ -73,9 +70,7 @@ func (fa *RequestApplication) createNewFriendRequest(
 	toUserID string,
 	message string,
 ) (*FriendRequestDTO, error) {
-	requestID, err := snow.GenerateSnowID(
-		int(fa.config.App.MachineID),
-	)
+	requestID, err := fa.idGenerator.Generate()
 	if err != nil {
 		return nil, fmt.Errorf("生成好友申请 ID 失败：%w", err)
 	}
@@ -104,9 +99,7 @@ func (fa *RequestApplication) reRequest(
 	message string,
 ) (*FriendRequestDTO, error) {
 	previousStatus := record.Status
-	requestId, err := snow.GenerateSnowID(
-		int(fa.config.App.MachineID),
-	)
+	requestId, err := fa.idGenerator.Generate()
 	if err != nil {
 		return nil, fmt.Errorf("生成好友申请 ID 失败：%w", err)
 	}
@@ -213,7 +206,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 	defer cancel()
 
 	// 初始化元信息
-	convId, err := snow.GenerateSnowID(int(fa.config.App.MachineID))
+	convId, err := fa.idGenerator.Generate()
 
 	if err != nil {
 		return err
@@ -247,8 +240,8 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 
 	// 初始化数据
 	if record.Message != "" {
-		greetMessageId, err := snow.GenerateSnowID(int(fa.config.App.MachineID))
-		greetReplyMessageId, err := snow.GenerateSnowID(int(fa.config.App.MachineID))
+		greetMessageId, err := fa.idGenerator.Generate()
+		greetReplyMessageId, err := fa.idGenerator.Generate()
 
 		if err != nil {
 			return err
@@ -275,7 +268,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 		}}...)
 	} else {
 		// 请求方需要主动插入请求时附带的消息
-		greetMessageId, err := snow.GenerateSnowID(int(fa.config.App.MachineID))
+		greetMessageId, err := fa.idGenerator.Generate()
 		if err != nil {
 			return err
 		}
@@ -302,7 +295,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 
 	fa.conversationCache.SetConvSeq(ctx, convId, conv.LatestSeq)
 
-	if err := fa.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+	if err := fa.txManager.WithinTransaction(ctx, func(tx any) error {
 		if err := fa.friendRequestRepository.WithTx(tx).OperateRequest(record.RequestId, int(friendrequestvo.Pending), int(record.Status)); err != nil {
 			fmt.Println("处理好友申请失败：", err)
 			return ErrOperationFailed

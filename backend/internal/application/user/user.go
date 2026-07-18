@@ -1,40 +1,44 @@
 package user
 
 import (
-	"IM_backend/configs"
+	idport "IM_backend/internal/application/ports/id"
 	authport "IM_backend/internal/application/ports/persistence/cache/auth"
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
-	authservice "IM_backend/internal/application/ports/service"
+	securityport "IM_backend/internal/application/ports/security"
 	userentity "IM_backend/internal/domain/user/entity"
 	uservo "IM_backend/internal/domain/user/value_object"
-	"IM_backend/internal/infrastructure/id/snow"
-	usermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
 	"context"
-	"errors"
 	"log"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type UserApplication struct {
 	userRepository userrepo.UserRepository
-	authService    authservice.AuthService
-	config         configs.Config
+	tokenIssuer    securityport.TokenIssuer
+	options        Options
 	authCache      authport.AuthCache
+	idGenerator    idport.Generator
+	passwordHasher securityport.PasswordHasher
 }
 
-func NewUserApplication(userRepository userrepo.UserRepository, config configs.Config, authCache authport.AuthCache, authService authservice.AuthService) *UserApplication {
+type Options struct {
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
+}
+
+func NewUserApplication(userRepository userrepo.UserRepository, options Options, authCache authport.AuthCache, tokenIssuer securityport.TokenIssuer, idGenerator idport.Generator, passwordHasher securityport.PasswordHasher) *UserApplication {
 	return &UserApplication{
 		userRepository: userRepository,
-		config:         config,
+		options:        options,
 		authCache:      authCache,
-		authService:    authService,
+		tokenIssuer:    tokenIssuer,
+		idGenerator:    idGenerator,
+		passwordHasher: passwordHasher,
 	}
 }
 
 func (ua *UserApplication) issueTokensAndCache(userId string) (string, string, error) {
-	accessToken, refreshToken, err := ua.authService.IssueToken(userId)
+	accessToken, refreshToken, err := ua.tokenIssuer.IssueToken(userId)
 	if err != nil {
 		return "", "", err
 	}
@@ -42,34 +46,43 @@ func (ua *UserApplication) issueTokensAndCache(userId string) (string, string, e
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	ua.authCache.SetAccessToken(ctx, accessToken, userId, time.Duration(ua.config.JWT.AccessExpireMinutes)*time.Minute)
-	ua.authCache.SetRefreshToken(ctx, refreshToken, userId, time.Duration(ua.config.JWT.RefreshExpireHours)*time.Hour)
+	if err := ua.authCache.SetAccessToken(ctx, accessToken, userId, ua.options.AccessTokenTTL); err != nil {
+		return "", "", err
+	}
+	if err := ua.authCache.SetRefreshToken(ctx, refreshToken, userId, ua.options.RefreshTokenTTL); err != nil {
+		return "", "", err
+	}
 
 	return accessToken, refreshToken, nil
 }
 
 func (ua *UserApplication) RegisterWithPhone(password string, phone string, reconfirmPassword string) (*UserAppDTO, error) {
-	// TODO 检查当前用户是否存在
-	user, err := ua.userRepository.FindUserByPhone(phone)
-
-	if user != nil {
-		return nil, ErrUserAlreadyExists
+	if !uservo.Phone(phone).Validate() {
+		return nil, ErrInvalidPhoneNumber
 	}
 
+	// TODO 检查当前用户是否存在
+	user, err := ua.userRepository.FindUserByPhone(phone)
 	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Println("注册用户失败：", err)
-			return nil, err
-		}
+		log.Println("注册用户失败：", err)
+		return nil, err
+	}
+	if user != nil {
+		return nil, ErrUserAlreadyExists
 	}
 
 	if password != reconfirmPassword {
 		return nil, ErrPasswordMismatch
 	}
 
+	hashedPassword, err := ua.passwordHasher.Hash(password)
+	if err != nil {
+		return nil, err
+	}
+
 	newUser, err := userentity.RegisterWithPhone(
 		uservo.Phone(phone),
-		uservo.Password(password),
+		uservo.Password(hashedPassword),
 	)
 
 	if err != nil {
@@ -77,13 +90,13 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 	}
 
 	// 生成 UserId
-	userId, err := snow.GenerateSnowID(int(ua.config.App.MachineID))
+	userId, err := ua.idGenerator.Generate()
 	if err != nil {
 		return nil, err
 	}
 
 	newUser.UserId = userId
-	err = ua.userRepository.Create(usermysql.ToUserModel(newUser))
+	err = ua.userRepository.Create(newUser)
 
 	if err != nil {
 		return nil, err
@@ -109,48 +122,43 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 }
 
 func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, error) {
-	userModel, err := ua.userRepository.FindUserByPhone(phone)
+	if !uservo.Phone(phone).Validate() {
+		return nil, ErrInvalidPhoneNumber
+	}
+
+	user, err := ua.userRepository.FindUserByPhone(phone)
 
 	if err != nil {
 		log.Println("手机号登录失败：", err)
 		return nil, err
 	}
 
-	if userModel == nil {
+	if user == nil {
 		return nil, ErrUserNotFound
 	}
 
 	// TODO 删除对应的 token 缓存，这里为了防止刷机，可以加一个用户锁
-	if err = userentity.LoginWithPhone(
-		uservo.Phone(phone),
-		uservo.Password(password),
-		userModel.Password,
-	); err != nil {
-		return nil, err
+	if !ua.passwordHasher.Verify(password, string(user.Password)) {
+		return nil, ErrIncorrectPassword
 	}
 
-	userModel.OnLineTime = time.Now()
-
-	updates := map[string]interface{}{
-		"on_line_time": userModel.OnLineTime,
-	}
-
-	if err = ua.userRepository.UpdateByUserIDAndPhone(phone, userModel.UserId, updates); err != nil {
+	user.OnLineTime = time.Now()
+	if err = ua.userRepository.UpdateOnlineTime(user.UserId, string(user.Phone), user.OnLineTime); err != nil {
 		return nil, err
 	}
 
 	// 生成 token
-	accessToken, refreshToken, err := ua.issueTokensAndCache(userModel.UserId)
+	accessToken, refreshToken, err := ua.issueTokensAndCache(user.UserId)
 	if err != nil {
 		return nil, err
 	}
 
 	userAppDTO := &UserAppDTO{
-		UserId:       userModel.UserId,
-		UserName:     userModel.UserName,
-		NickName:     userModel.NickName,
-		Avatar:       userModel.Avatar,
-		Phone:        userModel.Phone,
+		UserId:       user.UserId,
+		UserName:     user.UserName,
+		NickName:     user.NickName,
+		Avatar:       user.Avatar,
+		Phone:        string(user.Phone),
 		RefreshToken: refreshToken,
 		AccessToken:  accessToken,
 	}
@@ -159,46 +167,37 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 }
 
 func (ua *UserApplication) LoginWithUserName(keyword, password string) (*UserAppDTO, error) {
-	userModel, err := ua.userRepository.FindByUsernameOrPhone(keyword)
+	user, err := ua.userRepository.FindByUsernameOrPhone(keyword)
 
 	if err != nil {
 		log.Println("用户名登录失败：", err)
 		return nil, err
 	}
 
-	if userModel == nil {
+	if user == nil {
 		return nil, ErrUserNotFound
 	}
 
-	if err = userentity.LoginWithPhone(
-		uservo.Phone(userModel.Phone),
-		uservo.Password(password),
-		userModel.Password,
-	); err != nil {
+	if !ua.passwordHasher.Verify(password, string(user.Password)) {
+		return nil, ErrIncorrectPassword
+	}
+
+	user.OnLineTime = time.Now()
+	if err = ua.userRepository.UpdateOnlineTime(user.UserId, string(user.Phone), user.OnLineTime); err != nil {
 		return nil, err
 	}
 
-	userModel.OnLineTime = time.Now()
-
-	updates := map[string]interface{}{
-		"on_line_time": userModel.OnLineTime,
-	}
-
-	if err = ua.userRepository.UpdateByUserIDAndPhone(userModel.Phone, userModel.UserId, updates); err != nil {
-		return nil, err
-	}
-
-	accessToken, refreshToken, err := ua.issueTokensAndCache(userModel.UserId)
+	accessToken, refreshToken, err := ua.issueTokensAndCache(user.UserId)
 	if err != nil {
 		return nil, err
 	}
 
 	userAppDTO := &UserAppDTO{
-		UserId:       userModel.UserId,
-		UserName:     userModel.UserName,
-		NickName:     userModel.NickName,
-		Avatar:       userModel.Avatar,
-		Phone:        userModel.Phone,
+		UserId:       user.UserId,
+		UserName:     user.UserName,
+		NickName:     user.NickName,
+		Avatar:       user.Avatar,
+		Phone:        string(user.Phone),
 		RefreshToken: refreshToken,
 		AccessToken:  accessToken,
 	}
@@ -207,52 +206,55 @@ func (ua *UserApplication) LoginWithUserName(keyword, password string) (*UserApp
 }
 
 func (ua *UserApplication) GetUserByID(userId string) (*UserAppDTO, error) {
-	userModel, err := ua.userRepository.FindByUserID(userId)
+	user, err := ua.userRepository.FindByUserID(userId)
 
 	if err != nil {
 		return nil, err
 	}
+	if user == nil {
+		return nil, ErrUserNotFound
+	}
 
 	var userApp = &UserAppDTO{
-		UserId:   userModel.UserId,
-		UserName: userModel.UserName,
-		NickName: userModel.NickName,
-		Phone:    userModel.Phone,
-		Avatar:   userModel.Avatar,
+		UserId:   user.UserId,
+		UserName: user.UserName,
+		NickName: user.NickName,
+		Phone:    string(user.Phone),
+		Avatar:   user.Avatar,
 	}
 
 	return userApp, nil
 }
 
 func (ua *UserApplication) ResolveUser(keyword string) (*UserAppDTO, error) {
-	userModel, err := ua.userRepository.FindByUsernameOrPhone(keyword)
+	user, err := ua.userRepository.FindByUsernameOrPhone(keyword)
 	if err != nil {
 		return nil, err
 	}
+	if user == nil {
+		return nil, ErrUserNotFound
+	}
 
 	return &UserAppDTO{
-		UserId:   userModel.UserId,
-		UserName: userModel.UserName,
-		NickName: userModel.NickName,
-		Phone:    userModel.Phone,
-		Avatar:   userModel.Avatar,
+		UserId:   user.UserId,
+		UserName: user.UserName,
+		NickName: user.NickName,
+		Phone:    string(user.Phone),
+		Avatar:   user.Avatar,
 	}, nil
 }
 
 func (ua *UserApplication) Logout(userId string) error {
-	userModel, err := ua.userRepository.FindByUserID(userId)
+	user, err := ua.userRepository.FindByUserID(userId)
 	if err != nil {
 		return err
 	}
 
-	if userModel == nil {
+	if user == nil {
 		return ErrUserNotFound
 	}
 
 	now := time.Now()
 
-	updates := map[string]interface{}{
-		"off_line_time": now,
-	}
-	return ua.userRepository.UpdateByUserIDAndPhone(userModel.Phone, userModel.UserId, updates)
+	return ua.userRepository.UpdateOfflineTime(user.UserId, string(user.Phone), now)
 }

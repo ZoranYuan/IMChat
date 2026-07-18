@@ -21,9 +21,9 @@ func NewRoomUserRepository(db *gorm.DB) *RoomUserRepository {
 	}
 }
 
-func (rur *RoomUserRepository) WithTx(tx *gorm.DB) roomrepo.RoomUserRepository {
+func (rur *RoomUserRepository) WithTx(tx any) roomrepo.RoomUserRepository {
 	return &RoomUserRepository{
-		db: tx,
+		db: tx.(*gorm.DB),
 	}
 }
 

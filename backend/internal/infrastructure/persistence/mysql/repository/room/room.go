@@ -39,8 +39,8 @@ func (rr *RoomRepository) FindActiveRoom(roomId string, status int) (*roomentity
 	return toDomain(m), nil
 }
 
-func (rr *RoomRepository) WithTx(tx *gorm.DB) roomrepo.RoomRepository {
+func (rr *RoomRepository) WithTx(tx any) roomrepo.RoomRepository {
 	return &RoomRepository{
-		db: tx,
+		db: tx.(*gorm.DB),
 	}
 }

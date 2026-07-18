@@ -1,10 +1,10 @@
 package message
 
 import (
+	conversationport "IM_backend/internal/application/ports/conversation"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	realtimeport "IM_backend/internal/application/ports/realtime"
-	serviceport "IM_backend/internal/application/ports/service"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/shared/protocol"
 	"context"
@@ -23,27 +23,27 @@ type DeliveryCommand struct {
 }
 
 type DeliveryApplication struct {
-	delivery                realtimeport.Delivery
-	roomMemberCache         roomcache.RoomMemberCache
-	roomRepository          roomrepo.RoomRepository
-	roomUserRepository      roomrepo.RoomUserRepository
-	conversationSyncService serviceport.ConversationSyncService
-	singleflight            singleflight.Group
+	delivery                 realtimeport.Delivery
+	roomMemberCache          roomcache.RoomMemberCache
+	roomRepository           roomrepo.RoomRepository
+	roomUserRepository       roomrepo.RoomUserRepository
+	conversationSynchronizer conversationport.Synchronizer
+	singleflight             singleflight.Group
 }
 
 func NewDeliveryApplication(
 	delivery realtimeport.Delivery,
 	roomRepository roomrepo.RoomRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
-	conversationSyncService serviceport.ConversationSyncService,
+	conversationSynchronizer conversationport.Synchronizer,
 	roomMemberCache roomcache.RoomMemberCache,
 ) *DeliveryApplication {
 	return &DeliveryApplication{
-		delivery:                delivery,
-		roomMemberCache:         roomMemberCache,
-		roomRepository:          roomRepository,
-		roomUserRepository:      roomUserRepository,
-		conversationSyncService: conversationSyncService,
+		delivery:                 delivery,
+		roomMemberCache:          roomMemberCache,
+		roomRepository:           roomRepository,
+		roomUserRepository:       roomUserRepository,
+		conversationSynchronizer: conversationSynchronizer,
 	}
 }
 
@@ -102,15 +102,15 @@ func (application *DeliveryApplication) syncSequences(
 	latestSeq int64,
 	userIds []string,
 ) error {
-	items := make([]serviceport.ConversationSyncItem, 0, len(userIds))
+	items := make([]conversationport.SyncItem, 0, len(userIds))
 	for _, userId := range userIds {
-		items = append(items, serviceport.ConversationSyncItem{
+		items = append(items, conversationport.SyncItem{
 			UserId:         userId,
 			ConversationId: conversationId,
 			LatestSeq:      latestSeq,
 		})
 	}
-	return application.conversationSyncService.SyncLatestSequences(ctx, items)
+	return application.conversationSynchronizer.SyncLatestSequences(ctx, items)
 }
 
 func (application *DeliveryApplication) roomMembers(ctx context.Context, roomId string) ([]string, error) {

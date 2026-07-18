@@ -9,6 +9,7 @@ import (
 	eventbus "IM_backend/internal/application/ports/eventbus"
 	roomapp "IM_backend/internal/application/room"
 	userapp "IM_backend/internal/application/user"
+	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/infrastructure/mq/kafka"
 	outboxinfra "IM_backend/internal/infrastructure/outbox"
 	"IM_backend/internal/infrastructure/persistence"
@@ -31,6 +32,7 @@ import (
 	"IM_backend/internal/infrastructure/ratelimit"
 	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
 	authsvc "IM_backend/internal/infrastructure/security/auth"
+	passwordsecurity "IM_backend/internal/infrastructure/security/password"
 	minioobj "IM_backend/internal/infrastructure/storage/minio"
 	"IM_backend/internal/shared/protocol"
 	eventtransport "IM_backend/internal/transport/event"
@@ -80,6 +82,11 @@ func main() {
 	}()
 
 	txManager := persistence.NewGormTxManager(db)
+	idGenerator, err := snow.NewGenerator(int(cfg.App.MachineID))
+	if err != nil {
+		log.Fatalln("初始化 ID 生成器失败：", err)
+	}
+	passwordHasher := passwordsecurity.NewHasher()
 
 	realtimeGateway := realtimews.NewGateway()
 	realtimeGateway.KeepAlive(ctx, cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
@@ -104,7 +111,11 @@ func main() {
 		}
 	}()
 
-	authService := authsvc.NewAuthService(cfg)
+	tokenIssuer := authsvc.NewTokenIssuer(authsvc.Options{
+		Secret:          cfg.JWT.Secret,
+		AccessTokenTTL:  time.Duration(cfg.JWT.AccessExpireMinutes) * time.Minute,
+		RefreshTokenTTL: time.Duration(cfg.JWT.RefreshExpireHours) * time.Hour,
+	})
 
 	objectStorage, err := minioobj.NewObjectStorage(ctx, cfg.Storage.MinIO)
 	if err != nil {
@@ -113,7 +124,11 @@ func main() {
 
 	// 构造依赖
 	fileRepository := filemysql.NewFileRepository(db)
-	fileApplication := fileapp.NewApplication(cfg, fileRepository, fileCache, objectStorage)
+	fileApplication := fileapp.NewApplication(fileapp.Options{
+		MultipartTTL: time.Duration(cfg.Storage.MinIO.MultipartTTL) * time.Second,
+		CacheTTL:     time.Duration(cfg.Storage.MinIO.CacheTTLSeconds) * time.Second,
+		URLTTL:       time.Duration(cfg.Storage.MinIO.URLTTLSeconds) * time.Second,
+	}, fileRepository, fileCache, objectStorage, idGenerator)
 	fileHandle := filehttp.NewHandle(fileApplication)
 
 	messageRepository := messagemysql.NewMessageRepository(db)
@@ -121,13 +136,16 @@ func main() {
 	messageFileRepository := messagemysql.NewMessageFileRepository(db)
 	messageStickerRepository := messagemysql.NewMessageStickerRepository(db)
 	messageVideoRepository := messagemysql.NewMessageVideoRepository(db)
-	messageOutboxRepository := outboxmysql.NewRepository(db, int(cfg.App.MachineID))
+	messageOutboxRepository := outboxmysql.NewRepository(db, idGenerator)
 	conversationRepository := conversationmysql.NewConversationRepository(db)
 	userConversationRepository := conversationmysql.NewUserConversationRepository(db)
 	conversationApplication := conversationapp.NewApplication(userConversationRepository)
 
 	userRepository := usermysql.NewUserRepository(db)
-	userApp := userapp.NewUserApplication(userRepository, cfg, authCache, authService)
+	userApp := userapp.NewUserApplication(userRepository, userapp.Options{
+		AccessTokenTTL:  time.Duration(cfg.JWT.AccessExpireMinutes) * time.Minute,
+		RefreshTokenTTL: time.Duration(cfg.JWT.RefreshExpireHours) * time.Hour,
+	}, authCache, tokenIssuer, idGenerator, passwordHasher)
 	userHandle := userhttp.NewUserHandle(userApp)
 
 	friendRepository := friendmysql.NewFriendRepository(db)
@@ -139,10 +157,10 @@ func main() {
 		conversationRepository,
 		userConversationRepository,
 		conversationCache,
-		cfg,
 		friendRepository,
 		friendCache,
 		txManager,
+		idGenerator,
 	)
 	friendRequestHandle := friendrequesthttp.NewFriendRequestHandle(friendRequestApp)
 
@@ -156,10 +174,10 @@ func main() {
 		roomUserRepository,
 		userConversationRepository,
 		conversationRepository,
-		cfg,
 		roomCache,
 		roomMemberCache,
 		txManager,
+		idGenerator,
 	)
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
 
@@ -202,7 +220,6 @@ func main() {
 	go outboxWorker.Start(ctx)
 
 	messageApplication := messageapp.NewMessageApplication(
-		cfg,
 		conversationCache,
 		friendCache,
 		messageCache,
@@ -221,6 +238,7 @@ func main() {
 		messageRepository,
 		roomUserRepository,
 		roomRepository,
+		idGenerator,
 	)
 	messageHandle := messagehttp.NewMessageHandle(messageApplication)
 

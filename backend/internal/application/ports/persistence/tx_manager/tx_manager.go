@@ -1,11 +1,7 @@
 package txmanager
 
-import (
-	"context"
-
-	"gorm.io/gorm"
-)
+import "context"
 
 type TxManager interface {
-	WithinTransaction(ctx context.Context, fn func(tx *gorm.DB) error) error
+	WithinTransaction(ctx context.Context, fn func(tx any) error) error
 }

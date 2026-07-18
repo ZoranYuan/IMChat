@@ -1,38 +1,19 @@
 package snow
 
-import (
-	"sync"
+import "github.com/bwmarrin/snowflake"
 
-	"github.com/bwmarrin/snowflake"
-)
-
-var (
+type Generator struct {
 	node *snowflake.Node
-	mu   sync.Mutex
-)
-
-func initSnowID(machineId int) error {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if node == nil {
-		var err error
-		node, err = snowflake.NewNode(int64(machineId))
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
-// 采用懒加载的机制
-func GenerateSnowID(machineId int) (string, error) {
-	if node == nil {
-		if err := initSnowID(machineId); err != nil {
-			return "", err
-		}
+func NewGenerator(machineID int) (*Generator, error) {
+	node, err := snowflake.NewNode(int64(machineID))
+	if err != nil {
+		return nil, err
 	}
+	return &Generator{node: node}, nil
+}
 
-	return node.Generate().String(), nil
+func (g *Generator) Generate() (string, error) {
+	return g.node.Generate().String(), nil
 }

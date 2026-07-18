@@ -1,25 +1,28 @@
 package auth
 
 import (
-	"IM_backend/configs"
 	"IM_backend/internal/infrastructure/security/jwt"
 	"time"
 )
 
-type authService struct {
-	config configs.Config
+type Options struct {
+	Secret          string
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
 }
 
-func NewAuthService(config configs.Config) *authService {
-	return &authService{
-		config: config,
-	}
+type TokenIssuer struct {
+	options Options
 }
 
-func (a *authService) IssueToken(userId string) (string, string, error) {
+func NewTokenIssuer(options Options) *TokenIssuer {
+	return &TokenIssuer{options: options}
+}
+
+func (a *TokenIssuer) IssueToken(userId string) (string, string, error) {
 	accessToken, err := jwt.GenerateToken(userId,
-		a.config.JWT.Secret,
-		time.Duration(a.config.JWT.AccessExpireMinutes)*time.Minute,
+		a.options.Secret,
+		a.options.AccessTokenTTL,
 	)
 	if err != nil {
 		return "", "", err
@@ -27,8 +30,8 @@ func (a *authService) IssueToken(userId string) (string, string, error) {
 
 	refreshToken, err := jwt.GenerateToken(
 		userId,
-		a.config.JWT.Secret,
-		time.Duration(a.config.JWT.RefreshExpireHours)*time.Hour,
+		a.options.Secret,
+		a.options.RefreshTokenTTL,
 	)
 
 	if err != nil {

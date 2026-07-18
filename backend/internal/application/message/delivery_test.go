@@ -1,7 +1,7 @@
 package message
 
 import (
-	serviceport "IM_backend/internal/application/ports/service"
+	conversationport "IM_backend/internal/application/ports/conversation"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"errors"
@@ -23,7 +23,7 @@ type syncRecorder struct {
 	err   error
 }
 
-func (recorder *syncRecorder) SyncLatestSequences(_ context.Context, _ []serviceport.ConversationSyncItem) error {
+func (recorder *syncRecorder) SyncLatestSequences(_ context.Context, _ []conversationport.SyncItem) error {
 	*recorder.steps = append(*recorder.steps, "同步序列")
 	return recorder.err
 }

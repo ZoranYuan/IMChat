@@ -18,7 +18,9 @@ func NewGormTxManager(db *gorm.DB) *gormTxManager {
 
 func (tm *gormTxManager) WithinTransaction(
 	ctx context.Context,
-	fn func(tx *gorm.DB) error,
+	fn func(tx any) error,
 ) error {
-	return tm.db.WithContext(ctx).Transaction(fn)
+	return tm.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(tx)
+	})
 }

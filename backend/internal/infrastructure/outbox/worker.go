@@ -9,8 +9,6 @@ import (
 	"log"
 	"math"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type OutboxWorker struct {
@@ -62,7 +60,7 @@ func (w *OutboxWorker) dispatchPendingOnce(ctx context.Context) error {
 	}
 	var batch []*outboxport.Entry
 	now := time.Now()
-	err := w.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+	err := w.txManager.WithinTransaction(ctx, func(tx any) error {
 		items, err := w.outboxRepo.WithTx(tx).ClaimPending(ctx, now, now.Add(-w.staleAfter), w.batchSize)
 		if err != nil {
 			return err

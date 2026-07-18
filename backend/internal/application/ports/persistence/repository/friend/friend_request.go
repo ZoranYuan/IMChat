@@ -2,8 +2,6 @@ package friend
 
 import (
 	friendentity "IM_backend/internal/domain/friend/entity"
-
-	"gorm.io/gorm"
 )
 
 // TODO 定义 usermysql 的接口
@@ -14,5 +12,5 @@ type FriendRequestRepository interface {
 	ReRequest(domain *friendentity.FriendRequest) error
 	ListByUserID(userId string) ([]*friendentity.FriendRequest, error)
 	FindByRequestID(requestId string) (*friendentity.FriendRequest, error)
-	WithTx(tx *gorm.DB) FriendRequestRepository
+	WithTx(tx any) FriendRequestRepository
 }

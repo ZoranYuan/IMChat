@@ -1,7 +1,7 @@
 package room
 
 import (
-	"IM_backend/configs"
+	idport "IM_backend/internal/application/ports/id"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
@@ -10,13 +10,10 @@ import (
 	conversationvo "IM_backend/internal/domain/conversation/value_object"
 	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
-	"IM_backend/internal/infrastructure/id/snow"
 	"context"
 	"errors"
 	"log"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type RoomApplication struct {
@@ -24,35 +21,35 @@ type RoomApplication struct {
 	roomUserRepository         roomrepo.RoomUserRepository
 	userConversationRepository conversationrepo.UserConversationRepository
 	conversationRepository     conversationrepo.ConversationRepository
-	config                     configs.Config
 	roomCache                  roomcache.RoomCache
 	roomMemberCache            roomcache.RoomMemberCache
 	txManager                  txmanager.TxManager
+	idGenerator                idport.Generator
 }
 
 func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
 	userConversationRepository conversationrepo.UserConversationRepository,
 	conversationRepository conversationrepo.ConversationRepository,
-	config configs.Config,
 	roomCache roomcache.RoomCache,
 	roomMemberCache roomcache.RoomMemberCache,
 	txManager txmanager.TxManager,
+	idGenerator idport.Generator,
 ) *RoomApplication {
 	return &RoomApplication{
 		roomRepository:             roomRepository,
 		roomUserRepository:         roomUserRepository,
 		conversationRepository:     conversationRepository,
 		userConversationRepository: userConversationRepository,
-		config:                     config,
 		roomCache:                  roomCache,
 		roomMemberCache:            roomMemberCache,
 		txManager:                  txManager,
+		idGenerator:                idGenerator,
 	}
 }
 
 func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar, description string) (*RoomAppDTO, error) {
-	roomId, err := snow.GenerateSnowID(int(ra.config.App.MachineID))
+	roomId, err := ra.idGenerator.Generate()
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +88,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		return nil, ErrInviteCodeUnavailable
 	}
 
-	if err := ra.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+	if err := ra.txManager.WithinTransaction(ctx, func(tx any) error {
 		roomRepository := ra.roomRepository.WithTx(tx)
 		roomUserRepository := ra.roomUserRepository.WithTx(tx)
 		conversationRepository := ra.conversationRepository.WithTx(tx)
@@ -195,7 +192,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 	roomUser := roomentity.NewRoomUser(userId, roomId, roomvo.RegularUser)
 	roomUser.Join()
 
-	if err := ra.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+	if err := ra.txManager.WithinTransaction(ctx, func(tx any) error {
 		roomUserRepository := ra.roomUserRepository.WithTx(tx)
 		userConversationRepository := ra.userConversationRepository.WithTx(tx)
 		conversationRepository := ra.conversationRepository.WithTx(tx)
@@ -254,7 +251,7 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 		return err
 	}
 
-	if err := ra.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
+	if err := ra.txManager.WithinTransaction(ctx, func(tx any) error {
 		roomUserRepo := ra.roomUserRepository.WithTx(tx)
 
 		if err := roomUserRepo.LeaveRoom(roomUser, []int{int(roomvo.Activate), int(roomvo.BeMuted)}); err != nil {

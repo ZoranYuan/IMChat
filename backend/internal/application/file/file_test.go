@@ -1,7 +1,6 @@
 package file
 
 import (
-	"IM_backend/configs"
 	filecache "IM_backend/internal/application/ports/persistence/cache/file"
 	objectstorage "IM_backend/internal/application/ports/storage/object"
 	fileentity "IM_backend/internal/domain/file/entity"
@@ -13,6 +12,17 @@ import (
 	"testing"
 	"time"
 )
+
+type fakeIDGenerator struct {
+	id string
+}
+
+func (g fakeIDGenerator) Generate() (string, error) {
+	if g.id == "" {
+		return "10001", nil
+	}
+	return g.id, nil
+}
 
 type fakeFileRepository struct {
 	saved *fileentity.File
@@ -174,15 +184,10 @@ func (s *fakeObjectStorage) Bucket() string {
 	return s.bucket
 }
 
-func testConfig() configs.Config {
-	return configs.Config{
-		App: configs.App{MachineID: 1},
-		Storage: configs.StorageConfig{
-			MinIO: configs.MinIOConfig{
-				CacheTTLSeconds: 30,
-				URLTTLSeconds:   60,
-			},
-		},
+func testOptions() Options {
+	return Options{
+		CacheTTL: 30 * time.Second,
+		URLTTL:   time.Minute,
 	}
 }
 
@@ -190,7 +195,7 @@ func TestUploadStoresObjectMetadataAndCache(t *testing.T) {
 	repo := &fakeFileRepository{}
 	cache := &fakeFileCache{}
 	storage := &fakeObjectStorage{bucket: "videos"}
-	app := NewApplication(testConfig(), repo, cache, storage)
+	app := NewApplication(testOptions(), repo, cache, storage, fakeIDGenerator{})
 
 	dto, err := app.Upload(context.Background(), UploadDTO{
 		UploaderId:  "u1",
@@ -230,7 +235,7 @@ func TestUploadStoresObjectMetadataAndCache(t *testing.T) {
 }
 
 func TestUploadRejectsEmptyFile(t *testing.T) {
-	app := NewApplication(testConfig(), &fakeFileRepository{}, &fakeFileCache{}, &fakeObjectStorage{})
+	app := NewApplication(testOptions(), &fakeFileRepository{}, &fakeFileCache{}, &fakeObjectStorage{}, fakeIDGenerator{})
 
 	_, err := app.Upload(context.Background(), UploadDTO{
 		UploaderId: "u1",
@@ -256,7 +261,7 @@ func TestGetUsesCacheAndRefreshesURL(t *testing.T) {
 	)
 	cache := &fakeFileCache{file: cached}
 	storage := &fakeObjectStorage{bucket: "videos"}
-	app := NewApplication(testConfig(), &fakeFileRepository{}, cache, storage)
+	app := NewApplication(testOptions(), &fakeFileRepository{}, cache, storage, fakeIDGenerator{})
 
 	dto, err := app.Get(context.Background(), "file-1")
 	if err != nil {
@@ -285,7 +290,7 @@ func TestGetLoadsRepositoryOnCacheMiss(t *testing.T) {
 	repo := &fakeFileRepository{files: map[string]*fileentity.File{"file-1": stored}}
 	cache := &fakeFileCache{}
 	storage := &fakeObjectStorage{bucket: "videos"}
-	app := NewApplication(testConfig(), repo, cache, storage)
+	app := NewApplication(testOptions(), repo, cache, storage, fakeIDGenerator{})
 
 	dto, err := app.Get(context.Background(), "file-1")
 	if err != nil {

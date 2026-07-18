@@ -19,8 +19,8 @@ func NewFriendRequestRepository(db *gorm.DB) *FriendRequestRepo {
 	}
 }
 
-func (r *FriendRequestRepo) WithTx(tx *gorm.DB) friendrepo.FriendRequestRepository {
-	return &FriendRequestRepo{db: tx}
+func (r *FriendRequestRepo) WithTx(tx any) friendrepo.FriendRequestRepository {
+	return &FriendRequestRepo{db: tx.(*gorm.DB)}
 }
 
 func (fr *FriendRequestRepo) FindLatestRequest(userId, toUserId string) (*friendentity.FriendRequest, error) {

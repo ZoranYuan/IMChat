@@ -1,12 +1,11 @@
 package file
 
 import (
-	"IM_backend/configs"
+	idport "IM_backend/internal/application/ports/id"
 	filecache "IM_backend/internal/application/ports/persistence/cache/file"
 	filerepo "IM_backend/internal/application/ports/persistence/repository/file"
 	objectstorage "IM_backend/internal/application/ports/storage/object"
 	fileentity "IM_backend/internal/domain/file/entity"
-	"IM_backend/internal/infrastructure/id/snow"
 	"context"
 	"path"
 	"sort"
@@ -15,23 +14,32 @@ import (
 )
 
 type Application struct {
-	config     configs.Config
-	repository filerepo.FileRepository
-	cache      filecache.FileCache
-	storage    objectstorage.ObjectStorage
+	options     Options
+	repository  filerepo.FileRepository
+	cache       filecache.FileCache
+	storage     objectstorage.ObjectStorage
+	idGenerator idport.Generator
+}
+
+type Options struct {
+	MultipartTTL time.Duration
+	CacheTTL     time.Duration
+	URLTTL       time.Duration
 }
 
 func NewApplication(
-	config configs.Config,
+	options Options,
 	repository filerepo.FileRepository,
 	cache filecache.FileCache,
 	storage objectstorage.ObjectStorage,
+	idGenerator idport.Generator,
 ) *Application {
 	return &Application{
-		config:     config,
-		repository: repository,
-		cache:      cache,
-		storage:    storage,
+		options:     options,
+		repository:  repository,
+		cache:       cache,
+		storage:     storage,
+		idGenerator: idGenerator,
 	}
 }
 
@@ -40,7 +48,7 @@ func (a *Application) Upload(ctx context.Context, dto UploadDTO) (*FileDTO, erro
 		return nil, ErrFileRequired
 	}
 
-	fileId, err := snow.GenerateSnowID(int(a.config.App.MachineID))
+	fileId, err := a.idGenerator.Generate()
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +127,7 @@ func (a *Application) InitMultipartUpload(ctx context.Context, dto MultipartInit
 	}
 
 	// 新的文件上传
-	fileId, err := snow.GenerateSnowID(int(a.config.App.MachineID))
+	fileId, err := a.idGenerator.Generate()
 	if err != nil {
 		return nil, err
 	}
@@ -309,29 +317,27 @@ func (a *Application) buildObjectKey(uploaderId string, fileId string, fileName 
 }
 
 func (a *Application) multipartTTL() time.Duration {
-	ttl := a.config.Storage.MinIO.MultipartTTL
-
+	ttl := a.options.MultipartTTL
 	if ttl <= 0 {
-		ttl = 24 * 60 * 60
+		ttl = 24 * time.Hour
 	}
-
-	return time.Duration(ttl) * time.Second
+	return ttl
 }
 
 func (a *Application) cacheTTL() time.Duration {
-	ttl := a.config.Storage.MinIO.CacheTTLSeconds
+	ttl := a.options.CacheTTL
 	if ttl <= 0 {
-		ttl = 600
+		ttl = 10 * time.Minute
 	}
-	return time.Duration(ttl) * time.Second
+	return ttl
 }
 
 func (a *Application) urlTTL() time.Duration {
-	ttl := a.config.Storage.MinIO.URLTTLSeconds
+	ttl := a.options.URLTTL
 	if ttl <= 0 {
-		ttl = 3600
+		ttl = time.Hour
 	}
-	return time.Duration(ttl) * time.Second
+	return ttl
 }
 
 func toDTO(file *fileentity.File) *FileDTO {

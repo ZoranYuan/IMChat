@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	idport "IM_backend/internal/application/ports/id"
 	outboxport "IM_backend/internal/application/ports/outbox"
-	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
 	"gorm.io/gorm"
@@ -13,16 +13,16 @@ import (
 )
 
 type Repository struct {
-	db        *gorm.DB
-	machineID int
+	db          *gorm.DB
+	idGenerator idport.Generator
 }
 
-func NewRepository(db *gorm.DB, machineID int) *Repository {
-	return &Repository{db: db, machineID: machineID}
+func NewRepository(db *gorm.DB, idGenerator idport.Generator) *Repository {
+	return &Repository{db: db, idGenerator: idGenerator}
 }
 
 func (r *Repository) WithTx(tx any) outboxport.Repository {
-	return &Repository{db: tx.(*gorm.DB), machineID: r.machineID}
+	return &Repository{db: tx.(*gorm.DB), idGenerator: r.idGenerator}
 }
 
 func toModel(e *outboxport.Entry) *model.OutboxRecord {
@@ -95,7 +95,7 @@ func (r *Repository) Create(ctx context.Context, outbox *outboxport.Entry) error
 		return nil
 	}
 	if outbox.ID == "" {
-		id, err := snow.GenerateSnowID(r.machineID)
+		id, err := r.idGenerator.Generate()
 		if err != nil {
 			return err
 		}

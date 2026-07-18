@@ -1,5 +1,5 @@
-package service
+package security
 
-type AuthService interface {
+type TokenIssuer interface {
 	IssueToken(userId string) (string, string, error)
 }

@@ -20,8 +20,8 @@ func NewFriendRepository(db *gorm.DB) *FriendRepository {
 	}
 }
 
-func (r *FriendRepository) WithTx(tx *gorm.DB) friendrepo.FriendRepository {
-	return &FriendRepository{db: tx}
+func (r *FriendRepository) WithTx(tx any) friendrepo.FriendRepository {
+	return &FriendRepository{db: tx.(*gorm.DB)}
 }
 
 func (fr *FriendRepository) Create(domains []friendentity.Friend) error {
