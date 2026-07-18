@@ -2,7 +2,7 @@ package conversation
 
 import (
 	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
-	messageentity "IM_backend/internal/domain/message/entity"
+	conversationentity "IM_backend/internal/domain/conversation/entity"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
 	"errors"
@@ -23,7 +23,7 @@ func NewConversationCache(rb *redis.Client) *ConversationCache {
 func (c *ConversationCache) IncrConvLatestSeq(ctx context.Context, convID string) (int64, error) {
 	seq, err := c.store.Incr(ctx, ConversationSeqKey(convID))
 	if errors.Is(err, redis.Nil) {
-		return seq, messageentity.ErrConversationNotCreated
+		return seq, conversationentity.ErrConversationNotCreated
 	}
 	return seq, err
 }
@@ -31,7 +31,7 @@ func (c *ConversationCache) IncrConvLatestSeq(ctx context.Context, convID string
 func (c *ConversationCache) GetConvLatestSeq(ctx context.Context, convID string) (int64, error) {
 	seq, err := c.store.GetInt64(ctx, ConversationSeqKey(convID))
 	if errors.Is(err, redis.Nil) {
-		return seq, messageentity.ErrConversationNotCreated
+		return seq, conversationentity.ErrConversationNotCreated
 	}
 	return seq, err
 }

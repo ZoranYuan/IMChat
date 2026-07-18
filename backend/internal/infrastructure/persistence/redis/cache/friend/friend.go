@@ -50,7 +50,7 @@ func (c *FriendCache) GetRelation(
 	var entry relationEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		_ = c.store.Del(ctx, key)
-		return nil, false, fmt.Errorf("decode friend relation cache: %w", err)
+		return nil, false, fmt.Errorf("解析好友关系缓存失败：%w", err)
 	}
 	if !entry.Found {
 		return nil, true, nil
@@ -64,7 +64,7 @@ func (c *FriendCache) SetRelation(
 	state *friendcache.RelationState,
 ) error {
 	if state == nil {
-		return fmt.Errorf("friend relation state is nil")
+		return fmt.Errorf("好友关系状态不能为空")
 	}
 	return c.setRelationEntry(ctx, userID, friendID, relationEntry{
 		Found:  true,

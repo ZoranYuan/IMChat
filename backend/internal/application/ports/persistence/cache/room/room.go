@@ -3,6 +3,7 @@ package room
 import (
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"context"
+	"time"
 )
 
 type MemberState struct {
@@ -14,7 +15,8 @@ type MemberState struct {
 type RoomCache interface {
 	GetRoomIDByCode(ctx context.Context, code string) (string, error)
 	GetInviteCode(ctx context.Context, roomId string) (string, error)
-	UpdateInviteCode(ctx context.Context, roomId string, ttl int) (string, error)
+	UpdateInviteCode(ctx context.Context, roomId string, ttl time.Duration) (string, error)
+	DeleteInviteCode(ctx context.Context, roomId string) error
 }
 
 type RoomMemberCache interface {

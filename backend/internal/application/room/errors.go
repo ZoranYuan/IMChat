@@ -1,14 +1,18 @@
 package room
 
-import "errors"
+import (
+	roomentity "IM_backend/internal/domain/room/entity"
+	"errors"
+)
 
 var (
-	ErrRoomNameRequired  = errors.New("room name is required")
-	ErrRoomNotFound      = errors.New("room not found")
-	ErrUnknown           = errors.New("unknown error")
-	ErrNotRoomMember     = errors.New("user is not a room member")
-	ErrRoomUnavailable   = errors.New("room is unavailable")
-	ErrInviteCodeExpired = errors.New("invite code has expired")
-	ErrConcurrentUpdate  = errors.New("concurrent update detected")
-	ErrPermissionDenied  = errors.New("permission denied")
+	ErrRoomNameRequired      = roomentity.ErrRoomNameRequired
+	ErrRoomNotFound          = roomentity.ErrRoomNotFound
+	ErrUnknown               = errors.New("未知错误")
+	ErrNotRoomMember         = roomentity.ErrMemberNotFound
+	ErrRoomUnavailable       = errors.New("房间当前不可用")
+	ErrInviteCodeExpired     = roomentity.ErrInviteCodeExpired
+	ErrConcurrentUpdate      = roomentity.ErrVersionConflict
+	ErrPermissionDenied      = roomentity.ErrPermissionDenied
+	ErrInviteCodeUnavailable = errors.New("邀请码服务暂时不可用")
 )

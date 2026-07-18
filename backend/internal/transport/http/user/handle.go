@@ -26,13 +26,13 @@ func (uh *UserHandle) Login(c *gin.Context) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("panic, ", r)
+			log.Println("用户接口发生异常：", r)
 			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "未知错误"))
 		}
 	}()
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "error request"))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "请求参数错误"))
 		return
 	}
 
@@ -102,7 +102,7 @@ func (uh *UserHandle) Logout(c *gin.Context) {
 	}
 
 	if err := uh.app.Logout(userId); err != nil {
-		log.Println("failed to logout, ", err)
+		log.Println("退出登录失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "退出登录失败"))
 		return
 	}
@@ -115,7 +115,7 @@ func (uh *UserHandle) Register(c *gin.Context) {
 	var req = UserRegisterReq{}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "error request"))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "请求参数错误"))
 		return
 	}
 
@@ -177,7 +177,7 @@ func (uh *UserHandle) GetUserByID(c *gin.Context) {
 	userApp, err := uh.app.GetUserByID(userId)
 
 	if err != nil {
-		log.Println("failed to get user by userId, ", err)
+		log.Println("根据用户 ID 查询用户失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(201, "获取失败"))
 		return
 	}
@@ -202,7 +202,7 @@ func (uh *UserHandle) ResolveUser(c *gin.Context) {
 
 	userApp, err := uh.app.ResolveUser(keyword)
 	if err != nil {
-		log.Println("failed to resolve user, ", err)
+		log.Println("解析用户信息失败：", err)
 		c.JSON(http.StatusNotFound, response.Error(201, "用户不存在"))
 		return
 	}

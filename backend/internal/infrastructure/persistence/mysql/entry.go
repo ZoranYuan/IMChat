@@ -26,7 +26,7 @@ func InitMysql(dns string) *gorm.DB {
 	})
 
 	if err != nil {
-		log.Fatal("filed to init mysql", err)
+		log.Fatal("初始化 MySQL 失败：", err)
 	}
 
 	sqlDB, err := db.DB()

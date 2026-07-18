@@ -10,7 +10,7 @@ import (
 func InitRedis(dsn string) *redis.Client {
 	opt, err := redis.ParseURL(dsn)
 	if err != nil {
-		log.Fatal("failed to init redis, ", err)
+		log.Fatal("初始化 Redis 失败：", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -19,7 +19,7 @@ func InitRedis(dsn string) *redis.Client {
 	client := redis.NewClient(opt)
 
 	if err = client.Ping(ctx).Err(); err != nil {
-		log.Fatal("failed to ping redis, ", err)
+		log.Fatal("Redis 连通性检查失败：", err)
 	}
 
 	return client

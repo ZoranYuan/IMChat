@@ -52,7 +52,7 @@ func (h *Handle) Upload(c *gin.Context) {
 		Reader:      file,
 	})
 	if err != nil {
-		log.Println("failed to upload file:", err)
+		log.Println("上传文件失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "上传文件失败"))
 		return
 	}
@@ -83,7 +83,7 @@ func (h *Handle) InitMultipartUpload(c *gin.Context) {
 		TotalChunks: req.TotalChunks,
 	})
 	if err != nil {
-		log.Println("failed to init multipart upload:", err)
+		log.Println("初始化分片上传失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "初始化上传失败"))
 		return
 	}
@@ -125,7 +125,7 @@ func (h *Handle) UploadMultipartPart(c *gin.Context) {
 		Reader:     file,
 	})
 	if err != nil {
-		log.Println("failed to upload multipart part:", err)
+		log.Println("上传文件分片失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "上传分片失败"))
 		return
 	}
@@ -155,7 +155,7 @@ func (h *Handle) CompleteMultipartUpload(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
 			return
 		}
-		log.Println("failed to complete multipart upload:", err)
+		log.Println("完成分片上传失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "合并文件失败"))
 		return
 	}
@@ -176,7 +176,7 @@ func (h *Handle) Get(c *gin.Context) {
 			c.JSON(http.StatusNotFound, response.Error(http.StatusNotFound, "文件不存在"))
 			return
 		}
-		log.Println("failed to get file:", err)
+		log.Println("获取文件失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取文件失败"))
 		return
 	}

@@ -56,7 +56,7 @@ func (a *AuthMiddleware) JWTAuthMiddleware() gin.HandlerFunc {
 		}
 
 		if userId != claim.UserID {
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "未知 token"))
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "未知令牌"))
 			return
 		}
 

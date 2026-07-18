@@ -14,8 +14,7 @@ import (
 )
 
 var (
-	_ roomcache.RoomCache       = (*RoomCache)(nil)
-	_ roomcache.RoomMemberCache = (*RoomCache)(nil)
+	_ roomcache.RoomCache = (*RoomCache)(nil)
 )
 
 type RoomCache struct {
@@ -49,11 +48,13 @@ func (rc *RoomCache) randCode(count int) (string, error) {
 func (rc *RoomCache) UpdateInviteCode(
 	ctx context.Context,
 	roomId string,
-	ttl int,
+	ttl time.Duration,
 ) (string, error) {
 
 	roomKey := RoomInviteKey(roomId)
-	ttlDur := time.Duration(ttl) * time.Minute
+	if ttl <= 0 {
+		return "", ErrInvalidTTL
+	}
 
 	oldCode, err := rc.store.GetRequiredString(ctx, roomKey)
 
@@ -62,41 +63,68 @@ func (rc *RoomCache) UpdateInviteCode(
 	}
 
 	if err == nil {
-		_ = rc.store.Expire(ctx, roomKey, ttlDur)
-		_ = rc.store.Expire(ctx, InviteKey(oldCode), ttlDur)
-		return oldCode, nil
+		mappedRoomID, reverseErr := rc.store.GetRequiredString(ctx, InviteKey(oldCode))
+		if reverseErr == nil && mappedRoomID == roomId {
+			// 设立双向映射
+			const refreshScript = `
+				redis.call('PEXPIRE', KEYS[1], ARGV[1])
+				redis.call('PEXPIRE', KEYS[2], ARGV[1])
+				return 1
+			`
+			if _, err := rc.store.Eval(
+				ctx,
+				refreshScript,
+				[]string{roomKey, InviteKey(oldCode)},
+				ttl.Milliseconds(),
+			); err != nil {
+				return "", err
+			}
+			return oldCode, nil
+		}
+		if reverseErr != nil && !errors.Is(reverseErr, redis.Nil) {
+			return "", reverseErr
+		}
+		if err := rc.store.Del(ctx, roomKey); err != nil {
+			return "", err
+		}
 	}
 
-	for i := 0; i < 9; i++ {
+	for range 9 {
 
 		code, err := rc.randCode(9)
 		if err != nil {
 			continue
 		}
 
-		ok, err := rc.store.SetNXString(ctx, InviteKey(code), roomId, ttlDur)
-
-		if err != nil {
-			continue
-		}
-
-		if !ok {
-			continue
-		}
-
-		err = rc.store.SetString(
+		const createScript = `
+			local existing = redis.call('GET', KEYS[1])
+			if existing then
+				return existing
+			end
+			if redis.call('EXISTS', KEYS[2]) == 1 then
+				return ''
+			end
+			redis.call('PSETEX', KEYS[1], ARGV[3], ARGV[1])
+			redis.call('PSETEX', KEYS[2], ARGV[3], ARGV[2])
+			return ARGV[1]
+		`
+		result, err := rc.store.Eval(
 			ctx,
-			roomKey,
+			createScript,
+			[]string{roomKey, InviteKey(code)},
 			code,
-			ttlDur,
+			roomId,
+			ttl.Milliseconds(),
 		)
-
 		if err != nil {
-			_ = rc.store.Del(ctx, InviteKey(code))
+			continue
+		}
+		createdCode, ok := result.(string)
+		if !ok || createdCode == "" {
 			continue
 		}
 
-		return code, nil
+		return createdCode, nil
 	}
 
 	return "", ErrInviteCodeGenerationFailed
@@ -123,7 +151,32 @@ func (rc *RoomCache) GetRoomIDByCode(ctx context.Context, code string) (string, 
 		if errors.Is(err, redis.Nil) {
 			return "", roomentity.ErrInviteCodeExpired
 		}
+		return "", err
 	}
 
 	return roomId, nil
+}
+
+func (rc *RoomCache) DeleteInviteCode(ctx context.Context, roomId string) error {
+	// 双向删除，防止误删
+	const script = `
+		local code = redis.call('GET', KEYS[1])
+		if not code then
+			return 0
+		end
+		redis.call('DEL', KEYS[1])
+		local reverseKey = ARGV[1] .. code
+		if redis.call('GET', reverseKey) == ARGV[2] then
+			redis.call('DEL', reverseKey)
+		end
+		return 1
+	`
+	_, err := rc.store.Eval(
+		ctx,
+		script,
+		[]string{RoomInviteKey(roomId)},
+		InviteKeyPrefix(),
+		roomId,
+	)
+	return err
 }

@@ -1,7 +1,7 @@
-package friendrequest
+package friend
 
 import (
-	friendrequestentity "IM_backend/internal/domain/friend_request/entity"
+	friendrequestentity "IM_backend/internal/domain/friend/entity"
 )
 
 type FriendRequestDTO struct {

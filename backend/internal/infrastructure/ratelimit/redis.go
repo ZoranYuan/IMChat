@@ -32,21 +32,21 @@ func NewRedisLimit(client *redis.Client, perfix string) *RedisLimit {
 
 func (r *RedisLimit) Allow(ctx context.Context, key string, policy shared_ratelimit.Policy) (shared_ratelimit.Decision, error) {
 	if r.client == nil {
-		return shared_ratelimit.Decision{}, errors.New("rate limiter redis client is nil")
+		return shared_ratelimit.Decision{}, errors.New("限流器 Redis 客户端不能为空")
 	}
 
 	if key == "" {
-		return shared_ratelimit.Decision{}, errors.New("rate limit key is empty")
+		return shared_ratelimit.Decision{}, errors.New("限流键不能为空")
 	}
 
 	if policy.Rate <= 0 || policy.Burst <= 0 {
-		return shared_ratelimit.Decision{}, errors.New("policy value is invalid")
+		return shared_ratelimit.Decision{}, errors.New("限流策略参数无效")
 	}
 
 	scriptBytes, err := os.ReadFile("./limit.lua")
 	if err != nil {
 		// lua 脚本读取失败，考虑是否需要降级
-		return shared_ratelimit.Decision{}, errors.New("unknown error")
+		return shared_ratelimit.Decision{}, errors.New("未知错误")
 	}
 
 	// 执行 lua 脚本
@@ -71,7 +71,7 @@ func (r *RedisLimit) Allow(ctx context.Context, key string, policy shared_rateli
 	if !ok || len(values) != 3 {
 		return shared_ratelimit.Decision{},
 			fmt.Errorf(
-				"unexpected rate limit result: %T",
+				"限流结果格式异常：%T",
 				result,
 			)
 	}
@@ -110,7 +110,7 @@ func redisInt64(value interface{}) (int64, error) {
 
 	default:
 		return 0, fmt.Errorf(
-			"unexpected redis integer type: %T",
+			"Redis 整数类型异常：%T",
 			value,
 		)
 	}

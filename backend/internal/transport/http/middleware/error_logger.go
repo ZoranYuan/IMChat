@@ -24,7 +24,7 @@ func ErrorLoggerMiddleware() gin.HandlerFunc {
 				}
 			}
 			if errText == "" {
-				errText = "n/a"
+				errText = "无错误详情"
 			}
 			log.Printf("[ERROR] %d | %s %s | %v | %v",
 				status,

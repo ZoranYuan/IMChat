@@ -1,7 +1,7 @@
 package entity
 
 import (
-	friendrequestvo "IM_backend/internal/domain/friend_request/value_object"
+	friendvo "IM_backend/internal/domain/friend/value_object"
 	"time"
 )
 
@@ -9,7 +9,7 @@ type FriendRequest struct {
 	RequestId  string                 `json:"requestId"`
 	FromUserId string                 `json:"fromUserId"`
 	ToUserId   string                 `json:"toUserId"`
-	Status     friendrequestvo.Status `json:"status"`
+	Status     friendvo.RequestStatus `json:"status"`
 	Message    string                 `json:"message"` // 可选留言
 	ApplyTime  int64                  `json:"applyTime"`
 }
@@ -25,14 +25,14 @@ func NewFriendRequest(reqId, fromUserId, toUserId, message string) (*FriendReque
 		RequestId:  reqId,
 		ToUserId:   toUserId,
 		Message:    message,
-		Status:     friendrequestvo.Pending,
+		Status:     friendvo.Pending,
 		ApplyTime:  time.Now().UnixMilli(),
 	}
 
 	return newFriendRequest, nil
 }
 
-func (fq *FriendRequest) ReRequest(message string) error {
+func (fq *FriendRequest) ReRequest(newRequestId string, message string) error {
 	if fq.FromUserId == fq.ToUserId {
 		return ErrSelfRequest
 	}
@@ -41,42 +41,39 @@ func (fq *FriendRequest) ReRequest(message string) error {
 		return ErrRequestSentTooFrequently
 	}
 
-	if fq.Status != friendrequestvo.Pending {
-		return ErrInvalidStatus
-	}
-
+	fq.RequestId = newRequestId
 	fq.Message = message
-	fq.Status = friendrequestvo.Pending
+	fq.Status = friendvo.Pending
 	fq.ApplyTime = time.Now().UnixMilli()
 
 	return nil
 }
 
 func (fq *FriendRequest) Accept(userId string) error {
-	if fq.Status != friendrequestvo.Pending {
-		return ErrDuplicateOperation
+	if fq.Status != friendvo.Pending {
+		return ErrDuplicateRequestOperation
 	}
 
 	if fq.ToUserId != userId {
-		return ErrInvalidOperation
+		return ErrInvalidRequestOperation
 	}
 
-	fq.Status = friendrequestvo.Accepted
+	fq.Status = friendvo.Accepted
 
 	return nil
 }
 
 func (fq *FriendRequest) Refuse(userId string) error {
 	var err error
-	if fq.Status != friendrequestvo.Pending {
-		return ErrDuplicateOperation
+	if fq.Status != friendvo.Pending {
+		return ErrDuplicateRequestOperation
 	}
 
 	if fq.ToUserId != userId {
-		return ErrInvalidOperation
+		return ErrInvalidRequestOperation
 	}
 
-	fq.Status = friendrequestvo.Refused
+	fq.Status = friendvo.Refused
 
 	return err
 }

@@ -1,8 +1,7 @@
 package mq_handler
 
 import (
-	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
-	messageentity "IM_backend/internal/domain/message/entity"
+	conversationapp "IM_backend/internal/application/conversation"
 	"IM_backend/internal/infrastructure/messaging/client/kafka"
 	"IM_backend/internal/shared/protocol"
 	"context"
@@ -10,11 +9,11 @@ import (
 )
 
 type ConversationSyncHandler struct {
-	ucrepository messagerepo.UserConversationRepository
+	service ConversationSyncService
 }
 
-func NewConversationSyncHandler(ucrepository messagerepo.UserConversationRepository) kafka.ConsumerHandler {
-	return &ConversationSyncHandler{ucrepository: ucrepository}
+func NewConversationSyncHandler(service ConversationSyncService) kafka.ConsumerHandler {
+	return &ConversationSyncHandler{service: service}
 }
 
 func (h *ConversationSyncHandler) Handle(ctx context.Context, message kafka.ConsumerMessage) error {
@@ -28,20 +27,13 @@ func (h *ConversationSyncHandler) Handle(ctx context.Context, message kafka.Cons
 		return err
 	}
 
-	userConversations := make([]*messageentity.UserConversation, 0, len(event.Items))
+	items := make([]conversationapp.SyncSeq, 0, len(event.Items))
 	for _, item := range event.Items {
-		if item.UserId == "" || item.ConversationId == "" {
-			continue
-		}
-		userConversations = append(userConversations, messageentity.BuildUserConversation(
-			item.UserId,
-			item.ConversationId,
-			0,
-			item.LatestSeq,
-		))
+		items = append(items, conversationapp.SyncSeq{
+			UserId:         item.UserId,
+			ConversationId: item.ConversationId,
+			LatestSeq:      item.LatestSeq,
+		})
 	}
-	if len(userConversations) == 0 {
-		return nil
-	}
-	return h.ucrepository.BatchUpdateSyncSeq(ctx, userConversations)
+	return h.service.SyncLatestSequences(ctx, items)
 }

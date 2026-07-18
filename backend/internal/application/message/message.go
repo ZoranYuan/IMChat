@@ -6,12 +6,15 @@ import (
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	messagecache "IM_backend/internal/application/ports/persistence/cache/message"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
+	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	filerepo "IM_backend/internal/application/ports/persistence/repository/file"
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
+	conversationentity "IM_backend/internal/domain/conversation/entity"
+	conversationvo "IM_backend/internal/domain/conversation/value_object"
 	friendvo "IM_backend/internal/domain/friend/value_object"
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
@@ -41,8 +44,8 @@ type MessageApplication struct {
 	roomMemberCache            roomcache.RoomMemberCache
 	messageRepository          messagerepo.MessageRepository
 	txManager                  txmanager.TxManager
-	userConversationRepository messagerepo.UserConversationRepository
-	conversationRepository     messagerepo.ConversationRepository
+	userConversationRepository conversationrepo.UserConversationRepository
+	conversationRepository     conversationrepo.ConversationRepository
 	friendRepository           friendrepo.FriendRepository
 	fileRepository             filerepo.FileRepository
 	messageImageRepository     messagerepo.MessageImageRepository
@@ -63,8 +66,8 @@ func NewMessageApplication(
 	messageCache messagecache.MessageCache,
 	roomMemberCache roomcache.RoomMemberCache,
 	txManager txmanager.TxManager,
-	userConversationRepository messagerepo.UserConversationRepository,
-	conversationRepository messagerepo.ConversationRepository,
+	userConversationRepository conversationrepo.UserConversationRepository,
+	conversationRepository conversationrepo.ConversationRepository,
 	messageOutboxRepository messagerepo.MessageOutboxRepository,
 	friendRepository friendrepo.FriendRepository,
 	fileRepository filerepo.FileRepository,
@@ -131,7 +134,7 @@ func (ma *MessageApplication) HandleReadMessage(
 	uconv.UpdateReadSeq(lastReadSeq)
 
 	if ma.txManager == nil || ma.messageOutboxRepository == nil {
-		return fmt.Errorf("message outbox is not configured")
+		return fmt.Errorf("消息 Outbox 未配置")
 	}
 	return ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
 		if err := ma.userConversationRepository.WithTx(tx).UpdateReadSeq(ctx, uconv); err != nil {
@@ -142,7 +145,7 @@ func (ma *MessageApplication) HandleReadMessage(
 		}
 		avatar := ""
 		// 找到用户需要显示的头像（下一步将用户画像信息加入缓存，这一步可以直接从缓存中读取）
-		if conv.Convtype == messagevo.RoomChat && ma.userRepository != nil {
+		if conv.Convtype == conversationvo.RoomChat && ma.userRepository != nil {
 			if user, err := ma.userRepository.FindByUserID(userId); err == nil && user != nil {
 				avatar = user.Avatar
 			}
@@ -199,10 +202,10 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 	switch messagevo.CType(dto.CType) {
 	case messagevo.Image:
 		if ma.messageImageRepository == nil {
-			return nil, fmt.Errorf("message image repository is not configured")
+			return nil, fmt.Errorf("消息图片仓储未配置")
 		}
 		if dto.FileId == "" && dto.MediaURL == "" {
-			return nil, fmt.Errorf("image media is required")
+			return nil, fmt.Errorf("图片内容不能为空")
 		}
 		item := messageentity.NewMessageImage(
 			messageId,
@@ -219,10 +222,10 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 		}, nil
 	case messagevo.File:
 		if ma.messageFileRepository == nil {
-			return nil, fmt.Errorf("message file repository is not configured")
+			return nil, fmt.Errorf("消息文件仓储未配置")
 		}
 		if dto.FileId == "" && dto.MediaURL == "" {
-			return nil, fmt.Errorf("file media is required")
+			return nil, fmt.Errorf("文件内容不能为空")
 		}
 		item := messageentity.NewMessageFile(
 			messageId,
@@ -238,10 +241,10 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 		}, nil
 	case messagevo.Sticker:
 		if ma.messageStickerRepository == nil {
-			return nil, fmt.Errorf("message sticker repository is not configured")
+			return nil, fmt.Errorf("消息表情仓储未配置")
 		}
 		if dto.StickerId == "" && dto.MediaURL == "" {
-			return nil, fmt.Errorf("sticker media is required")
+			return nil, fmt.Errorf("表情内容不能为空")
 		}
 		item := messageentity.NewMessageSticker(
 			messageId,
@@ -256,10 +259,10 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 		}, nil
 	case messagevo.Video:
 		if ma.messageVideoRepository == nil {
-			return nil, fmt.Errorf("message video repository is not configured")
+			return nil, fmt.Errorf("消息视频仓储未配置")
 		}
 		if dto.FileId == "" && dto.MediaURL == "" {
-			return nil, fmt.Errorf("video media is required")
+			return nil, fmt.Errorf("视频内容不能为空")
 		}
 		duration := int64(0)
 		if dto.DurationMs != nil {
@@ -396,10 +399,10 @@ func (ma *MessageApplication) isPrivateConvMember(ctx context.Context, userID, r
 }
 
 func (ma *MessageApplication) checkConvMember(ctx context.Context, dto MessageAppeDTO) error {
-	switch messagevo.ConvType(dto.ConvType) {
-	case messagevo.PrivateChat:
+	switch conversationvo.ConvType(dto.ConvType) {
+	case conversationvo.PrivateChat:
 		return ma.isPrivateConvMember(ctx, dto.SendId, dto.RecvId)
-	case messagevo.RoomChat:
+	case conversationvo.RoomChat:
 		return ma.isRoomConvMember(ctx, dto.SendId, dto.RecvId)
 	default:
 		return ErrConversationNotFound
@@ -407,7 +410,7 @@ func (ma *MessageApplication) checkConvMember(ctx context.Context, dto MessageAp
 }
 
 func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
-	conversationId := messageentity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType)
+	conversationId := conversationentity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType)
 	messageId, err := snow.GenerateSnowID(int(ma.config.App.MachineID))
 	if err != nil {
 		return &MessageAppeDTO{
@@ -467,7 +470,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		}, err
 	}
 
-	conv := messageentity.NewConversation(
+	conv := conversationentity.NewConversation(
 		conversationId,
 		dto.SendId,
 		dto.RecvId,
@@ -476,7 +479,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		messageId,
 	)
 
-	userConv := messageentity.BuildUserConversation(
+	userConv := conversationentity.BuildUserConversation(
 		dto.SendId,
 		conversationId,
 		seq,
@@ -484,9 +487,9 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 	)
 
 	// 弹幕需要同时满足前端发送有视频时间以及在房间内
-	isDanmaku := dto.ConvType == int(messagevo.RoomChat) && dto.VideoTime != nil
+	isDanmaku := dto.ConvType == int(conversationvo.RoomChat) && dto.VideoTime != nil
 	if ma.txManager == nil || ma.messageOutboxRepository == nil {
-		return nil, fmt.Errorf("message outbox is not configured")
+		return nil, fmt.Errorf("消息 Outbox 未配置")
 	}
 
 	value := ctx.Value("op")
@@ -535,7 +538,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		userConvRepo := ma.userConversationRepository.WithTx(tx)
 		outboxRepo := ma.messageOutboxRepository.WithTx(tx)
 
-		if err := msgRepo.Save(ctx, message); err != nil {
+		if err := msgRepo.CreateNewMessage(ctx, message); err != nil {
 			// write failure is fatal; outbox only covers the downstream MQ dispatch
 			return ErrMessageSave
 		}
@@ -546,11 +549,11 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 			}
 
 			if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
-				log.Printf("warn: update sender uc failed: %v", err)
+				log.Printf("警告：更新发送者用户会话失败：%v", err)
 			}
 
 			if err := userConvRepo.UpdateSyncSeq(ctx, userConv); err != nil {
-				log.Printf("warn: update sender uc failed: %v", err)
+				log.Printf("警告：更新发送者用户会话失败：%v", err)
 			}
 		}
 
@@ -602,7 +605,6 @@ func (ma *MessageApplication) GetHistoryMessages(
 	limit int,
 	cursor int64,
 ) ([]MessageAppeDTO, int64, bool, error) {
-
 	// 限制 limit 大小
 	if limit <= 0 || limit >= 31 {
 		limit = 20
@@ -779,14 +781,14 @@ func (ma *MessageApplication) fillMediaFields(ctx context.Context, messages []Me
 
 func (ma *MessageApplication) fillConversationDisplayNames(
 	messages []MessageAppeDTO,
-	conversations []*messageentity.Conversation,
+	conversations []*conversationentity.Conversation,
 	userId string,
 ) {
 	if len(messages) == 0 || len(conversations) == 0 {
 		return
 	}
 
-	conversationById := make(map[string]*messageentity.Conversation, len(conversations))
+	conversationById := make(map[string]*conversationentity.Conversation, len(conversations))
 	privatePeerIds := make([]string, 0, len(conversations))
 	privateSeen := make(map[string]struct{}, len(conversations))
 	roomIds := make([]string, 0, len(conversations))
@@ -796,7 +798,7 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 		conversationById[conv.ConversationId] = conv
 
 		switch conv.Convtype {
-		case messagevo.PrivateChat:
+		case conversationvo.PrivateChat:
 			peerId := conv.UserId1
 			if peerId == userId {
 				peerId = conv.UserId2
@@ -805,7 +807,7 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 				privateSeen[peerId] = struct{}{}
 				privatePeerIds = append(privatePeerIds, peerId)
 			}
-		case messagevo.RoomChat:
+		case conversationvo.RoomChat:
 			if conv.RoomId != "" {
 				if _, ok := roomSeen[conv.RoomId]; !ok {
 					roomSeen[conv.RoomId] = struct{}{}
@@ -848,7 +850,7 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 
 		messages[i].ConvType = int(conv.Convtype)
 		switch conv.Convtype {
-		case messagevo.PrivateChat:
+		case conversationvo.PrivateChat:
 			peerId := conv.UserId1
 			if peerId == userId {
 				peerId = conv.UserId2
@@ -866,7 +868,7 @@ func (ma *MessageApplication) fillConversationDisplayNames(
 			// 批量查询结果优先，单条查询兜底
 			messages[i].DisplayName = ma.getUserDisplayName(peerId)
 			messages[i].Avatar = ma.getUserAvatar(peerId)
-		case messagevo.RoomChat:
+		case conversationvo.RoomChat:
 			if meta, ok := roomMetaByID[conv.RoomId]; ok {
 				messages[i].DisplayName = meta.displayName
 				messages[i].Avatar = meta.avatar
@@ -1055,7 +1057,7 @@ func (ma *MessageApplication) GetOfflineMessages(
 		return nil, nil, err
 	}
 
-	syncItems := make([]*messageentity.UserConversation, 0, len(uconvs))
+	syncItems := make([]*conversationentity.UserConversation, 0, len(uconvs))
 
 	for _, uconv := range uconvs {
 		latestSeq := syncMap[uconv.ConversationId]
@@ -1063,7 +1065,7 @@ func (ma *MessageApplication) GetOfflineMessages(
 			continue
 		}
 
-		syncItems = append(syncItems, messageentity.BuildUserConversation(
+		syncItems = append(syncItems, conversationentity.BuildUserConversation(
 			uconv.UserId,
 			uconv.ConversationId,
 			0,
@@ -1073,7 +1075,7 @@ func (ma *MessageApplication) GetOfflineMessages(
 
 	if len(syncItems) > 0 {
 		if err := ma.userConversationRepository.BatchUpdateSyncSeq(ctx, syncItems); err != nil {
-			log.Printf("warn: batch update sync seq failed: %v", err)
+			log.Printf("警告：批量更新同步序列失败：%v", err)
 		}
 	}
 

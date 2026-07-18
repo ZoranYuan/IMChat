@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	ErrSessionClosed     = errors.New("websocket session is closed")
-	ErrOutboundQueueFull = errors.New("websocket outbound queue is full")
+	ErrSessionClosed     = errors.New("WebSocket 会话已关闭")
+	ErrOutboundQueueFull = errors.New("WebSocket 发送队列已满")
 )
 
 type Message struct {
@@ -102,7 +102,7 @@ func (s *Session) read(pongWait int) (*Message, error) {
 		return nil, err
 	}
 	if messageType != gorilla.BinaryMessage {
-		return nil, fmt.Errorf("unsupported websocket message type: %d", messageType)
+		return nil, fmt.Errorf("不支持的 WebSocket 消息类型：%d", messageType)
 	}
 
 	var frame wspb.WsFrame
@@ -154,7 +154,7 @@ func (s *Session) writeLoop(pingPeriod, writeWait int) {
 		case message := <-s.outbound:
 			payload, err := proto.Marshal(&wspb.WsFrame{Op: message.Op, Data: message.Data})
 			if err != nil {
-				log.Printf("marshal websocket frame: %v", err)
+				log.Printf("序列化 WebSocket 帧失败：%v", err)
 				return
 			}
 			if err := s.write(gorilla.BinaryMessage, payload, writeWait); err != nil {

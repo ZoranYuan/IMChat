@@ -1,11 +1,11 @@
-package message
+package conversation
 
 import (
 	"context"
 	"errors"
 
-	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
-	messageentity "IM_backend/internal/domain/message/entity"
+	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
+	conversationentity "IM_backend/internal/domain/conversation/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
 	"gorm.io/gorm"
@@ -20,20 +20,20 @@ func NewConversationRepository(db *gorm.DB) *ConversationRepository {
 	return &ConversationRepository{db: db}
 }
 
-func (r *ConversationRepository) WithTx(tx any) messagerepo.ConversationRepository {
+func (r *ConversationRepository) WithTx(tx any) conversationrepo.ConversationRepository {
 	return &ConversationRepository{
 		db: tx.(*gorm.DB),
 	}
 }
 
 // 创建会话
-func (r *ConversationRepository) CreateConversation(ctx context.Context, conv *messageentity.Conversation) error {
+func (r *ConversationRepository) CreateConversation(ctx context.Context, conv *conversationentity.Conversation) error {
 	m := toConversationModel(conv)
 	return r.db.WithContext(ctx).Create(&m).Error
 }
 
 // 根据 ID 查询
-func (r *ConversationRepository) GetByID(ctx context.Context, id string) (*messageentity.Conversation, error) {
+func (r *ConversationRepository) GetByID(ctx context.Context, id string) (*conversationentity.Conversation, error) {
 	var m model.Conversation
 
 	err := r.db.WithContext(ctx).
@@ -53,7 +53,7 @@ func (r *ConversationRepository) GetByID(ctx context.Context, id string) (*messa
 
 func (r *ConversationRepository) Upsert(
 	ctx context.Context,
-	domain *messageentity.Conversation,
+	domain *conversationentity.Conversation,
 ) error {
 	m := toConversationModel(domain)
 
@@ -89,10 +89,10 @@ func (r *ConversationRepository) GetConversationSeq(ctx context.Context, convers
 func (r *ConversationRepository) ListByIDs(
 	ctx context.Context,
 	ids []string,
-) ([]*messageentity.Conversation, error) {
+) ([]*conversationentity.Conversation, error) {
 
 	if len(ids) == 0 {
-		return []*messageentity.Conversation{}, nil
+		return []*conversationentity.Conversation{}, nil
 	}
 
 	var models []model.Conversation
@@ -105,7 +105,7 @@ func (r *ConversationRepository) ListByIDs(
 	}
 
 	// 转换为 domain
-	result := make([]*messageentity.Conversation, 0, len(models))
+	result := make([]*conversationentity.Conversation, 0, len(models))
 	for _, m := range models {
 		result = append(result, toConversationDomain(&m))
 	}

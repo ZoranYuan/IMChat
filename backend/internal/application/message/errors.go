@@ -1,35 +1,23 @@
 package message
 
-import "errors"
+import (
+	friendentity "IM_backend/internal/domain/friend/entity"
+	roomentity "IM_backend/internal/domain/room/entity"
+	"errors"
+)
 
 var (
-	ErrMessageSave = errors.New("failed to save message")
+	ErrMessageSave = errors.New("保存消息失败")
 
-	ErrMessageQuery = errors.New("failed to query messages")
+	ErrConversationNotFound = errors.New("会话不存在")
 
-	ErrMessageNotFound = errors.New("message not found")
+	ErrNotFriends = friendentity.ErrNotFriends
 
-	ErrConversationCreate = errors.New("failed to create conversation")
+	ErrNotRoomMember = roomentity.ErrMemberNotFound
 
-	ErrConversationQuery = errors.New("failed to query conversation")
+	ErrConversationSequenceUpdate = errors.New("更新会话序列失败")
 
-	ErrConversationNotFound = errors.New("conversation not found")
+	ErrForbidden = errors.New("无权发送消息")
 
-	ErrNotFriends = errors.New("users are not friends")
-
-	ErrNotRoomMember = errors.New("user is not a room member")
-
-	ErrConversationSequenceUpdate = errors.New("failed to update conversation sequence")
-
-	ErrUserConversationCreate = errors.New("failed to create user conversation")
-
-	ErrUserConversationQuery = errors.New("failed to query user conversation")
-
-	ErrUserConversationReadSequenceUpdate = errors.New("failed to update user conversation read sequence")
-
-	ErrUserConversationNotFound = errors.New("user conversation not found")
-
-	ErrForbidden = errors.New("forbidden")
-
-	ErrUnknown = errors.New("unknown error")
+	ErrUnknown = errors.New("未知错误")
 )

@@ -43,7 +43,7 @@ func (m *LimitMiddleware) ByIP(scope string, policy shared_ratelimit.Policy) gin
 		if err != nil {
 			// 限流器不可用
 			log.Printf(
-				"rate limiter failed, key=%s: %v",
+				"限流器执行失败，key=%s：%v",
 				key,
 				err,
 			)

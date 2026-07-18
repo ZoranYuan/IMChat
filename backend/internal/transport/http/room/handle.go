@@ -3,7 +3,7 @@ package room
 import (
 	roomapp "IM_backend/internal/application/room"
 	"IM_backend/internal/transport/http/response"
-	"context"
+	"errors"
 	"log"
 	"net/http"
 
@@ -23,7 +23,7 @@ func NewRoomHandle(app *roomapp.RoomApplication) *RoomHandle {
 func (rh *RoomHandle) Create(c *gin.Context) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("panic ", r)
+			log.Println("房间接口发生异常：", r)
 			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "网络错误"))
 		}
 	}()
@@ -41,10 +41,14 @@ func (rh *RoomHandle) Create(c *gin.Context) {
 		return
 	}
 
-	ctx := context.TODO()
+	ctx := c.Request.Context()
 	roomApp, err := rh.app.Create(ctx, userId, req.RoomName, req.Avatar, req.Description)
 
 	if err != nil {
+		if errors.Is(err, roomapp.ErrInviteCodeUnavailable) {
+			c.JSON(http.StatusServiceUnavailable, response.Error(http.StatusServiceUnavailable, err.Error()))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -74,11 +78,15 @@ func (rh *RoomHandle) Invite(c *gin.Context) {
 		return
 	}
 
-	ctx := context.TODO()
+	ctx := c.Request.Context()
 
 	inviteCode, err := rh.app.Invite(ctx, userId, roomId)
 
 	if err != nil {
+		if errors.Is(err, roomapp.ErrInviteCodeUnavailable) {
+			c.JSON(http.StatusServiceUnavailable, response.Error(http.StatusServiceUnavailable, err.Error()))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, err.Error()))
 		return
 	}

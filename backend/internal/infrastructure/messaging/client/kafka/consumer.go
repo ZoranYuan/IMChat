@@ -19,9 +19,9 @@ type ConsumerMessage struct {
 const defaultConsumeRetryInterval = time.Second
 
 var (
-	ErrHandlerNotFound = errors.New("message handler not found")
-	ErrInvalidClient   = errors.New("invalid kafka client")
-	ErrEmptyTopics     = errors.New("kafka topics cannot be empty")
+	ErrHandlerNotFound = errors.New("消息处理器不存在")
+	ErrInvalidClient   = errors.New("Kafka 客户端无效")
+	ErrEmptyTopics     = errors.New("Kafka 主题不能为空")
 )
 
 type ConsumerHandler interface {
@@ -99,7 +99,7 @@ func (h saramaAdapter) ConsumeClaim(
 			if err != nil {
 				// 不调用 MarkMessage，当前 offset 不会被当前处理流程提交。
 				return fmt.Errorf(
-					"handle kafka message failed: topic=%s partition=%d offset=%d: %w",
+					"处理 Kafka 消息失败：topic=%s partition=%d offset=%d：%w",
 					message.Topic,
 					message.Partition,
 					message.Offset,
@@ -170,7 +170,7 @@ func (c *ConsumerGroup) Start(ctx context.Context) error {
 	for ctx.Err() == nil {
 		if err := c.group.Consume(ctx, c.topics, handler); err != nil {
 			log.Printf(
-				"consume kafka topics failed, topics=%v, retry_after=%s, err=%v",
+				"消费 Kafka 主题失败，topics=%v，retry_after=%s，err=%v",
 				c.topics,
 				c.retryInterval,
 				err,

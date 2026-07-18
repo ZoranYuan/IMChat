@@ -73,7 +73,7 @@ func (wh *WSHandler) allowEvent(ctx context.Context, op string, userId string, p
 	if err != nil {
 		// WebSocket 普通消息采用 Fail Open。
 		log.Printf(
-			"websocket rate limiter failed: %v",
+			"WebSocket 限流器执行失败：%v",
 			err,
 		)
 		return true
@@ -165,13 +165,13 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 
 	if err != nil {
 		ackEvent.Extra = err.Error()
-		log.Println("failed to handle message, ", err)
+		log.Println("处理消息失败：", err)
 	}
 
 	data, err = json.Marshal(ackEvent)
 
 	if err != nil {
-		log.Println("marshal ack failed ", err)
+		log.Println("序列化消息确认失败：", err)
 		return err
 	}
 

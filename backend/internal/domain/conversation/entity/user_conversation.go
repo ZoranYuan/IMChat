@@ -9,7 +9,7 @@ type UserConversation struct {
 }
 
 func BuildUserConversation(
-	userId,
+	userId string,
 	conversationId string,
 	lastReadSeq int64,
 	latestSyncSeq int64,
@@ -19,18 +19,13 @@ func BuildUserConversation(
 		ConversationId: conversationId,
 		LastReadSeq:    lastReadSeq,
 		LatestSyncSeq:  latestSyncSeq,
-		IsMuted:        false,
 	}
 }
 
-func (uc *UserConversation) UpdateSyncSeq(
-	latestSyncSeq int64,
-) {
+func (uc *UserConversation) UpdateSyncSeq(latestSyncSeq int64) {
 	uc.LatestSyncSeq = latestSyncSeq
 }
 
-func (uc *UserConversation) UpdateReadSeq(
-	lastReadSeq int64,
-) {
+func (uc *UserConversation) UpdateReadSeq(lastReadSeq int64) {
 	uc.LastReadSeq = lastReadSeq
 }

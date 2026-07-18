@@ -6,9 +6,8 @@ import (
 )
 
 type MessageRepository interface {
-
-	// 保存消息
-	Save(ctx context.Context, msg *messageentity.Message) error
+	CreateNewMessages(ctx context.Context, msgs []*messageentity.Message) error
+	CreateNewMessage(ctx context.Context, msg *messageentity.Message) error
 
 	GetHistoryMessage(
 		ctx context.Context,

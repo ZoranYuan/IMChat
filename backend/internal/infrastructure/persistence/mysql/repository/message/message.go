@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"fmt"
 
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	messageentity "IM_backend/internal/domain/message/entity"
@@ -25,9 +26,34 @@ func (r *MessageRepository) WithTx(tx any) messagerepo.MessageRepository {
 }
 
 // 保存消息
-func (r *MessageRepository) Save(ctx context.Context, msg *messageentity.Message) error {
+func (r *MessageRepository) CreateNewMessage(ctx context.Context, msg *messageentity.Message) error {
 	m := toMessageModel(msg)
 	return r.db.WithContext(ctx).Create(m).Error
+}
+
+func (r *MessageRepository) CreateNewMessages(ctx context.Context, msgs []*messageentity.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	models := make([]*model.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+
+		models = append(models, toMessageModel(msg))
+	}
+
+	if len(models) == 0 {
+		return nil
+	}
+
+	if err := r.db.WithContext(ctx).Create(&models).Error; err != nil {
+		return fmt.Errorf("创建消息失败：%w", err)
+	}
+
+	return nil
 }
 
 func (r *MessageRepository) GetHistoryMessage(

@@ -10,5 +10,5 @@ var (
 	ErrUserNotFound       = userentity.ErrUserNotFound
 	ErrIncorrectPassword  = userentity.ErrIncorrectPassword
 	ErrInvalidPhoneNumber = userentity.ErrInvalidPhoneNumber
-	ErrPasswordMismatch   = errors.New("passwords do not match")
+	ErrPasswordMismatch   = errors.New("两次输入的密码不一致")
 )

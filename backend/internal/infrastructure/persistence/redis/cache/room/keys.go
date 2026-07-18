@@ -6,6 +6,10 @@ func InviteKey(code string) string {
 	return cachekey.RoomInviteCode(code)
 }
 
+func InviteKeyPrefix() string {
+	return cachekey.RoomInviteCode("") + ":"
+}
+
 // 房间ID -> 邀请码
 func RoomInviteKey(roomId string) string {
 	return cachekey.RoomInvite(roomId)

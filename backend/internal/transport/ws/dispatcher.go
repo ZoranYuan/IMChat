@@ -33,7 +33,7 @@ func (r *Dispatcher) Dispatch(ctx context.Context, session *realtimews.Session, 
 	err := handler(ctx, session, data)
 
 	if err != nil {
-		log.Println("failed to handle message, ", err)
+		log.Println("处理 WebSocket 消息失败：", err)
 		// TODO 对错误进行补偿措施
 	}
 }

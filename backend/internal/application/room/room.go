@@ -3,17 +3,18 @@ package room
 import (
 	"IM_backend/configs"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
-	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
+	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
-	messageentity "IM_backend/internal/domain/message/entity"
-	messagevo "IM_backend/internal/domain/message/value_object"
+	conversationentity "IM_backend/internal/domain/conversation/entity"
+	conversationvo "IM_backend/internal/domain/conversation/value_object"
 	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/id/snow"
 	"context"
 	"errors"
 	"log"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -21,8 +22,8 @@ import (
 type RoomApplication struct {
 	roomRepository             roomrepo.RoomRepository
 	roomUserRepository         roomrepo.RoomUserRepository
-	userConversationRepository messagerepo.UserConversationRepository
-	conversationRepository     messagerepo.ConversationRepository
+	userConversationRepository conversationrepo.UserConversationRepository
+	conversationRepository     conversationrepo.ConversationRepository
 	config                     configs.Config
 	roomCache                  roomcache.RoomCache
 	roomMemberCache            roomcache.RoomMemberCache
@@ -31,8 +32,8 @@ type RoomApplication struct {
 
 func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
-	userConversationRepository messagerepo.UserConversationRepository,
-	conversationRepository messagerepo.ConversationRepository,
+	userConversationRepository conversationrepo.UserConversationRepository,
+	conversationRepository conversationrepo.ConversationRepository,
 	config configs.Config,
 	roomCache roomcache.RoomCache,
 	roomMemberCache roomcache.RoomMemberCache,
@@ -55,7 +56,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 	if err != nil {
 		return nil, err
 	}
-	conversationId := messageentity.GetConversationID(userId, roomId, int(messagevo.RoomChat))
+	conversationId := conversationentity.GetConversationID(userId, roomId, int(conversationvo.RoomChat))
 
 	room, err := roomentity.NewRoom(roomId, userId, description, roomName, avatar)
 	if err != nil {
@@ -68,21 +69,27 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 	roomUser := roomentity.NewRoomUser(userId, roomId, roomvo.HomeOwner)
 	roomUser.Join()
 
-	conversation := messageentity.NewConversation(
+	conversation := conversationentity.NewConversation(
 		conversationId,
 		userId,
 		roomId,
-		int(messagevo.RoomChat),
+		int(conversationvo.RoomChat),
 		0,
 		"",
 	)
 
-	userConversation := messageentity.BuildUserConversation(
+	userConversation := conversationentity.BuildUserConversation(
 		userId,
 		conversationId,
 		0,
 		0,
 	)
+
+	inviteCode, err := ra.roomCache.UpdateInviteCode(ctx, roomId, 5*time.Minute)
+	if err != nil {
+		log.Println("生成邀请码失败：", err)
+		return nil, ErrInviteCodeUnavailable
+	}
 
 	if err := ra.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
 		roomRepository := ra.roomRepository.WithTx(tx)
@@ -111,22 +118,18 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 
 		return nil
 	}); err != nil {
+		if cleanupErr := ra.roomCache.DeleteInviteCode(ctx, roomId); cleanupErr != nil {
+			log.Println("清理邀请码缓存失败：", cleanupErr)
+		}
 		return nil, err
 	}
-
-	inviteCode, inviteErr := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
 
 	memberState := &roomcache.MemberState{Status: roomUser.Status, Role: roomUser.Role, MuteUntil: roomUser.MuteUtil}
 	if err := ra.roomMemberCache.SetMember(ctx, roomId, userId, memberState); err != nil {
 		// best-effort cache warmup; the DB state is already authoritative
-		log.Println("failed to create join room cache ", err)
+		log.Println("创建房间成员缓存失败：", err)
 	}
 	_ = ra.roomMemberCache.SetMemberIDs(ctx, roomId, []string{userId})
-
-	if inviteErr != nil {
-		log.Println("failed to generate invite code:", inviteErr)
-		inviteCode = "110234675"
-	}
 
 	return toRoomAppDTO(room, inviteCode), nil
 }
@@ -138,7 +141,7 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 			return "", ErrRoomNotFound
 		}
 
-		log.Println("failed to get room ", err)
+		log.Println("查询房间失败：", err)
 		return "", ErrUnknown
 	}
 
@@ -158,11 +161,11 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 		return "", ErrRoomUnavailable
 	}
 
-	inviteCode, err := ra.roomCache.UpdateInviteCode(ctx, roomId, 5)
+	inviteCode, err := ra.roomCache.UpdateInviteCode(ctx, roomId, 5*time.Minute)
 
 	if err != nil {
-		log.Println("failed to get invite code, ", err)
-		return "", nil
+		log.Println("获取邀请码失败：", err)
+		return "", ErrInviteCodeUnavailable
 	}
 
 	return inviteCode, nil
@@ -176,7 +179,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 			return nil, nil, ErrInviteCodeExpired
 		}
 
-		log.Println("failed to get roomId ", err)
+		log.Println("根据邀请码获取房间 ID 失败：", err)
 		return nil, nil, ErrUnknown
 	}
 
@@ -208,7 +211,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 			return err
 		}
 
-		userConversation := messageentity.BuildUserConversation(
+		userConversation := conversationentity.BuildUserConversation(
 			userId,
 			conversationId,
 			conv.LatestSeq,
@@ -230,7 +233,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 	memberState := &roomcache.MemberState{Status: roomUser.Status, Role: roomUser.Role, MuteUntil: roomUser.MuteUtil}
 	if err := ra.roomMemberCache.SetMember(ctx, roomId, userId, memberState); err != nil {
 		// best-effort cache warmup; the DB state is already authoritative
-		log.Println("failed to update join room cache ", err)
+		log.Println("更新加入房间缓存失败：", err)
 	}
 	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
 
@@ -268,7 +271,7 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 
 	if err := ra.roomMemberCache.SetMemberNotFound(ctx, roomId, userId); err != nil {
 		// best-effort cache warmup; the DB state is already authoritative
-		log.Println("failed to update remove room cache ", err)
+		log.Println("更新退出房间缓存失败：", err)
 	}
 	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
 

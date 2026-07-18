@@ -1,10 +1,9 @@
 package mq_handler
 
 import (
+	conversationapp "IM_backend/internal/application/conversation"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
-	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
-	messageentity "IM_backend/internal/domain/message/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/infrastructure/messaging/client/kafka"
 	"IM_backend/internal/shared/protocol"
@@ -16,19 +15,19 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-var ErrUnknownConversationType = errors.New("unknown conversation type")
+var ErrUnknownConversationType = errors.New("未知的会话类型")
 
 type RealtimeDelivery interface {
 	DeliverToUser(eventType, userID string, payload []byte) error
 }
 
 type messageSendHandler struct {
-	delivery                   RealtimeDelivery
-	roomMemberCache            roomcache.RoomMemberCache
-	roomRepository             roomrepo.RoomRepository
-	roomUserRepository         roomrepo.RoomUserRepository
-	userConversationRepository messagerepo.UserConversationRepository
-	sf                         singleflight.Group
+	delivery                RealtimeDelivery
+	roomMemberCache         roomcache.RoomMemberCache
+	roomRepository          roomrepo.RoomRepository
+	roomUserRepository      roomrepo.RoomUserRepository
+	conversationSyncService ConversationSyncService
+	sf                      singleflight.Group
 }
 
 func (h *messageSendHandler) Handle(ctx context.Context, message kafka.ConsumerMessage) error {
@@ -48,12 +47,11 @@ func (h *messageSendHandler) Handle(ctx context.Context, message kafka.ConsumerM
 		if err := h.delivery.DeliverToUser(message.Topic, envelope.To, envelope.Payload); err != nil {
 			return err
 		}
-		return h.userConversationRepository.UpdateSyncSeq(ctx, messageentity.BuildUserConversation(
-			envelope.To,
-			conversationID,
-			0,
-			event.Seq,
-		))
+		return h.conversationSyncService.SyncLatestSequences(ctx, []conversationapp.SyncSeq{{
+			UserId:         envelope.To,
+			ConversationId: conversationID,
+			LatestSeq:      event.Seq,
+		}})
 
 	case protocol.RoomChat:
 		members, err := h.roomMembers(ctx, conversationID)
@@ -70,20 +68,19 @@ func (h *messageSendHandler) Handle(ctx context.Context, message kafka.ConsumerM
 			}
 		}
 
-		userConversations := make([]*messageentity.UserConversation, 0, len(members))
+		syncItems := make([]conversationapp.SyncSeq, 0, len(members))
 		for _, userId := range members {
 			if userId == envelope.From {
 				continue
 			}
 
-			userConversations = append(userConversations, messageentity.BuildUserConversation(
-				userId,
-				conversationID,
-				0,
-				event.Seq,
-			))
+			syncItems = append(syncItems, conversationapp.SyncSeq{
+				UserId:         userId,
+				ConversationId: conversationID,
+				LatestSeq:      event.Seq,
+			})
 		}
-		return h.userConversationRepository.BatchUpdateSyncSeq(ctx, userConversations)
+		return h.conversationSyncService.SyncLatestSequences(ctx, syncItems)
 
 	default:
 		return ErrUnknownConversationType
@@ -110,7 +107,7 @@ func (h *messageSendHandler) roomMembers(ctx context.Context, conversationID str
 			return nil, err
 		}
 		if err := h.roomMemberCache.SetMemberIDs(ctx, conversationID, members); err != nil {
-			log.Printf("warn: cache warmup failed for conversation %s: %v", conversationID, err)
+			log.Printf("警告：会话 %s 的缓存预热失败：%v", conversationID, err)
 		}
 		return members, nil
 	})
@@ -130,14 +127,14 @@ func NewSendMessagehandler(
 	delivery RealtimeDelivery,
 	roomRepository roomrepo.RoomRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
-	userConversationRepository messagerepo.UserConversationRepository,
+	conversationSyncService ConversationSyncService,
 	roomMemberCache roomcache.RoomMemberCache,
 ) kafka.ConsumerHandler {
 	return &messageSendHandler{
-		delivery:                   delivery,
-		roomMemberCache:            roomMemberCache,
-		roomRepository:             roomRepository,
-		roomUserRepository:         roomUserRepository,
-		userConversationRepository: userConversationRepository,
+		delivery:                delivery,
+		roomMemberCache:         roomMemberCache,
+		roomRepository:          roomRepository,
+		roomUserRepository:      roomUserRepository,
+		conversationSyncService: conversationSyncService,
 	}
 }

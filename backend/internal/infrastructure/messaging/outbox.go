@@ -47,7 +47,7 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		if err := w.dispatchPendingOnce(ctx); err != nil {
-			log.Printf("outbox worker failed: %v", err)
+			log.Printf("Outbox 工作任务执行失败：%v", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -79,7 +79,7 @@ func (w *OutboxWorker) dispatchPendingOnce(ctx context.Context) error {
 			continue
 		}
 		if err := w.dispatchOne(ctx, item); err != nil {
-			log.Printf("dispatch outbox %s failed: %v", item.ID, err)
+			log.Printf("分发 Outbox 记录 %s 失败：%v", item.ID, err)
 		}
 	}
 	return nil
@@ -92,7 +92,7 @@ func (w *OutboxWorker) dispatchOne(ctx context.Context, item *messageentity.Mess
 	case protocol.EventReadMessageAck:
 		return w.dispatchMessageReadAck(ctx, item)
 	default:
-		return w.markRetry(ctx, item, fmt.Sprintf("unsupported outbox event type: %s", item.EventType))
+		return w.markRetry(ctx, item, fmt.Sprintf("不支持的 Outbox 事件类型：%s", item.EventType))
 	}
 }
 

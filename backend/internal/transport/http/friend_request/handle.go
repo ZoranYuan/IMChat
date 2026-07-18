@@ -1,9 +1,8 @@
 package friendrequest
 
 import (
-	friendrequestapp "IM_backend/internal/application/friend_request"
+	friendapp "IM_backend/internal/application/friend"
 	"IM_backend/internal/transport/http/response"
-	"errors"
 	"log"
 	"net/http"
 
@@ -11,10 +10,10 @@ import (
 )
 
 type FriendRequestHandle struct {
-	app *friendrequestapp.FriendApplication
+	app *friendapp.RequestApplication
 }
 
-func NewFriendRequestHandle(app *friendrequestapp.FriendApplication) *FriendRequestHandle {
+func NewFriendRequestHandle(app *friendapp.RequestApplication) *FriendRequestHandle {
 	return &FriendRequestHandle{
 		app: app,
 	}
@@ -30,7 +29,7 @@ func (fh *FriendRequestHandle) Create(c *gin.Context) {
 
 	var newFriendRequest FriendRequestReq
 	if err := c.ShouldBindJSON(&newFriendRequest); err != nil {
-		log.Println("failed to parse newFriendRequest, ", err)
+		log.Println("解析好友申请参数失败：", err)
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
@@ -38,11 +37,7 @@ func (fh *FriendRequestHandle) Create(c *gin.Context) {
 	friendRequestApp, err := fh.app.CreateFriendRequest(userId, newFriendRequest.ToUserId, newFriendRequest.Message)
 
 	if err != nil {
-		if errors.Is(err, friendrequestapp.ErrRequestSentTooFrequently) {
-			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
-		} else {
-			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "网络错误"))
-		}
+		c.JSON(http.StatusConflict, response.Error(http.StatusBadRequest, err.Error()))
 		return
 	}
 
@@ -71,7 +66,7 @@ func (fh *FriendRequestHandle) OperateRequest(c *gin.Context) {
 
 	var err error
 	if res.Action == ActionAccept {
-		err = fh.app.Accept(res.RequestId, userId)
+		err = fh.app.Accept(res.RequestId, userId, res.OtherId)
 	} else {
 		err = fh.app.Refuse(res.RequestId, userId)
 	}

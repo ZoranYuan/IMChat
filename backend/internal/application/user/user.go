@@ -58,7 +58,7 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Println("failed to register user, ", err)
+			log.Println("注册用户失败：", err)
 			return nil, err
 		}
 	}
@@ -112,7 +112,7 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 	userModel, err := ua.userRepository.FindUserByPhone(phone)
 
 	if err != nil {
-		log.Println("failed to register user, ", err)
+		log.Println("手机号登录失败：", err)
 		return nil, err
 	}
 
@@ -162,7 +162,7 @@ func (ua *UserApplication) LoginWithUserName(keyword, password string) (*UserApp
 	userModel, err := ua.userRepository.FindByUsernameOrPhone(keyword)
 
 	if err != nil {
-		log.Println("failed to login user, ", err)
+		log.Println("用户名登录失败：", err)
 		return nil, err
 	}
 

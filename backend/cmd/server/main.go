@@ -2,9 +2,9 @@ package main
 
 import (
 	"IM_backend/configs"
+	conversationapp "IM_backend/internal/application/conversation"
 	fileapp "IM_backend/internal/application/file"
 	friendapp "IM_backend/internal/application/friend"
-	friendrequestapp "IM_backend/internal/application/friend_request"
 	messageapp "IM_backend/internal/application/message"
 	roomapp "IM_backend/internal/application/room"
 	userapp "IM_backend/internal/application/user"
@@ -13,9 +13,9 @@ import (
 	mq_handler "IM_backend/internal/infrastructure/messaging/handler"
 	"IM_backend/internal/infrastructure/persistence"
 	"IM_backend/internal/infrastructure/persistence/mysql"
+	conversationmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/conversation"
 	filemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/file"
 	friendmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/friend"
-	friendrequestmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/friend_request"
 	messagemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/message"
 	roommysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room"
 	roomusermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room_user"
@@ -83,6 +83,7 @@ func main() {
 
 	authCache := authredis.NewAuthCache(redisClient)
 	roomCache := roomredis.NewRoomCache(redisClient)
+	roomMemberCache := roomredis.NewRoomMemberCache(redisClient)
 	fileCache := fileredis.NewFileCache(redisClient)
 	friendCache := friendredis.NewFriendCache(redisClient)
 	messageCache := messageredis.NewMessageCache(redisClient)
@@ -92,14 +93,14 @@ func main() {
 	kafkaClient, err := kafka.NewClient(cfg.Kafka)
 
 	if err != nil {
-		log.Fatalln("failed to connect kafka, ", err)
+		log.Fatalln("连接 Kafka 失败：", err)
 	}
 
 	authService := authsvc.NewAuthService(cfg)
 
 	objectStorage, err := minioobj.NewObjectStorage(ctx, cfg.Storage.MinIO)
 	if err != nil {
-		log.Fatalln("failed to connect minio, ", err)
+		log.Fatalln("连接 MinIO 失败：", err)
 	}
 
 	// 构造依赖
@@ -113,18 +114,23 @@ func main() {
 	messageStickerRepository := messagemysql.NewMessageStickerRepository(db)
 	messageVideoRepository := messagemysql.NewMessageVideoRepository(db)
 	messageOutboxRepository := messagemysql.NewMessageOutboxRepository(db, int(cfg.App.MachineID))
-	conversationRepository := messagemysql.NewConversationRepository(db)
-	userConversationRepository := messagemysql.NewUserConversationRepository(db)
+	conversationRepository := conversationmysql.NewConversationRepository(db)
+	userConversationRepository := conversationmysql.NewUserConversationRepository(db)
+	conversationApplication := conversationapp.NewApplication(userConversationRepository)
 
 	userRepository := usermysql.NewUserRepository(db)
 	userApp := userapp.NewUserApplication(userRepository, cfg, authCache, authService)
 	userHandle := userhttp.NewUserHandle(userApp)
 
 	friendRepository := friendmysql.NewFriendRepository(db)
-	friendRequestRepository := friendrequestmysql.NewFriendRequestRepository(db)
-	friendRequestApp := friendrequestapp.NewFriendApplication(
+	friendRequestRepository := friendmysql.NewFriendRequestRepository(db)
+	friendRequestApp := friendapp.NewRequestApplication(
 		friendRequestRepository,
 		userRepository,
+		messageRepository,
+		conversationRepository,
+		userConversationRepository,
+		conversationCache,
 		cfg,
 		friendRepository,
 		friendCache,
@@ -144,7 +150,7 @@ func main() {
 		conversationRepository,
 		cfg,
 		roomCache,
-		roomCache,
+		roomMemberCache,
 		txManager,
 	)
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
@@ -153,11 +159,11 @@ func main() {
 		realtimeGateway,
 		roomRepository,
 		roomUserRepository,
-		userConversationRepository,
-		roomCache,
+		conversationApplication,
+		roomMemberCache,
 	)
 	readNotifyHandler := mq_handler.NewReadMessageAckNotifyHandler(realtimeGateway)
-	conversationSyncHandler := mq_handler.NewConversationSyncHandler(userConversationRepository)
+	conversationSyncHandler := mq_handler.NewConversationSyncHandler(conversationApplication)
 	consumerRouter := kafka.NewConsumerRouter(map[string]kafka.ConsumerHandler{
 		protocol.EventTypeSendMessage:     messageSendHandler,
 		protocol.EventReadMessageAck:      readNotifyHandler, // 当接收到读消息确认时，将已读用户通知给消息发送方
@@ -173,12 +179,12 @@ func main() {
 	)
 
 	if err != nil {
-		log.Fatal("failed to create message consumer group ", err)
+		log.Fatal("创建消息消费组失败：", err)
 	}
 
 	go func() {
 		if err := messageConsumerGroup.Start(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("kafka consumer stopped: %v", err)
+			log.Printf("Kafka 消费者已停止：%v", err)
 		}
 	}()
 
@@ -195,7 +201,7 @@ func main() {
 		conversationCache,
 		friendCache,
 		messageCache,
-		roomCache,
+		roomMemberCache,
 		txManager,
 		userConversationRepository,
 		conversationRepository,
@@ -269,11 +275,11 @@ func main() {
 
 	defer srv.Close()
 
-	log.Println("start the server....")
+	log.Println("服务已启动")
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("failed to run server", err)
+			log.Fatal("启动服务失败：", err)
 		}
 	}()
 
@@ -283,9 +289,9 @@ func main() {
 	<-quit
 
 	// 关闭服务
-	log.Println("finish the server....")
+	log.Println("服务已停止")
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("failed to finish the server", err)
+		log.Fatal("关闭服务失败：", err)
 	}
 }
