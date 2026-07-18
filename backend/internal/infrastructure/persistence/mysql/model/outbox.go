@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-type MessageOutbox struct {
+type OutboxRecord struct {
 	ID          string     `json:"id" gorm:"size:32;primaryKey"`
 	EventType   string     `json:"eventType" gorm:"size:64;index"`
 	Topic       string     `json:"topic" gorm:"size:64;index"`
@@ -16,4 +16,8 @@ type MessageOutbox struct {
 	SentAt      *time.Time `json:"sentAt" gorm:"index"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+func (OutboxRecord) TableName() string {
+	return "message_outboxes"
 }

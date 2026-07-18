@@ -2,6 +2,7 @@ package message
 
 import (
 	"IM_backend/configs"
+	outboxport "IM_backend/internal/application/ports/outbox"
 	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	messagecache "IM_backend/internal/application/ports/persistence/cache/message"
@@ -52,7 +53,7 @@ type MessageApplication struct {
 	messageFileRepository      messagerepo.MessageFileRepository
 	messageStickerRepository   messagerepo.MessageStickerRepository
 	messageVideoRepository     messagerepo.MessageVideoRepository
-	messageOutboxRepository    messagerepo.MessageOutboxRepository
+	messageOutboxRepository    outboxport.Repository
 	userRepository             userrepo.UserRepository
 	roomUserRepository         roomrepo.RoomUserRepository
 	roomRepository             roomrepo.RoomRepository
@@ -68,7 +69,7 @@ func NewMessageApplication(
 	txManager txmanager.TxManager,
 	userConversationRepository conversationrepo.UserConversationRepository,
 	conversationRepository conversationrepo.ConversationRepository,
-	messageOutboxRepository messagerepo.MessageOutboxRepository,
+	messageOutboxRepository outboxport.Repository,
 	friendRepository friendrepo.FriendRepository,
 	fileRepository filerepo.FileRepository,
 	messageImageRepository messagerepo.MessageImageRepository,
@@ -158,39 +159,22 @@ func (ma *MessageApplication) HandleReadMessage(
 			SenderId:       senderId,
 			Avatar:         avatar,
 		}
-		payload, err := json.Marshal(ackEvent)
+		eventPayload, err := json.Marshal(ackEvent)
+		if err != nil {
+			return err
+		}
+		payload, err := json.Marshal(protocol.Envelope{
+			To:      conversationId,
+			Payload: eventPayload,
+		})
 		if err != nil {
 			return err
 		}
 
 		// 加入 outbox ，便于后续的异步事件分发
-		outbox := &messageentity.MessageOutbox{EventType: string(protocol.EventReadMessageAck), Topic: string(protocol.EventReadMessageAck), MessageKey: userId + ":" + conversationId, Payload: payload}
+		outbox := &outboxport.Entry{EventType: string(protocol.EventReadMessageAck), MessageKey: userId + ":" + conversationId, Payload: payload}
 		return ma.messageOutboxRepository.WithTx(tx).Create(ctx, outbox)
 	})
-}
-
-func (ma *MessageApplication) GetRoomMemberIDs(ctx context.Context, roomId string) ([]string, error) {
-	members, cached, err := ma.roomMemberCache.GetMemberIDs(ctx, roomId)
-	if err == nil && cached {
-		return members, nil
-	}
-
-	_, err = ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
-	if err != nil {
-		return nil, err
-	}
-
-	members, err = ma.roomUserRepository.ListActiveUserIDs(roomId)
-	if err != nil {
-		return nil, err
-	}
-	if len(members) == 0 {
-		return nil, ErrNotRoomMember
-	}
-	if cacheErr := ma.roomMemberCache.SetMemberIDs(ctx, roomId, members); cacheErr != nil {
-		// best-effort cache warmup; the DB state is already authoritative
-	}
-	return members, nil
 }
 
 // 返回一个闭包函数，用于后续的执行
@@ -530,6 +514,14 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 	if err != nil {
 		return nil, err
 	}
+	messagePayload, err := json.Marshal(protocol.Envelope{
+		From:    messageEvent.SendId,
+		To:      messageEvent.RecvId,
+		Payload: eventPayload,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	// TODO： 这里直接操作了数据库，这一步先不发送，而是进入缓冲队列，等到对了慢了或者超过最大等待时间，再去处理
 	err = ma.txManager.WithinTransaction(ctx, func(tx *gorm.DB) error {
@@ -563,11 +555,10 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 			}
 		}
 
-		outbox := &messageentity.MessageOutbox{
+		outbox := &outboxport.Entry{
 			EventType:  string(protocol.EventTypeSendMessage),
-			Topic:      string(protocol.EventTypeSendMessage),
 			MessageKey: conversationId,
-			Payload:    eventPayload,
+			Payload:    messagePayload,
 		}
 		if err := outboxRepo.Create(ctx, outbox); err != nil {
 			return err

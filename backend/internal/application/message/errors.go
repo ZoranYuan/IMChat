@@ -7,7 +7,8 @@ import (
 )
 
 var (
-	ErrMessageSave = errors.New("保存消息失败")
+	ErrUnknownConversationType = errors.New("未知的会话类型")
+	ErrMessageSave             = errors.New("保存消息失败")
 
 	ErrConversationNotFound = errors.New("会话不存在")
 

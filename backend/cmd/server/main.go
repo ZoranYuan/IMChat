@@ -6,17 +6,18 @@ import (
 	fileapp "IM_backend/internal/application/file"
 	friendapp "IM_backend/internal/application/friend"
 	messageapp "IM_backend/internal/application/message"
+	eventbus "IM_backend/internal/application/ports/eventbus"
 	roomapp "IM_backend/internal/application/room"
 	userapp "IM_backend/internal/application/user"
-	mq "IM_backend/internal/infrastructure/messaging"
-	"IM_backend/internal/infrastructure/messaging/client/kafka"
-	mq_handler "IM_backend/internal/infrastructure/messaging/handler"
+	"IM_backend/internal/infrastructure/mq/kafka"
+	outboxinfra "IM_backend/internal/infrastructure/outbox"
 	"IM_backend/internal/infrastructure/persistence"
 	"IM_backend/internal/infrastructure/persistence/mysql"
 	conversationmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/conversation"
 	filemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/file"
 	friendmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/friend"
 	messagemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/message"
+	outboxmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/outbox"
 	roommysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room"
 	roomusermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room_user"
 	usermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
@@ -32,6 +33,7 @@ import (
 	authsvc "IM_backend/internal/infrastructure/security/auth"
 	minioobj "IM_backend/internal/infrastructure/storage/minio"
 	"IM_backend/internal/shared/protocol"
+	eventtransport "IM_backend/internal/transport/event"
 	httpapi "IM_backend/internal/transport/http"
 	filehttp "IM_backend/internal/transport/http/file"
 	friendhttp "IM_backend/internal/transport/http/friend"
@@ -56,7 +58,8 @@ func main() {
 	r := gin.Default()
 	r.Use(middleware.ErrorLoggerMiddleware())
 
-	ctx := context.TODO()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -95,6 +98,11 @@ func main() {
 	if err != nil {
 		log.Fatalln("连接 Kafka 失败：", err)
 	}
+	defer func() {
+		if err := kafkaClient.Close(); err != nil {
+			log.Printf("关闭 Kafka 客户端失败：%v", err)
+		}
+	}()
 
 	authService := authsvc.NewAuthService(cfg)
 
@@ -113,7 +121,7 @@ func main() {
 	messageFileRepository := messagemysql.NewMessageFileRepository(db)
 	messageStickerRepository := messagemysql.NewMessageStickerRepository(db)
 	messageVideoRepository := messagemysql.NewMessageVideoRepository(db)
-	messageOutboxRepository := messagemysql.NewMessageOutboxRepository(db, int(cfg.App.MachineID))
+	messageOutboxRepository := outboxmysql.NewRepository(db, int(cfg.App.MachineID))
 	conversationRepository := conversationmysql.NewConversationRepository(db)
 	userConversationRepository := conversationmysql.NewUserConversationRepository(db)
 	conversationApplication := conversationapp.NewApplication(userConversationRepository)
@@ -155,27 +163,27 @@ func main() {
 	)
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
 
-	messageSendHandler := mq_handler.NewSendMessagehandler(
+	messageDeliveryApplication := messageapp.NewDeliveryApplication(
 		realtimeGateway,
 		roomRepository,
 		roomUserRepository,
 		conversationApplication,
 		roomMemberCache,
 	)
-	readNotifyHandler := mq_handler.NewReadMessageAckNotifyHandler(realtimeGateway)
-	conversationSyncHandler := mq_handler.NewConversationSyncHandler(conversationApplication)
-	consumerRouter := kafka.NewConsumerRouter(map[string]kafka.ConsumerHandler{
-		protocol.EventTypeSendMessage:     messageSendHandler,
-		protocol.EventReadMessageAck:      readNotifyHandler, // 当接收到读消息确认时，将已读用户通知给消息发送方
-		protocol.EventConversationSyncSeq: conversationSyncHandler,
+	messageSendHandler := eventtransport.NewMessageHandler(messageDeliveryApplication)
+	readNotifyHandler := eventtransport.NewReadHandler(messageDeliveryApplication)
+	messageProducer := kafka.NewProducer(kafkaClient, "msg")
+	consumerRouter := kafka.NewConsumerRouter(map[string]eventbus.Handler{
+		protocol.EventTypeSendMessage: messageSendHandler,
+		protocol.EventReadMessageAck:  readNotifyHandler, // 当接收到读消息确认时，将已读用户通知给消息发送方
 	})
 
 	messageConsumerGroup, err := kafka.NewConsumerGroup(kafkaClient, []string{
 		string(protocol.EventReadMessageAck),
 		string(protocol.EventTypeSendMessage),
-		string(protocol.EventConversationSyncSeq),
 	},
 		consumerRouter,
+		kafka.WithDeadLetterPublisher(messageProducer),
 	)
 
 	if err != nil {
@@ -188,11 +196,8 @@ func main() {
 		}
 	}()
 
-	messageProducer := kafka.NewProducer(kafkaClient, "msg")
-
 	dispatcher := ws.NewDispatcher()
-	taskManager := mq.NewTaskManager(messageProducer)
-	outboxWorker := mq.NewReadAckOutboxWorker(txManager, messageOutboxRepository, taskManager)
+	outboxWorker := outboxinfra.NewWorker(txManager, messageOutboxRepository, messageProducer)
 
 	go outboxWorker.Start(ctx)
 
@@ -290,8 +295,11 @@ func main() {
 
 	// 关闭服务
 	log.Println("服务已停止")
+	cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatal("关闭服务失败：", err)
 	}
 }

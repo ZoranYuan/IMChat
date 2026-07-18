@@ -1,21 +1,20 @@
-package message
+package outbox
 
 import (
 	"context"
 	"time"
-
-	messageentity "IM_backend/internal/domain/message/entity"
 )
 
-type MessageOutboxRepository interface {
-	Create(ctx context.Context, outbox *messageentity.MessageOutbox) error
+type Repository interface {
+	Create(ctx context.Context, outbox *Entry) error
 	ClaimPending(
 		ctx context.Context,
 		now time.Time,
 		staleBefore time.Time,
 		limit int,
-	) ([]*messageentity.MessageOutbox, error)
+	) ([]*Entry, error)
 	MarkSent(ctx context.Context, id string, sentAt time.Time) error
 	MarkRetry(ctx context.Context, id string, nextRetryAt time.Time, lastError string) error
-	WithTx(tx any) MessageOutboxRepository
+	MarkDead(ctx context.Context, id string, lastError string) error
+	WithTx(tx any) Repository
 }

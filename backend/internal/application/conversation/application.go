@@ -2,15 +2,10 @@ package conversation
 
 import (
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
+	serviceport "IM_backend/internal/application/ports/service"
 	conversationentity "IM_backend/internal/domain/conversation/entity"
 	"context"
 )
-
-type SyncSeq struct {
-	UserId         string
-	ConversationId string
-	LatestSeq      int64
-}
 
 type Application struct {
 	userConversationRepository conversationrepo.UserConversationRepository
@@ -20,7 +15,7 @@ func NewApplication(userConversationRepository conversationrepo.UserConversation
 	return &Application{userConversationRepository: userConversationRepository}
 }
 
-func (application *Application) SyncLatestSequences(ctx context.Context, items []SyncSeq) error {
+func (application *Application) SyncLatestSequences(ctx context.Context, items []serviceport.ConversationSyncItem) error {
 	conversations := make([]*conversationentity.UserConversation, 0, len(items))
 	for _, item := range items {
 		if item.UserId == "" || item.ConversationId == "" {

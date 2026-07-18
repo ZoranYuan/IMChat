@@ -1,11 +1,10 @@
-package message
+package outbox
 
 import (
 	"context"
 	"time"
 
-	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
-	messageentity "IM_backend/internal/domain/message/entity"
+	outboxport "IM_backend/internal/application/ports/outbox"
 	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
@@ -13,20 +12,20 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-type MessageOutboxRepository struct {
+type Repository struct {
 	db        *gorm.DB
 	machineID int
 }
 
-func NewMessageOutboxRepository(db *gorm.DB, machineID int) *MessageOutboxRepository {
-	return &MessageOutboxRepository{db: db, machineID: machineID}
+func NewRepository(db *gorm.DB, machineID int) *Repository {
+	return &Repository{db: db, machineID: machineID}
 }
 
-func (r *MessageOutboxRepository) WithTx(tx any) messagerepo.MessageOutboxRepository {
-	return &MessageOutboxRepository{db: tx.(*gorm.DB), machineID: r.machineID}
+func (r *Repository) WithTx(tx any) outboxport.Repository {
+	return &Repository{db: tx.(*gorm.DB), machineID: r.machineID}
 }
 
-func toMessageOutboxModel(e *messageentity.MessageOutbox) *model.MessageOutbox {
+func toModel(e *outboxport.Entry) *model.OutboxRecord {
 	if e == nil {
 		return nil
 	}
@@ -43,10 +42,10 @@ func toMessageOutboxModel(e *messageentity.MessageOutbox) *model.MessageOutbox {
 		sentAt = &t
 	}
 
-	return &model.MessageOutbox{
+	return &model.OutboxRecord{
 		ID:          e.ID,
 		EventType:   e.EventType,
-		Topic:       e.Topic,
+		Topic:       e.EventType,
 		MessageKey:  e.MessageKey,
 		Payload:     e.Payload,
 		Status:      e.Status,
@@ -58,7 +57,7 @@ func toMessageOutboxModel(e *messageentity.MessageOutbox) *model.MessageOutbox {
 	}
 }
 
-func toMessageOutboxDomain(m *model.MessageOutbox) *messageentity.MessageOutbox {
+func toEntry(m *model.OutboxRecord) *outboxport.Entry {
 	if m == nil {
 		return nil
 	}
@@ -75,10 +74,9 @@ func toMessageOutboxDomain(m *model.MessageOutbox) *messageentity.MessageOutbox 
 		sentAt = &t
 	}
 
-	return &messageentity.MessageOutbox{
+	return &outboxport.Entry{
 		ID:          m.ID,
 		EventType:   m.EventType,
-		Topic:       m.Topic,
 		MessageKey:  m.MessageKey,
 		Payload:     m.Payload,
 		Status:      m.Status,
@@ -92,7 +90,7 @@ func toMessageOutboxDomain(m *model.MessageOutbox) *messageentity.MessageOutbox 
 	}
 }
 
-func (r *MessageOutboxRepository) Create(ctx context.Context, outbox *messageentity.MessageOutbox) error {
+func (r *Repository) Create(ctx context.Context, outbox *outboxport.Entry) error {
 	if outbox == nil {
 		return nil
 	}
@@ -104,32 +102,32 @@ func (r *MessageOutboxRepository) Create(ctx context.Context, outbox *messageent
 		outbox.ID = id
 	}
 	if outbox.Status == "" {
-		outbox.Status = messageentity.MessageOutboxStatusPending
+		outbox.Status = outboxport.StatusPending
 	}
 	if outbox.NextRetryAt.IsZero() {
 		outbox.NextRetryAt = time.Now()
 	}
-	m := toMessageOutboxModel(outbox)
+	m := toModel(outbox)
 	return r.db.WithContext(ctx).Create(m).Error
 }
 
-func (r *MessageOutboxRepository) ClaimPending(
+func (r *Repository) ClaimPending(
 	ctx context.Context,
 	now time.Time,
 	staleBefore time.Time,
 	limit int,
-) ([]*messageentity.MessageOutbox, error) {
+) ([]*outboxport.Entry, error) {
 	if limit <= 0 {
-		return []*messageentity.MessageOutbox{}, nil
+		return []*outboxport.Entry{}, nil
 	}
-	var models []*model.MessageOutbox
+	var models []*model.OutboxRecord
 	err := r.db.WithContext(ctx).
 		Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 		Where(
 			"(status = ? AND next_retry_at <= ?) OR (status = ? AND locked_at IS NOT NULL AND locked_at <= ?)",
-			messageentity.MessageOutboxStatusPending,
+			outboxport.StatusPending,
 			now,
-			messageentity.MessageOutboxStatusProcessing,
+			outboxport.StatusProcessing,
 			staleBefore,
 		).
 		Order("next_retry_at ASC, created_at ASC").
@@ -139,7 +137,7 @@ func (r *MessageOutboxRepository) ClaimPending(
 		return nil, err
 	}
 	if len(models) == 0 {
-		return []*messageentity.MessageOutbox{}, nil
+		return []*outboxport.Entry{}, nil
 	}
 	ids := make([]string, 0, len(models))
 	for _, m := range models {
@@ -147,45 +145,56 @@ func (r *MessageOutboxRepository) ClaimPending(
 	}
 	lockAt := now
 	if err := r.db.WithContext(ctx).
-		Model(&model.MessageOutbox{}).
+		Model(&model.OutboxRecord{}).
 		Where("id IN ?", ids).
 		Updates(map[string]interface{}{
-			"status":     messageentity.MessageOutboxStatusProcessing,
+			"status":     outboxport.StatusProcessing,
 			"locked_at":  &lockAt,
 			"last_error": "",
 		}).Error; err != nil {
 		return nil, err
 	}
-	result := make([]*messageentity.MessageOutbox, 0, len(models))
+	result := make([]*outboxport.Entry, 0, len(models))
 	for _, m := range models {
-		m.Status = messageentity.MessageOutboxStatusProcessing
+		m.Status = outboxport.StatusProcessing
 		m.LockedAt = &lockAt
 		m.LastError = ""
-		result = append(result, toMessageOutboxDomain(m))
+		result = append(result, toEntry(m))
 	}
 	return result, nil
 }
 
-func (r *MessageOutboxRepository) MarkSent(ctx context.Context, id string, sentAt time.Time) error {
+func (r *Repository) MarkSent(ctx context.Context, id string, sentAt time.Time) error {
 	return r.db.WithContext(ctx).
-		Model(&model.MessageOutbox{}).
+		Model(&model.OutboxRecord{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"status":    messageentity.MessageOutboxStatusSent,
+			"status":    outboxport.StatusSent,
 			"sent_at":   sentAt,
 			"locked_at": nil,
 		}).Error
 }
 
-func (r *MessageOutboxRepository) MarkRetry(ctx context.Context, id string, nextRetryAt time.Time, lastError string) error {
+func (r *Repository) MarkRetry(ctx context.Context, id string, nextRetryAt time.Time, lastError string) error {
 	return r.db.WithContext(ctx).
-		Model(&model.MessageOutbox{}).
+		Model(&model.OutboxRecord{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"status":        messageentity.MessageOutboxStatusPending,
+			"status":        outboxport.StatusPending,
 			"next_retry_at": nextRetryAt,
 			"last_error":    lastError,
 			"locked_at":     nil,
 			"retry_count":   gorm.Expr("retry_count + 1"),
+		}).Error
+}
+
+func (r *Repository) MarkDead(ctx context.Context, id string, lastError string) error {
+	return r.db.WithContext(ctx).
+		Model(&model.OutboxRecord{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"status":     outboxport.StatusDead,
+			"last_error": lastError,
+			"locked_at":  nil,
 		}).Error
 }

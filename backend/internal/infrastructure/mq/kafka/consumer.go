@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	eventbus "IM_backend/internal/application/ports/eventbus"
 	"context"
 	"errors"
 	"fmt"
@@ -10,12 +11,6 @@ import (
 	"github.com/IBM/sarama"
 )
 
-type ConsumerMessage struct {
-	Topic string
-	Key   []byte
-	Value []byte
-}
-
 const defaultConsumeRetryInterval = time.Second
 
 var (
@@ -24,16 +19,12 @@ var (
 	ErrEmptyTopics     = errors.New("Kafka 主题不能为空")
 )
 
-type ConsumerHandler interface {
-	Handle(context.Context, ConsumerMessage) error
-}
-
 type ConsumerRouter struct {
-	handlers map[string]ConsumerHandler
+	handlers map[string]eventbus.Handler
 }
 
-func NewConsumerRouter(handlers map[string]ConsumerHandler) *ConsumerRouter {
-	registered := make(map[string]ConsumerHandler, len(handlers))
+func NewConsumerRouter(handlers map[string]eventbus.Handler) *ConsumerRouter {
+	registered := make(map[string]eventbus.Handler, len(handlers))
 	for topic, handler := range handlers {
 		if topic == "" || handler == nil {
 			continue
@@ -44,12 +35,12 @@ func NewConsumerRouter(handlers map[string]ConsumerHandler) *ConsumerRouter {
 	return &ConsumerRouter{handlers: registered}
 }
 
-func (r *ConsumerRouter) handle(ctx context.Context, message ConsumerMessage) error {
+func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEvent) error {
 	if r == nil {
 		return ErrHandlerNotFound
 	}
 
-	handler, ok := r.handlers[message.Topic]
+	handler, ok := r.handlers[message.Name]
 	if !ok {
 		return ErrHandlerNotFound
 	}
@@ -57,7 +48,9 @@ func (r *ConsumerRouter) handle(ctx context.Context, message ConsumerMessage) er
 }
 
 type saramaAdapter struct {
-	router *ConsumerRouter
+	router              *ConsumerRouter
+	deadLetterPublisher eventbus.Publisher
+	deadLetterSuffix    string
 }
 
 func cloneBytes(data []byte) []byte {
@@ -88,15 +81,36 @@ func (h saramaAdapter) ConsumeClaim(
 			}
 
 			err := h.router.handle(session.Context(),
-				ConsumerMessage{
-					Topic: message.Topic,
+				eventbus.IncomingEvent{
+					Name: message.Topic,
 
 					// 复制数据，避免业务层继续持有 Sarama 内部消息切片。
-					Key:   cloneBytes(message.Key),
-					Value: cloneBytes(message.Value),
+					Key:     cloneBytes(message.Key),
+					Payload: cloneBytes(message.Value),
 				})
 
 			if err != nil {
+				if eventbus.IsNonRetryable(err) && h.deadLetterPublisher != nil {
+					if publishErr := h.deadLetterPublisher.Publish(
+						session.Context(),
+						eventbus.IntegrationEvent{
+							Name:         message.Topic + h.deadLetterSuffix,
+							PartitionKey: string(message.Key),
+							Payload:      cloneBytes(message.Value),
+						},
+					); publishErr != nil {
+						return fmt.Errorf("发布 Kafka 死信失败：%w", publishErr)
+					}
+					log.Printf(
+						"Kafka 毒消息已转入死信：topic=%s partition=%d offset=%d err=%v",
+						message.Topic,
+						message.Partition,
+						message.Offset,
+						err,
+					)
+					session.MarkMessage(message, "")
+					continue
+				}
 				// 不调用 MarkMessage，当前 offset 不会被当前处理流程提交。
 				return fmt.Errorf(
 					"处理 Kafka 消息失败：topic=%s partition=%d offset=%d：%w",
@@ -113,10 +127,20 @@ func (h saramaAdapter) ConsumeClaim(
 }
 
 type ConsumerGroup struct {
-	group         sarama.ConsumerGroup
-	topics        []string
-	handlerRouter *ConsumerRouter
-	retryInterval time.Duration
+	group               sarama.ConsumerGroup
+	topics              []string
+	handlerRouter       *ConsumerRouter
+	retryInterval       time.Duration
+	deadLetterPublisher eventbus.Publisher
+	deadLetterSuffix    string
+}
+
+type ConsumerGroupOption func(*ConsumerGroup)
+
+func WithDeadLetterPublisher(publisher eventbus.Publisher) ConsumerGroupOption {
+	return func(group *ConsumerGroup) {
+		group.deadLetterPublisher = publisher
+	}
 }
 
 func normalizeTopics(topics []string) []string {
@@ -139,7 +163,7 @@ func normalizeTopics(topics []string) []string {
 	return result
 }
 
-func NewConsumerGroup(client *Client, topics []string, router *ConsumerRouter) (*ConsumerGroup, error) {
+func NewConsumerGroup(client *Client, topics []string, router *ConsumerRouter, options ...ConsumerGroupOption) (*ConsumerGroup, error) {
 	if client == nil || client.Consumer == nil {
 		return nil, ErrInvalidClient
 	}
@@ -153,12 +177,19 @@ func NewConsumerGroup(client *Client, topics []string, router *ConsumerRouter) (
 		router = NewConsumerRouter(nil)
 	}
 
-	return &ConsumerGroup{
-		group:         client.Consumer,
-		topics:        validTopics,
-		handlerRouter: router,
-		retryInterval: defaultConsumeRetryInterval,
-	}, nil
+	group := &ConsumerGroup{
+		group:            client.Consumer,
+		topics:           validTopics,
+		handlerRouter:    router,
+		retryInterval:    defaultConsumeRetryInterval,
+		deadLetterSuffix: ".dlq",
+	}
+	for _, option := range options {
+		if option != nil {
+			option(group)
+		}
+	}
+	return group, nil
 }
 
 func (c *ConsumerGroup) Start(ctx context.Context) error {
@@ -166,7 +197,11 @@ func (c *ConsumerGroup) Start(ctx context.Context) error {
 		ctx = context.Background()
 	}
 
-	handler := saramaAdapter{c.handlerRouter}
+	handler := saramaAdapter{
+		router:              c.handlerRouter,
+		deadLetterPublisher: c.deadLetterPublisher,
+		deadLetterSuffix:    c.deadLetterSuffix,
+	}
 	for ctx.Err() == nil {
 		if err := c.group.Consume(ctx, c.topics, handler); err != nil {
 			log.Printf(
@@ -176,7 +211,11 @@ func (c *ConsumerGroup) Start(ctx context.Context) error {
 				err,
 			)
 
-			// 失败的任务当占有时间结束时，会重新被 Outbox 抢占
+			select {
+			case <-ctx.Done():
+				return context.Cause(ctx)
+			case <-time.After(c.retryInterval):
+			}
 		}
 	}
 	return context.Cause(ctx)
