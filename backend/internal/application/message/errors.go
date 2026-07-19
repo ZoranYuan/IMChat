@@ -3,6 +3,7 @@ package message
 import (
 	friendentity "IM_backend/internal/domain/friend/entity"
 	roomentity "IM_backend/internal/domain/room/entity"
+	userentity "IM_backend/internal/domain/user/entity"
 	"errors"
 )
 
@@ -12,7 +13,8 @@ var (
 
 	ErrConversationNotFound = errors.New("会话不存在")
 
-	ErrNotFriends = friendentity.ErrNotFriends
+	ErrUserNotFonund = userentity.ErrUserNotFound
+	ErrNotFriends    = friendentity.ErrNotFriends
 
 	ErrNotRoomMember = roomentity.ErrMemberNotFound
 

@@ -1,12 +1,14 @@
 package message
 
 import (
+	"IM_backend/configs"
 	idport "IM_backend/internal/application/ports/id"
 	outboxport "IM_backend/internal/application/ports/outbox"
 	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	messagecache "IM_backend/internal/application/ports/persistence/cache/message"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
+	usercach "IM_backend/internal/application/ports/persistence/cache/user"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	filerepo "IM_backend/internal/application/ports/persistence/repository/file"
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
@@ -22,6 +24,7 @@ import (
 	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	userentity "IM_backend/internal/domain/user/entity"
+
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
@@ -42,6 +45,7 @@ type MessageApplication struct {
 	roomMemberCache            roomcache.RoomMemberCache
 	messageRepository          messagerepo.MessageRepository
 	txManager                  txmanager.TxManager
+	userCache                  usercach.UserCache
 	userConversationRepository conversationrepo.UserConversationRepository
 	conversationRepository     conversationrepo.ConversationRepository
 	friendRepository           friendrepo.FriendRepository
@@ -56,6 +60,7 @@ type MessageApplication struct {
 	roomRepository             roomrepo.RoomRepository
 	sf                         singleflight.Group
 	idGenerator                idport.Generator
+	config                     configs.Config
 }
 
 func NewMessageApplication(
@@ -63,6 +68,7 @@ func NewMessageApplication(
 	friendCache friendcache.FriendCache,
 	messageCache messagecache.MessageCache,
 	roomMemberCache roomcache.RoomMemberCache,
+	userCache usercach.UserCache,
 	txManager txmanager.TxManager,
 	userConversationRepository conversationrepo.UserConversationRepository,
 	conversationRepository conversationrepo.ConversationRepository,
@@ -78,12 +84,15 @@ func NewMessageApplication(
 	roomUserRepository roomrepo.RoomUserRepository,
 	roomRepository roomrepo.RoomRepository,
 	idGenerator idport.Generator,
+	config configs.Config,
+
 ) *MessageApplication {
 	return &MessageApplication{
 		conversationCache:          conversationCache,
 		friendCache:                friendCache,
 		messageCache:               messageCache,
 		roomMemberCache:            roomMemberCache,
+		userCache:                  userCache,
 		txManager:                  txManager,
 		messageOutboxRepository:    messageOutboxRepository,
 		messageRepository:          messageRepository,
@@ -99,6 +108,7 @@ func NewMessageApplication(
 		messageStickerRepository:   messageStickerRepository,
 		messageVideoRepository:     messageVideoRepository,
 		idGenerator:                idGenerator,
+		config:                     config,
 	}
 }
 
@@ -122,7 +132,6 @@ func (ma *MessageApplication) HandleReadMessage(
 		return nil
 	}
 
-	// 查会话类型，前端需要此字段来区分展示
 	conv, err := ma.conversationRepository.GetByID(ctx, conversationId)
 	if err != nil {
 		return err
@@ -135,6 +144,79 @@ func (ma *MessageApplication) HandleReadMessage(
 	if ma.txManager == nil || ma.messageOutboxRepository == nil {
 		return fmt.Errorf("消息 Outbox 未配置")
 	}
+
+	sfKey := "user-profile:" + userId
+	result := ma.sf.DoChan(sfKey, func() (any, error) {
+		ctx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			3*time.Second,
+		)
+		defer cancel()
+
+		var (
+			user        *userentity.User
+			userProfile *usercach.UserProfile
+			exist       bool
+			err         error
+		)
+
+		userProfile, exist, err = ma.userCache.GetUserProfile(ctx, userId)
+
+		if err != nil {
+			log.Println("failed to get user profile ", err)
+		}
+
+		if !exist {
+			// 缓存中不存在，回查数据库
+			user, err = ma.userRepository.FindByUserID(userId)
+
+			if err != nil {
+				return nil, err
+			}
+
+			if user == nil {
+				// 防止缓存穿透
+				ma.userCache.SetUserProfile(ctx, userProfile, time.Duration(ma.config.Cache.UserProfile.NegativeTTL))
+				return nil, ErrUserNotFonund
+			}
+
+			userProfile = &usercach.UserProfile{
+				Avatar:   user.Avatar,
+				NickName: user.NickName,
+				UserID:   userId,
+				UserName: user.UserName,
+				Status:   int(user.Status),
+			}
+
+			if err := ma.userCache.SetUserProfile(ctx, userProfile, time.Duration(ma.config.Cache.UserProfile.TTL)); err != nil {
+				log.Println("failed to record user profile ", err)
+			}
+
+			return userProfile, nil
+		}
+
+		return userProfile, nil
+	})
+
+	var userProfile *usercach.UserProfile
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case result := <-result:
+		if result.Err != nil {
+			return result.Err
+		}
+
+		state, ok := result.Val.(*usercach.UserProfile)
+		if !ok || state == nil {
+			// 这个缓存设置失败，需要删除当前缓存
+			ma.userCache.DeleteUserProfiles(ctx, []string{userId})
+			return ErrUserNotFonund
+		}
+
+		userProfile = state
+	}
+
 	return ma.txManager.WithinTransaction(ctx, func(tx any) error {
 		if err := ma.userConversationRepository.WithTx(tx).UpdateReadSeq(ctx, uconv); err != nil {
 			return err
@@ -142,20 +224,14 @@ func (ma *MessageApplication) HandleReadMessage(
 		if senderId == userId {
 			return nil
 		}
-		avatar := ""
-		// 找到用户需要显示的头像（下一步将用户画像信息加入缓存，这一步可以直接从缓存中读取）
-		if conv.Convtype == conversationvo.RoomChat && ma.userRepository != nil {
-			if user, err := ma.userRepository.FindByUserID(userId); err == nil && user != nil {
-				avatar = user.Avatar
-			}
-		}
+
 		ackEvent := protocol.MessageReadAckEvent{
 			ConversationId: conversationId,
 			LastReadSeq:    lastReadSeq,
 			UserId:         userId,
 			ConvType:       protocol.ConvType(conv.Convtype),
 			SenderId:       senderId,
-			Avatar:         avatar,
+			Avatar:         userProfile.Avatar,
 		}
 		eventPayload, err := json.Marshal(ackEvent)
 		if err != nil {
@@ -169,13 +245,11 @@ func (ma *MessageApplication) HandleReadMessage(
 			return err
 		}
 
-		// 加入 outbox ，便于后续的异步事件分发
 		outbox := &outboxport.Entry{EventType: string(protocol.EventReadMessageAck), MessageKey: userId + ":" + conversationId, Payload: payload}
 		return ma.messageOutboxRepository.WithTx(tx).Create(ctx, outbox)
 	})
 }
 
-// 返回一个闭包函数，用于后续的执行
 func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId string) (func(context.Context, any) error, error) {
 	if dto == nil {
 		return nil, nil

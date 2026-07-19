@@ -57,3 +57,8 @@ storage:
     cache_ttl_seconds: 600
     url_ttl_seconds: 3600
     multipartTTL: 86400
+
+cache:
+  user_profile:
+        ttl: 3600
+        negative_ttl: 30

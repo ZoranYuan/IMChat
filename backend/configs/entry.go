@@ -15,6 +15,16 @@ type Config struct {
 	WebSocket WebSocketConfig `yaml:"ws"`
 	Kafka     KafkaConfig     `yaml:"kafka"`
 	Storage   StorageConfig   `yaml:"storage"`
+	Cache     CacheConfig     `yaml:"cache"`
+}
+
+type UserProfile struct {
+	NegativeTTL int `yaml:"negative_ttl"`
+	TTL         int `yaml:"ttl"`
+}
+
+type CacheConfig struct {
+	UserProfile UserProfile `yaml:"user_profile"`
 }
 
 type KafkaConfig struct {

@@ -23,12 +23,13 @@ import (
 	roomusermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room_user"
 	usermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
 	"IM_backend/internal/infrastructure/persistence/redis"
-	authredis "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
-	conversationredis "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
-	fileredis "IM_backend/internal/infrastructure/persistence/redis/cache/file"
-	friendredis "IM_backend/internal/infrastructure/persistence/redis/cache/friend"
-	messageredis "IM_backend/internal/infrastructure/persistence/redis/cache/message"
-	roomredis "IM_backend/internal/infrastructure/persistence/redis/cache/room"
+	authcache "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
+	conversationcache "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
+	filecache "IM_backend/internal/infrastructure/persistence/redis/cache/file"
+	friendcache "IM_backend/internal/infrastructure/persistence/redis/cache/friend"
+	messagecache "IM_backend/internal/infrastructure/persistence/redis/cache/message"
+	roomcache "IM_backend/internal/infrastructure/persistence/redis/cache/room"
+	usercache "IM_backend/internal/infrastructure/persistence/redis/cache/user"
 	"IM_backend/internal/infrastructure/ratelimit"
 	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
 	authsvc "IM_backend/internal/infrastructure/security/auth"
@@ -91,14 +92,15 @@ func main() {
 	realtimeGateway := realtimews.NewGateway()
 	realtimeGateway.KeepAlive(ctx, cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
 
-	authCache := authredis.NewAuthCache(redisClient)
-	roomCache := roomredis.NewRoomCache(redisClient)
-	roomMemberCache := roomredis.NewRoomMemberCache(redisClient)
-	fileCache := fileredis.NewFileCache(redisClient)
-	friendCache := friendredis.NewFriendCache(redisClient)
-	messageCache := messageredis.NewMessageCache(redisClient)
+	authCache := authcache.NewAuthCache(redisClient)
+	roomCache := roomcache.NewRoomCache(redisClient)
+	roomMemberCache := roomcache.NewRoomMemberCache(redisClient)
+	fileCache := filecache.NewFileCache(redisClient)
+	friendCache := friendcache.NewFriendCache(redisClient)
+	messageCache := messagecache.NewMessageCache(redisClient)
+	userCache := usercache.NewUserCache(redisClient)
 
-	conversationCache := conversationredis.NewConversationCache(redisClient)
+	conversationCache := conversationcache.NewConversationCache(redisClient)
 
 	kafkaClient, err := kafka.NewClient(cfg.Kafka)
 
@@ -224,6 +226,7 @@ func main() {
 		friendCache,
 		messageCache,
 		roomMemberCache,
+		userCache,
 		txManager,
 		userConversationRepository,
 		conversationRepository,
@@ -239,6 +242,7 @@ func main() {
 		roomUserRepository,
 		roomRepository,
 		idGenerator,
+		cfg,
 	)
 	messageHandle := messagehttp.NewMessageHandle(messageApplication)
 
