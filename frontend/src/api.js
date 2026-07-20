@@ -99,6 +99,10 @@ export function getOfflineMessages(token) {
   return http.get("/messages/offline", { token });
 }
 
+export function getConversations(token) {
+  return http.get("/conversations", { token });
+}
+
 export function getHistoryMessages(token, conversationId, cursor = 0, limit = 30) {
   return http.get("/messages/history", {
     token,
@@ -181,11 +185,12 @@ export function getFriendRequests(token) {
   return http.get("/friend-requests", { token });
 }
 
-export function operateFriendRequest(token, requestId, action) {
+export function operateFriendRequest(token, requestId, fromUserId, action) {
   return http.post(
     "/friend-requests/actions",
     {
       requestId,
+      fromUserId,
       action,
     },
     { token },

@@ -37,14 +37,15 @@
       <aside class="chat-directory">
         <div class="chat-resize-handle" @pointerdown="startChatSidebarResize"></div>
 
+        <!-- 导航列表或者是会话和好友列表 -->
         <ConversationList v-if="directoryMode === 'conversations'" key="conversations" :token="token"
           :conversations="conversations" :active-conversation="activeConversation" @load-offline="refreshConversations"
-          :refreshing="refreshingOffline" @select-conversation="selectConversation" />
+          :refreshing="refreshingConversations" @select-conversation="selectConversation" />
 
-        <FriendsPanel v-else key="friends" :token="token" :friends="friends" :friend-requests="friendRequests"
-          :friend-form="friendForm" :format-time="formatTime" @refresh="refreshFriends" :refreshing="refreshingFriends"
-          @submit-request="submitFriendRequest" @operate-request="handleFriendRequest"
-          @open-chat="openPrivateConversation" />
+        <FriendsPanel v-else key="friendConvs" :token="token" :friendConvs="friendConvs"
+          :friend-requests="friendRequests" :friend-form="friendForm" :format-time="formatTime"
+          @refresh="refreshFriends" :refreshing="refreshingFriends" @submit-request="submitFriendRequest"
+          @operate-request="handleFriendRequest" @open-chat="openPrivateConversation" />
       </aside>
 
       <ChatPanel v-model:message-text="messageText" :active-conversation="activeConversation" :messages="messages"
@@ -78,7 +79,7 @@ const chatSidebarMaxWidth = 520;
 let chatSidebarResizeStartX = 0;
 let chatSidebarResizeStartWidth = 0;
 let oauthToastTimer = 0;
-const refreshingOffline = ref(false);
+const refreshingConversations = ref(false);
 const refreshingFriends = ref(false);
 let refreshToastTimer = 0;
 
@@ -88,7 +89,7 @@ const {
   authMode,
   authForm,
   conversations,
-  friends,
+  friendConvs,
   friendRequests,
   friendForm,
   activeConversation,
@@ -104,7 +105,7 @@ const {
   message,
   messageType,
   submitAuth,
-  loadOffline,
+  loadConversations,
   loadFriends,
   loadFriendRequests,
   selectConversation,
@@ -201,13 +202,13 @@ function showAppMessage(nextMessage, type = "success") {
 }
 
 async function refreshConversations() {
-  if (refreshingOffline.value) return;
-  refreshingOffline.value = true;
+  if (refreshingConversations.value) return;
+  refreshingConversations.value = true;
   try {
-    const ok = await loadOffline();
+    const ok = await loadConversations();
     if (ok) showAppMessage("会话已刷新", "success");
   } finally {
-    refreshingOffline.value = false;
+    refreshingConversations.value = false;
   }
 }
 

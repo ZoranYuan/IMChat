@@ -66,7 +66,7 @@ func (fh *FriendRequestHandle) OperateRequest(c *gin.Context) {
 
 	var err error
 	if res.Action == ActionAccept {
-		err = fh.app.Accept(res.RequestId, userId, res.OtherId)
+		err = fh.app.Accept(res.RequestId, userId, res.FromUserId)
 	} else {
 		err = fh.app.Refuse(res.RequestId, userId)
 	}

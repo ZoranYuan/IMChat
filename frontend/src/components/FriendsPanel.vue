@@ -25,18 +25,18 @@
     <div class="friend-section">
       <div class="section-title">
         <span>好友列表</span>
-        <span>{{ friends.length }}</span>
+        <span>{{ friendConvs.length }}</span>
       </div>
-      <button v-for="friend in friends" :key="friend.friendUserId" class="friend-item"
-        @click="$emit('open-chat', friend)">
-        <div class="avatar">{{ displayName(friend).slice(0, 2).toUpperCase() }}</div>
+      <button v-for="friendConv in friendConvs" :key="friendConv.friendUserId" class="friend-item"
+        @click="$emit('open-chat', friendConv)">
+        <div class="avatar">{{ displayName(friendConv).slice(0, 2).toUpperCase() }}</div>
         <div class="item-main">
-          <strong>{{ displayName(friend) }}</strong>
-          <p>{{ friend.friendUsername || displayName(friend) }}</p>
+          <strong>{{ displayName(friendConv) }}</strong>
+          <p>{{ friendConv.friendUsername || displayName(friendConv) }}</p>
         </div>
         <MessageCircle :size="17" />
       </button>
-      <p v-if="friends.length === 0" class="empty-hint">暂无好友</p>
+      <p v-if="friendConvs.length === 0" class="empty-hint">暂无好友</p>
     </div>
 
     <div class="friend-section">
@@ -50,8 +50,8 @@
           <p>{{ formatTime(request.applyTime) }}</p>
         </div>
         <div class="request-actions">
-          <button class="ghost" @click="$emit('operate-request', request.requestId, 1)">同意</button>
-          <button class="ghost" @click="$emit('operate-request', request.requestId, 2)">拒绝</button>
+          <button class="ghost" @click="$emit('operate-request', request.requestId, request.fromUserId, 1)">同意</button>
+          <button class="ghost" @click="$emit('operate-request', request.requestId, request.fromUserId, 2)">拒绝</button>
         </div>
       </article>
       <p v-if="pendingRequests.length === 0" class="empty-hint">暂无待处理申请</p>
@@ -60,12 +60,12 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
 import { MessageCircle, RefreshCcw, UserPlus } from "@lucide/vue";
+import { computed } from "vue";
 
 const props = defineProps({
   token: { type: String, default: "" },
-  friends: { type: Array, default: () => [] },
+  friendConvs: { type: Array, default: () => [] },
   friendRequests: { type: Array, default: () => [] },
   friendForm: { type: Object, required: true },
   formatTime: { type: Function, required: true },
@@ -74,6 +74,7 @@ const props = defineProps({
 
 defineEmits(["refresh", "submit-request", "operate-request", "open-chat"]);
 
+// 过滤出未处理的好友申请
 const pendingRequests = computed(() => props.friendRequests.filter((request) => request.status === 1));
 
 function displayName(friend) {

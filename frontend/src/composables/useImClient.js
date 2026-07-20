@@ -4,7 +4,7 @@ import { useConversation } from "./useConversation";
 export function useImClient() {
   const auth = useAuthAndFriends({
     onWsReconnect: () => {
-      conversation.loadOffline();
+      conversation.loadConversations();
     },
   });
   const conversation = useConversation({
@@ -21,7 +21,7 @@ export function useImClient() {
   async function submitAuth() {
     try {
       await auth.submitAuth();
-      await Promise.all([conversation.loadOffline(), auth.loadFriends(), auth.loadFriendRequests()]);
+      await Promise.all([conversation.loadConversations(), auth.loadFriends(), auth.loadFriendRequests()]);
       auth.connectWs();
     } catch (err) {
       auth.showMessage(err.message);
@@ -43,7 +43,7 @@ export function useImClient() {
     messages: conversation.messages,
     activeReadState: conversation.activeReadState,
     conversationLoading: conversation.conversationLoading,
-    friends: auth.friends,
+    friendConvs: auth.friendConvs,
     friendRequests: auth.friendRequests,
     friendForm: auth.friendForm,
     messageText: conversation.messageText,
@@ -56,7 +56,7 @@ export function useImClient() {
     messageType: auth.messageType,
     showMessage: auth.showMessage,
     submitAuth,
-    loadOffline: conversation.loadOffline,
+    loadConversations: conversation.loadConversations,
     loadFriends: auth.loadFriends,
     loadFriendRequests: auth.loadFriendRequests,
     selectConversation: conversation.selectConversation,

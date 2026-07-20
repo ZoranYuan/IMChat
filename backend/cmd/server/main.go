@@ -38,6 +38,7 @@ import (
 	"IM_backend/internal/shared/protocol"
 	eventtransport "IM_backend/internal/transport/event"
 	httpapi "IM_backend/internal/transport/http"
+	userconversationhttp "IM_backend/internal/transport/http/conversation"
 	filehttp "IM_backend/internal/transport/http/file"
 	friendhttp "IM_backend/internal/transport/http/friend"
 	friendrequesthttp "IM_backend/internal/transport/http/friend_request"
@@ -141,7 +142,6 @@ func main() {
 	messageOutboxRepository := outboxmysql.NewRepository(db, idGenerator)
 	conversationRepository := conversationmysql.NewConversationRepository(db)
 	userConversationRepository := conversationmysql.NewUserConversationRepository(db)
-	conversationApplication := conversationapp.NewApplication(userConversationRepository)
 
 	userRepository := usermysql.NewUserRepository(db)
 	userApp := userapp.NewUserApplication(userRepository, userapp.Options{
@@ -187,7 +187,14 @@ func main() {
 		realtimeGateway,
 		roomRepository,
 		roomUserRepository,
-		conversationApplication,
+		conversationapp.NewUserConvApplication(
+			userConversationRepository,
+			conversationRepository,
+			messageRepository,
+			friendRepository,
+			userRepository,
+			roomRepository,
+		),
 		roomMemberCache,
 	)
 	messageSendHandler := eventtransport.NewMessageHandler(messageDeliveryApplication)
@@ -253,6 +260,16 @@ func main() {
 		realtimeGateway,
 	)
 
+	userConversationApplication := conversationapp.NewUserConvApplication(
+		userConversationRepository,
+		conversationRepository,
+		messageRepository,
+		friendRepository,
+		userRepository,
+		roomRepository,
+	)
+
+	userConversationHandler := userconversationhttp.NewUserConversationHandle(userConversationApplication)
 	// testdataApplication := testdataapp.NewBootstrapApplication(
 	// 	cfg,
 	// 	db,
@@ -280,6 +297,7 @@ func main() {
 	apiGroup := r.Group("/api/v1")
 	httpapi.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
 	httpapi.RegisterUserRouter(apiGroup, userHandle, authMiddle, limiterMiddleware)
+	httpapi.RegisterUserConversationRouter(apiGroup, userConversationHandler, authMiddle, limiterMiddleware)
 	httpapi.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	httpapi.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
 	httpapi.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)

@@ -136,6 +136,33 @@ func (r *UserConversationRepository) GetUsersByConversationID(ctx context.Contex
 	return userIds, err
 }
 
+func (r *UserConversationRepository) GetUserConversationsByUserId(ctx context.Context, userId string) ([]*conversationentity.UserConversation, error) {
+	if userId == "" {
+		return nil, errors.New("userId 不能为空")
+	}
+
+	var userConversations []*model.UserConversation
+
+	err := r.db.
+		WithContext(ctx).
+		Model(&model.UserConversation{}).
+		Where("user_id = ?", userId).
+		Find(&userConversations).
+		Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+	}
+
+	result := make([]*conversationentity.UserConversation, 0, len(userConversations))
+	for _, userConversation := range userConversations {
+		result = append(result, toUserConversationDomain(userConversation))
+	}
+
+	return result, nil
+}
+
 func (r *UserConversationRepository) GetUserConversation(
 	ctx context.Context,
 	userId string,

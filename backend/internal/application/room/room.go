@@ -80,6 +80,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		conversationId,
 		0,
 		0,
+		conversationvo.RoomChat,
 	)
 
 	inviteCode, err := ra.roomCache.UpdateInviteCode(ctx, roomId, 5*time.Minute)
@@ -213,6 +214,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 			conversationId,
 			conv.LatestSeq,
 			conv.LatestSeq,
+			conversationvo.RoomChat,
 		)
 
 		if err := userConversationRepository.CreateUserConversation(ctx, userConversation); err != nil {

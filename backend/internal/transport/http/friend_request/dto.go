@@ -24,7 +24,7 @@ type FriendRequestRes struct {
 }
 
 type OperateRequestReq struct {
-	RequestId string     `json:"requestId" binding:"required"`
-	OtherId   string     `json:"otherId" binding:"required"`
-	Action    ActionType `json:"action" binding:"required"` // 可选留言
+	RequestId  string     `json:"requestId" binding:"required"`
+	FromUserId string     `json:"fromUserId" binding:"required"`
+	Action     ActionType `json:"action" binding:"required"` // 可选留言
 }

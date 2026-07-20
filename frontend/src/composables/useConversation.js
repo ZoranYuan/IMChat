@@ -1,5 +1,5 @@
 import { nextTick, ref, watch } from "vue";
-import { getHistoryMessages, getOfflineMessages, uploadFile } from "../api";
+import { getConversations, getHistoryMessages, uploadFile } from "../api";
 
 export function useConversation({ token, currentUser, showMessage, sendFrame }) {
   const conversations = ref([]);
@@ -44,6 +44,10 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
       unread: nextUnread,
       latestMessage: patch.latestMessage ?? existing?.latestMessage ?? null,
       convType: patch.convType ?? existing?.convType ?? patch.latestMessage?.convType ?? 2,
+      targetId: patch.targetId ?? existing?.targetId ?? conversationId,
+      peerUser: patch.peerUser ?? existing?.peerUser ?? null,
+      room: patch.room ?? existing?.room ?? null,
+      isMuted: patch.isMuted ?? existing?.isMuted ?? false,
     };
 
     if (Object.prototype.hasOwnProperty.call(patch, "displayName")) {
@@ -274,6 +278,9 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
   function handleIncomingMessage(msg) {
     if (!msg || isDuplicateLocalEcho(msg)) return;
     const isActiveConversation = activeConversation.value?.conversationId === msg.conversationId;
+    const targetId = Number(msg.convType) === 2
+      ? (msg.recvId || msg.conversationId)
+      : (msg.sendId === currentUser.userId ? msg.recvId : msg.sendId);
     upsertConversationPreview(
       msg.conversationId,
       {
@@ -281,6 +288,13 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
         unread: isActiveConversation ? 0 : undefined,
         unreadDelta: isActiveConversation ? 0 : 1,
         convType: msg.convType,
+        targetId,
+        displayName:
+          activeConversation.value?.conversationId === msg.conversationId
+            ? activeConversation.value.displayName
+            : Number(msg.convType) === 1
+              ? (msg.senderUsername || "好友私聊")
+              : "群聊",
       },
       true,
     );
@@ -353,20 +367,24 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
     }
   }
 
-  async function loadOffline() {
+  async function loadConversations() {
     if (!token.value) return false;
-    const data = await getOfflineMessages(token.value).catch((err) => {
+    const data = await getConversations(token.value).catch((err) => {
       showMessage(err.message);
       return null;
     });
     if (!data) return false;
     conversations.value = (Array.isArray(data) ? data : []).map((item) => ({
       conversationId: item.conversationId,
-      displayName: item.displayName || item.latestMessage?.displayName || "会话",
-      avatar: item.avatar || item.latestMessage?.avatar || "",
+      targetId: item.targetId || item.conversationId,
+      displayName: item.displayName || "会话",
+      avatar: item.avatar || item.peerUser?.avatar || item.room?.avatar || "",
       unread: Math.max(0, Number(item.unread) || 0),
       latestMessage: item.latestMessage,
-      convType: item.latestMessage?.convType || 2,
+      convType: Number(item.convType) || Number(item.latestMessage?.convType) || 2,
+      peerUser: item.peerUser || null,
+      room: item.room || null,
+      isMuted: Boolean(item.isMuted),
     }));
     if (activeConversation.value?.conversationId) {
       const current = conversations.value.find((item) => item.conversationId === activeConversation.value.conversationId);
@@ -380,7 +398,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
     const clientMsgId = crypto.randomUUID();
     const ok = sendFrame("msg", "messageReq", {
       clientMsgId,
-      recvId: activeConversation.value.conversationId,
+      recvId: activeConversation.value.targetId || activeConversation.value.conversationId,
       convType: activeConversation.value.convType || 2,
       cType: 1,
       content,
@@ -465,7 +483,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
     const clientMsgId = crypto.randomUUID();
     const ok = sendFrame("msg", "messageReq", {
       clientMsgId,
-      recvId: activeConversation.value.conversationId,
+      recvId: activeConversation.value.targetId || activeConversation.value.conversationId,
       convType: activeConversation.value.convType || 2,
       cType,
       content,
@@ -536,7 +554,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
     const content = sticker.alt || "[表情包]";
     const ok = sendFrame("msg", "messageReq", {
       clientMsgId,
-      recvId: activeConversation.value.conversationId,
+      recvId: activeConversation.value.targetId || activeConversation.value.conversationId,
       convType: activeConversation.value.convType || 2,
       cType: 4,
       content,
@@ -632,17 +650,22 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
     if (!item?.conversationId) return;
 
     const loadSeq = ++conversationLoadSeq;
-    const requestedConversationId = item.conversationId;
-    const currentReadState = getConversationReadState(requestedConversationId);
+    const conversationId = item.conversationId;
+    const currentReadState = getConversationReadState(conversationId);
     const current = upsertConversationPreview(item.conversationId, {
       displayName: item.displayName,
       convType: item.convType,
+      targetId: item.targetId,
+      peerUser: item.peerUser,
+      room: item.room,
+      avatar: item.avatar,
+      isMuted: item.isMuted,
       unread: 0,
       resetUnread: true,
       latestMessage: item.latestMessage || null,
     });
     activeConversation.value = current || item;
-    const cachedMessages = getConversationMessagesCache(requestedConversationId);
+    const cachedMessages = getConversationMessagesCache(conversationId);
     if (cachedMessages) {
       messages.value = cachedMessages;
       conversationLoading.value = false;
@@ -655,13 +678,13 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
         showMessage(err.message);
         return { messages: [] };
       });
-      if (loadSeq !== conversationLoadSeq || activeConversation.value?.conversationId !== requestedConversationId) return;
+      if (loadSeq !== conversationLoadSeq || activeConversation.value?.conversationId !== conversationId) return;
       const mergedMessages = mergeConversationMessages(
-        getConversationMessagesCache(requestedConversationId) || [],
+        getConversationMessagesCache(conversationId) || [],
         history.messages || [],
       );
       messages.value = mergedMessages;
-      setConversationMessagesCache(requestedConversationId, mergedMessages);
+      setConversationMessagesCache(conversationId, mergedMessages);
       const lastSeq = mergedMessages.filter((msg) => Number(msg.seq) > 0).at(-1)?.seq || 0;
       const lastSender = mergedMessages.filter((msg) => Number(msg.seq) > 0).at(-1)?.senderId || "";
       if (lastSeq > (Number(currentReadState.lastReadSeq) || 0)) {
@@ -678,6 +701,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
     const item = upsertConversationPreview(
       conversationId,
       {
+        targetId: conversationId,
         displayName: content,
         unread: 0,
         resetUnread: true,
@@ -690,12 +714,24 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
   }
 
   function openPrivateConversation(friend) {
-    const conversationId = friend.friendUserId || friend.toUserId;
+    const targetId = friend?.friendUserId;
+    const conversationId = buildPrivateConversationId(currentUser.userId, targetId);
     if (!conversationId) return;
     const item = upsertConversationPreview(
       conversationId,
       {
+        targetId,
         displayName: friend.displayName || friend.friendUsername || friend.username || "好友",
+        avatar: friend.friendAvatar || "",
+        peerUser: friend
+          ? {
+              userId: friend.friendUserId || "",
+              userName: friend.friendUsername || "",
+              nickName: friend.displayName || "",
+              remark: friend.displayName || "",
+              avatar: friend.friendAvatar || "",
+            }
+          : null,
         unread: 0,
         resetUnread: true,
         latestMessage: { content: friend.displayName || "好友私聊", convType: 1 },
@@ -725,6 +761,11 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
 
   function sendStickerMessage(sticker) {
     return sendStickerMessageImpl(sticker);
+  }
+
+  function buildPrivateConversationId(leftUserId, rightUserId) {
+    if (!leftUserId || !rightUserId) return "";
+    return [leftUserId, rightUserId].sort().join("_");
   }
 
   function resetConversationState() {
@@ -766,7 +807,7 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
     conversationLoading,
     messageText,
     messageList,
-    loadOffline,
+    loadConversations,
     selectConversation,
     openConversation,
     openPrivateConversation,

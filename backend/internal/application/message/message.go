@@ -540,6 +540,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		conversationId,
 		seq,
 		seq,
+		conversationvo.ConvType(dto.ConvType),
 	)
 
 	// 弹幕需要同时满足前端发送有视频时间以及在房间内
@@ -1133,6 +1134,7 @@ func (ma *MessageApplication) GetOfflineMessages(
 			uconv.ConversationId,
 			0,
 			latestSeq,
+			uconv.Convtype,
 		))
 	}
 

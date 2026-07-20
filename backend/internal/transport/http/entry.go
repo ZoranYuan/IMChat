@@ -1,6 +1,7 @@
 package api
 
 import (
+	conversationhttp "IM_backend/internal/transport/http/conversation"
 	filehttp "IM_backend/internal/transport/http/file"
 	friendhttp "IM_backend/internal/transport/http/friend"
 	friendrequesthttp "IM_backend/internal/transport/http/friend_request"
@@ -15,6 +16,11 @@ import (
 func RegisterUserRouter(r *gin.RouterGroup, uh *userhttp.UserHandle, auth *middleware.AuthMiddleware, limter *middleware.LimitMiddleware) {
 	userGroup := r.Group("/users")
 	userhttp.RegisterRoutes(userGroup, uh, auth, limter)
+}
+
+func RegisterUserConversationRouter(r *gin.RouterGroup, ch *conversationhttp.UserConversationHandle, auth *middleware.AuthMiddleware, limter *middleware.LimitMiddleware) {
+	ucGroup := r.Group("/conversations").Use(auth.JWTAuthMiddleware())
+	conversationhttp.RegisterRoutes(ucGroup, ch)
 }
 
 func RegisterFriendRequestRouter(r *gin.RouterGroup, fh *friendrequesthttp.FriendRequestHandle, authMiddle *middleware.AuthMiddleware) {

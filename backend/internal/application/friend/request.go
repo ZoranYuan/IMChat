@@ -12,13 +12,13 @@ import (
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
 	conversationentity "IM_backend/internal/domain/conversation/entity"
 	conversationvo "IM_backend/internal/domain/conversation/value_object"
+	uconvvo "IM_backend/internal/domain/conversation/value_object"
 	friendentity "IM_backend/internal/domain/friend/entity"
 	friendrequestentity "IM_backend/internal/domain/friend/entity"
 	friendrequestvo "IM_backend/internal/domain/friend/value_object"
 	friendvo "IM_backend/internal/domain/friend/value_object"
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
-
 	"context"
 	"errors"
 	"fmt"
@@ -206,11 +206,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 	defer cancel()
 
 	// 初始化元信息
-	convId, err := fa.idGenerator.Generate()
-
-	if err != nil {
-		return err
-	}
+	convId := conversationentity.GetConversationID(record.FromUserId, record.ToUserId, int(conversationvo.PrivateChat))
 
 	// 创建会话
 	conv := conversationentity.NewConversation(
@@ -227,6 +223,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 		convId,
 		0,
 		0,
+		uconvvo.PrivateChat,
 	)
 
 	fromUserConv := conversationentity.BuildUserConversation(
@@ -234,6 +231,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 		convId,
 		0,
 		0,
+		uconvvo.PrivateChat,
 	)
 
 	messages := []*messageentity.Message{}
@@ -247,7 +245,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 			return err
 		}
 
-		messages = append(messages, []*messageentity.Message{&messageentity.Message{
+		messages = append(messages, []*messageentity.Message{{
 			MessageId:      greetMessageId,
 			ConversationId: convId,
 			SendId:         record.FromUserId,
@@ -256,7 +254,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 			Content:        record.Message,
 			SendTime:       record.ApplyTime,
 			Status:         messagevo.Status(record.Status),
-		}, &messageentity.Message{
+		}, {
 			MessageId:      greetReplyMessageId,
 			ConversationId: convId,
 			SendId:         record.ToUserId,
@@ -285,7 +283,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 		})
 	}
 
-	conv.LatestMessageId = messages[0].MessageId
+	conv.LatestMessageId = messages[len(messages)-1].MessageId
 	conv.LatestSeq = int64(len(messages))
 	toUserConv.LastReadSeq = int64(len(messages))
 	toUserConv.LatestSyncSeq = int64(len(messages))

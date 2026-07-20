@@ -6,6 +6,7 @@ import (
 )
 
 type UserConversationRepository interface {
+	GetUserConversationsByUserId(ctx context.Context, userId string) ([]*conversationentity.UserConversation, error)
 	CreateUserConversation(ctx context.Context, conversation *conversationentity.UserConversation) error
 	GetUsersByConversationID(ctx context.Context, conversationID string) ([]string, error)
 	BatchUpdateSyncSeq(ctx context.Context, conversations []*conversationentity.UserConversation) error

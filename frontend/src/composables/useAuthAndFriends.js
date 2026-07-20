@@ -15,7 +15,7 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
   const currentUser = reactive(JSON.parse(localStorage.getItem("im_user") || "{}"));
   const authMode = ref("login");
   const authForm = reactive({ phone: "", password: "" });
-  const friends = ref([]);
+  const friendConvs = ref([]);
   const friendRequests = ref([]);
   const friendForm = reactive({ keyword: "", toUserId: "", message: "你好，我想加你为好友" });
   const ws = ref(null);
@@ -29,7 +29,7 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
   let wsReconnectTimer = 0;
   let wsManualClose = false;
   let messageTimer = 0;
-  let frameHandler = onWsFrame || (() => {});
+  let frameHandler = onWsFrame || (() => { });
 
   function resetAuthForm() {
     authForm.phone = "";
@@ -58,7 +58,7 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
   }
 
   function setWsFrameHandler(handler) {
-    frameHandler = handler || (() => {});
+    frameHandler = handler || (() => { });
   }
 
   async function submitAuth() {
@@ -78,7 +78,7 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
       return null;
     });
     if (!data) return false;
-    friends.value = Array.isArray(data) ? data : [];
+    friendConvs.value = Array.isArray(data) ? data : [];
     return true;
   }
 
@@ -110,9 +110,9 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
     }
   }
 
-  async function handleFriendRequest(requestId, action) {
+  async function handleFriendRequest(requestId, fromUserId, action) {
     try {
-      await operateFriendRequest(token.value, requestId, action);
+      await operateFriendRequest(token.value, requestId, fromUserId, action);
       showLocalMessage(action === 1 ? "已同意好友申请" : "已拒绝好友申请", action === 1 ? "success" : "warning");
       await Promise.all([loadFriends(), loadFriendRequests()]);
     } catch (err) {
@@ -225,7 +225,7 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
     wsReconnecting.value = false;
     wsReconnectFailed.value = false;
     wsReconnectAttempts.value = 0;
-    friends.value = [];
+    friendConvs.value = [];
     friendRequests.value = [];
     localStorage.removeItem("im_token");
     localStorage.removeItem("im_user");
@@ -251,7 +251,7 @@ export function useAuthAndFriends({ showMessage, onWsFrame, onWsReconnect }) {
     currentUser,
     authMode,
     authForm,
-    friends,
+    friendConvs,
     friendRequests,
     friendForm,
     wsConnected,
