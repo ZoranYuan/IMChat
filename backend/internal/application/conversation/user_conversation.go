@@ -251,7 +251,7 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 				item.Avatar = peerUser.Avatar
 			}
 			if item.DisplayName == "" {
-				item.DisplayName = "好友私聊"
+				item.DisplayName = "好友 " + peerUser.UserName
 			}
 
 		case conversationvo.RoomChat:
@@ -263,7 +263,7 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 				item.Avatar = room.Avatar
 			}
 			if item.DisplayName == "" {
-				item.DisplayName = "房间" + item.TargetId
+				item.DisplayName = "房间 " + item.TargetId
 			}
 		}
 

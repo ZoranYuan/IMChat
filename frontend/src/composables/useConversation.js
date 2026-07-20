@@ -674,7 +674,13 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
       conversationLoading.value = true;
     }
     try {
-      const history = await getHistoryMessages(token.value, item.conversationId).catch((err) => {
+      const history = await getHistoryMessages(
+        token.value,
+        item.conversationId,
+        0,
+        30,
+        item.convType,
+      ).catch((err) => {
         showMessage(err.message);
         return { messages: [] };
       });
@@ -715,7 +721,10 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
 
   function openPrivateConversation(friend) {
     const targetId = friend?.friendUserId;
-    const conversationId = buildPrivateConversationId(currentUser.userId, targetId);
+    const existingConversation = conversations.value.find(
+      (item) => Number(item.convType) === 1 && item.targetId === targetId,
+    );
+    const conversationId = existingConversation?.conversationId || buildPrivateConversationId(currentUser.userId, targetId);
     if (!conversationId) return;
     const item = upsertConversationPreview(
       conversationId,
@@ -765,7 +774,9 @@ export function useConversation({ token, currentUser, showMessage, sendFrame }) 
 
   function buildPrivateConversationId(leftUserId, rightUserId) {
     if (!leftUserId || !rightUserId) return "";
-    return [leftUserId, rightUserId].sort().join("_");
+    return leftUserId > rightUserId
+      ? `${leftUserId}_${rightUserId}`
+      : `${rightUserId}_${leftUserId}`;
   }
 
   function resetConversationState() {

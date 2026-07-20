@@ -3,6 +3,7 @@ package message
 import (
 	messageapp "IM_backend/internal/application/message"
 	"IM_backend/internal/transport/http/response"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -31,7 +32,14 @@ func (mh *MessageHandle) GetHistoryMessages(c *gin.Context) {
 	}
 	messagesApp, nextCursor, hasMore, err := mh.app.GetHistoryMessages(c.Request.Context(), req.ConversationId, userId, req.Limit, req.Cursor)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取消息失败，请稍后再试"))
+		switch {
+		case errors.Is(err, messageapp.ErrConversationNotFound):
+			c.JSON(http.StatusNotFound, response.Error(http.StatusNotFound, "会话不存在"))
+		case errors.Is(err, messageapp.ErrForbidden):
+			c.JSON(http.StatusForbidden, response.Error(http.StatusForbidden, "无权查看该会话"))
+		default:
+			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取消息失败，请稍后再试"))
+		}
 		return
 	}
 	c.JSON(http.StatusOK, response.Success(toHistoryMessageRes(messagesApp, nextCursor, hasMore)))

@@ -33,6 +33,7 @@ import (
 	"log"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -674,14 +675,15 @@ func (ma *MessageApplication) GetHistoryMessages(
 		limit = 20
 	}
 
+	resolvedConversationID, err := ma.resolveHistoryConversationID(ctx, conversationId, userId)
+	if err != nil {
+		return nil, -1, false, err
+	}
+	conversationId = resolvedConversationID
+
 	var maxSeq int64
 	switch cursor {
 	case 0:
-		uc, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
-		if err != nil || uc == nil {
-			return nil, -1, false, ErrConversationNotFound
-		}
-
 		// 表示从最新的消息开始读取
 		maxSeq = math.MaxInt64
 	case -1:
@@ -718,6 +720,85 @@ func (ma *MessageApplication) GetHistoryMessages(
 	})
 
 	return msgsApp, nextCursor, hasMore, nil
+}
+
+func (ma *MessageApplication) resolveHistoryConversationID(
+	ctx context.Context,
+	conversationId string,
+	userId string,
+) (string, error) {
+	resolvedID := conversationId
+	conv, err := ma.conversationRepository.GetByID(ctx, resolvedID)
+	if err != nil {
+		return "", err
+	}
+
+	if conv == nil {
+		normalizedID := normalizePrivateConversationID(conversationId, userId)
+		if normalizedID != conversationId {
+			conv, err = ma.conversationRepository.GetByID(ctx, normalizedID)
+			if err != nil {
+				return "", err
+			}
+			resolvedID = normalizedID
+		}
+	}
+
+	if conv == nil {
+		return "", ErrConversationNotFound
+	}
+
+	allowed, err := ma.canAccessConversation(conv, userId)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
+		return "", ErrForbidden
+	}
+
+	return resolvedID, nil
+}
+
+func normalizePrivateConversationID(conversationId string, userId string) string {
+	parts := strings.Split(conversationId, "_")
+	if len(parts) != 2 {
+		return conversationId
+	}
+	if parts[0] != userId && parts[1] != userId {
+		return conversationId
+	}
+
+	return conversationentity.GetConversationID(
+		parts[0],
+		parts[1],
+		int(conversationvo.PrivateChat),
+	)
+}
+
+func (ma *MessageApplication) canAccessConversation(
+	conv *conversationentity.Conversation,
+	userId string,
+) (bool, error) {
+	switch conv.Convtype {
+	case conversationvo.PrivateChat:
+		return conv.UserId1 == userId || conv.UserId2 == userId, nil
+	case conversationvo.RoomChat:
+		if ma.roomUserRepository == nil {
+			return false, ErrForbidden
+		}
+
+		_, err := ma.roomUserRepository.GetRelationByIDs(userId, conv.RoomId)
+		if err != nil {
+			if errors.Is(err, roomentity.ErrMemberNotFound) {
+				return false, nil
+			}
+			return false, err
+		}
+
+		return true, nil
+	default:
+		return false, ErrUnknownConversationType
+	}
 }
 
 func (ma *MessageApplication) getUsername(userId string) string {

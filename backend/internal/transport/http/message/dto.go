@@ -6,6 +6,7 @@ import (
 
 type MessageHistoryReq struct {
 	ConversationId string `form:"conversationId" binding:"required"`
+	ConvType       *int   `form:"convType"`
 	Cursor         int64  `form:"cursor"`
 	Limit          int    `form:"limit"`
 }

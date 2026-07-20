@@ -239,8 +239,10 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 	// 初始化数据
 	if record.Message != "" {
 		greetMessageId, err := fa.idGenerator.Generate()
+		if err != nil {
+			return err
+		}
 		greetReplyMessageId, err := fa.idGenerator.Generate()
-
 		if err != nil {
 			return err
 		}
@@ -253,7 +255,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 			Type:           messagevo.Text,
 			Content:        record.Message,
 			SendTime:       record.ApplyTime,
-			Status:         messagevo.Status(record.Status),
+			Status:         messagevo.Normal,
 		}, {
 			MessageId:      greetReplyMessageId,
 			ConversationId: convId,

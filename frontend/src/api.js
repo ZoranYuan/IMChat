@@ -103,11 +103,12 @@ export function getConversations(token) {
   return http.get("/conversations", { token });
 }
 
-export function getHistoryMessages(token, conversationId, cursor = 0, limit = 30) {
+export function getHistoryMessages(token, conversationId, cursor = 0, limit = 30, convType = undefined) {
   return http.get("/messages/history", {
     token,
     params: {
       conversationId,
+      convType,
       cursor,
       limit,
     },

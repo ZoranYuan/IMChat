@@ -44,7 +44,7 @@ func (fr *FriendRepository) GetUserFriendList(userId string, status int) ([]frie
 	var m []model.Friend
 
 	if err := fr.db.
-		Where("user_id = ? AND status != ?", userId, status).
+		Where("user_id = ? AND status = ?", userId, status).
 		Find(&m).
 		Error; err != nil {
 		return nil, err

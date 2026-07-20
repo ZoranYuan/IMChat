@@ -25,8 +25,11 @@ func (fa *FriendApplication) GetUserFriendList(userId string) ([]FriendAppDTO, e
 	// TODO 权衡这里是否有必要加入 userId 的查询，判断当前用户是否存在
 	friends, err := fa.friendRepository.GetUserFriendList(
 		userId,
-		int(friendvo.DeleteOther),
+		int(friendvo.Friend),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	userIds := make([]string, 0, len(friends))
 
@@ -40,15 +43,36 @@ func (fa *FriendApplication) GetUserFriendList(userId string) ([]FriendAppDTO, e
 		return nil, err
 	}
 
-	friendListApp := make([]FriendAppDTO, 0, len(users))
-	for i := range users {
+	userByID := make(map[string]struct {
+		avatar   string
+		userName string
+		nickName string
+	}, len(users))
+	for _, user := range users {
+		userByID[user.UserId] = struct {
+			avatar   string
+			userName string
+			nickName string
+		}{
+			avatar:   user.Avatar,
+			userName: user.UserName,
+			nickName: user.NickName,
+		}
+	}
+
+	friendListApp := make([]FriendAppDTO, 0, len(friends))
+	for _, friend := range friends {
+		user, ok := userByID[friend.FriendUserId]
+		if !ok {
+			continue
+		}
 		friendListApp = append(friendListApp, FriendAppDTO{
-			FriendUserId:   friends[i].FriendUserId,
-			FriendAvatar:   users[i].Avatar,
-			FriendUserName: users[i].UserName,
-			FriendNickName: users[i].NickName,
-			Status:         int(friends[i].Status),
-			Remarks:        friends[i].Remarks,
+			FriendUserId:   friend.FriendUserId,
+			FriendAvatar:   user.avatar,
+			FriendUserName: user.userName,
+			FriendNickName: user.nickName,
+			Status:         int(friend.Status),
+			Remarks:        friend.Remarks,
 		})
 	}
 
