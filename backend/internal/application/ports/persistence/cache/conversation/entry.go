@@ -1,10 +1,28 @@
 package conversation
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var ErrConversationNotFound = errors.New("会话不存在")
 
 type ConversationCache interface {
-	IncrConvLatestSeq(ctx context.Context, convId string) (int64, error)
-	RecoverConvLatestSeqAndIncr(ctx context.Context, convId string, dbLatestSeq int64) (int64, error)
-	GetConvLatestSeq(ctx context.Context, convId string) (int64, error)
-	SetConvSeq(ctx context.Context, convId string, seq int64) error
+	IncrConvLatestSeq(
+		ctx context.Context,
+		conversationID string,
+	) (int64, error)
+
+	RecoverConvLatestSeq(
+		ctx context.Context,
+		conversationID string,
+		dbLatestSeq int64,
+	) error
+
+	GetConvLatestSeq(
+		ctx context.Context,
+		conversationID string,
+	) (int64, error)
+
+	MarkConversationNotFound(ctx context.Context, conversationID string) error
 }

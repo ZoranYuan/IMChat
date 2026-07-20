@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -19,25 +20,30 @@ local value = redis.call("GET", KEYS[1])
 if not value then
 	return 0
 end
+
+if tonumber(value) == -1 then
+	return -1
+end
+
 return redis.call("INCR", KEYS[1])
 `
 
-const recoverAndIncrScript = `
+const recoverConvLatestSeqScript = `
 local dbSeq = tonumber(ARGV[1]) or 0
 local value = redis.call("GET", KEYS[1])
+local cacheSeq = tonumber(value)
 
-if not value then
-	redis.call("SET", KEYS[1], dbSeq)
-	return redis.call("INCR", KEYS[1])
-end
-
-local cacheSeq = tonumber(value) or 0
-if cacheSeq < dbSeq then
+if not cacheSeq or cacheSeq < dbSeq then
 	redis.call("SET", KEYS[1], dbSeq)
 end
 
-return redis.call("INCR", KEYS[1])
+return 1
 `
+
+const (
+	conversationNotFoundSeq = int64(-1)
+	conversationNotFoundTTL = time.Minute
+)
 
 type ConversationCache struct {
 	store *shared.Store
@@ -45,6 +51,22 @@ type ConversationCache struct {
 
 func NewConversationCache(rb *redis.Client) *ConversationCache {
 	return &ConversationCache{store: shared.NewStore(rb)}
+}
+
+func (c *ConversationCache) RecoverConvLatestSeq(
+	ctx context.Context,
+	conversationID string,
+	dbLatestSeq int64,
+) error {
+	_, err := c.store.Eval(
+		ctx,
+		recoverConvLatestSeqScript,
+		[]string{
+			ConversationSeqKey(conversationID),
+		},
+		dbLatestSeq,
+	)
+	return err
 }
 
 func (c *ConversationCache) IncrConvLatestSeq(ctx context.Context, convID string) (int64, error) {
@@ -63,26 +85,11 @@ func (c *ConversationCache) IncrConvLatestSeq(ctx context.Context, convID string
 	if seq == 0 {
 		return 0, conversationentity.ErrConversationNotCreated
 	}
-
-	return seq, nil
-}
-
-func (c *ConversationCache) RecoverConvLatestSeqAndIncr(
-	ctx context.Context,
-	convID string,
-	dbLatestSeq int64,
-) (int64, error) {
-	result, err := c.store.Eval(
-		ctx,
-		recoverAndIncrScript,
-		[]string{ConversationSeqKey(convID)},
-		dbLatestSeq,
-	)
-	if err != nil {
-		return 0, err
+	if seq == conversationNotFoundSeq {
+		return 0, convcache.ErrConversationNotFound
 	}
 
-	return toInt64(result)
+	return seq, nil
 }
 
 func (c *ConversationCache) GetConvLatestSeq(ctx context.Context, convID string) (int64, error) {
@@ -90,11 +97,23 @@ func (c *ConversationCache) GetConvLatestSeq(ctx context.Context, convID string)
 	if errors.Is(err, redis.Nil) {
 		return seq, conversationentity.ErrConversationNotCreated
 	}
+	if err == nil && seq == conversationNotFoundSeq {
+		return 0, convcache.ErrConversationNotFound
+	}
 	return seq, err
 }
 
-func (c *ConversationCache) SetConvSeq(ctx context.Context, convID string, seq int64) error {
-	return c.store.SetNXInt64(ctx, ConversationSeqKey(convID), seq)
+func (c *ConversationCache) MarkConversationNotFound(
+	ctx context.Context,
+	conversationID string,
+) error {
+	_, err := c.store.Client().SetNX(
+		ctx,
+		ConversationSeqKey(conversationID),
+		conversationNotFoundSeq,
+		conversationNotFoundTTL,
+	).Result()
+	return err
 }
 
 func toInt64(value interface{}) (int64, error) {

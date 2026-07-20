@@ -2,6 +2,7 @@ package room
 
 import (
 	idport "IM_backend/internal/application/ports/id"
+	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
@@ -21,6 +22,7 @@ type RoomApplication struct {
 	roomUserRepository         roomrepo.RoomUserRepository
 	userConversationRepository conversationrepo.UserConversationRepository
 	conversationRepository     conversationrepo.ConversationRepository
+	conversationCache          convcache.ConversationCache
 	roomCache                  roomcache.RoomCache
 	roomMemberCache            roomcache.RoomMemberCache
 	txManager                  txmanager.TxManager
@@ -31,6 +33,7 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
 	userConversationRepository conversationrepo.UserConversationRepository,
 	conversationRepository conversationrepo.ConversationRepository,
+	conversationCache convcache.ConversationCache,
 	roomCache roomcache.RoomCache,
 	roomMemberCache roomcache.RoomMemberCache,
 	txManager txmanager.TxManager,
@@ -41,6 +44,7 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 		roomUserRepository:         roomUserRepository,
 		conversationRepository:     conversationRepository,
 		userConversationRepository: userConversationRepository,
+		conversationCache:          conversationCache,
 		roomCache:                  roomCache,
 		roomMemberCache:            roomMemberCache,
 		txManager:                  txManager,
@@ -120,6 +124,14 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 			log.Println("清理邀请码缓存失败：", cleanupErr)
 		}
 		return nil, err
+	}
+
+	if err := ra.conversationCache.RecoverConvLatestSeq(
+		ctx,
+		conversationId,
+		conversation.LatestSeq,
+	); err != nil {
+		log.Println("预热会话序列缓存失败：", err)
 	}
 
 	memberState := &roomcache.MemberState{Status: roomUser.Status, Role: roomUser.Role, MuteUntil: roomUser.MuteUtil}

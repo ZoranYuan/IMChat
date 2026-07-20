@@ -9,7 +9,6 @@ import (
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type ConversationRepository struct {
@@ -51,39 +50,66 @@ func (r *ConversationRepository) GetByID(ctx context.Context, id string) (*conve
 	return toConversationDomain(&m), nil
 }
 
-func (r *ConversationRepository) Upsert(
+func (r *ConversationRepository) UpdateLatestSequence(
 	ctx context.Context,
 	domain *conversationentity.Conversation,
+	updateLatestMessage bool,
 ) error {
 	m := toConversationModel(domain)
+	updates := map[string]interface{}{
+		"latest_seq": gorm.Expr("GREATEST(latest_seq, ?)", m.LatestSeq),
+	}
+	if updateLatestMessage {
+		updates["latest_message_id"] = gorm.Expr(
+			"CASE WHEN latest_seq < ? THEN ? ELSE latest_message_id END",
+			m.LatestSeq,
+			m.LatestMessageId,
+		)
+	}
 
-	return r.db.WithContext(ctx).
-		Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "conversation_id"},
-			},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"latest_message_id": m.LatestMessageId,
-				"latest_seq":        gorm.Expr("GREATEST(latest_seq, ?)", m.LatestSeq),
-			}),
-		}).
-		Create(m).Error
+	result := r.db.WithContext(ctx).
+		Model(&model.Conversation{}).
+		Where("conversation_id = ?", m.ConversationId).
+		Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
 
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Model(&model.Conversation{}).
+		Where("conversation_id = ?", m.ConversationId).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return conversationentity.ErrConversationNotCreated
+	}
+	return nil
 }
 
-func (r *ConversationRepository) GetConversationSeq(ctx context.Context, conversationID string) (int64, error) {
-	var seq int64
+func (r *ConversationRepository) GetConversationSeq(
+	ctx context.Context,
+	conversationID string,
+) (int64, error) {
+	var conv model.Conversation
 
 	err := r.db.WithContext(ctx).
-		Model(&model.Conversation{}).
+		Select("latest_seq").
 		Where("conversation_id = ?", conversationID).
-		Pluck("latest_seq", &seq).Error
+		Take(&conv).Error
 
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, conversationentity.ErrConversationNotCreated
+	}
 	if err != nil {
 		return 0, err
 	}
 
-	return seq, nil
+	return conv.LatestSeq, nil
 }
 
 func (r *ConversationRepository) ListByIDs(

@@ -293,8 +293,6 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 	fromUserConv.LastReadSeq = int64(len(messages))
 	fromUserConv.LatestSyncSeq = int64(len(messages))
 
-	fa.conversationCache.SetConvSeq(ctx, convId, conv.LatestSeq)
-
 	if err := fa.txManager.WithinTransaction(ctx, func(tx any) error {
 		if err := fa.friendRequestRepository.WithTx(tx).OperateRequest(record.RequestId, int(friendrequestvo.Pending), int(record.Status)); err != nil {
 			fmt.Println("处理好友申请失败：", err)
@@ -339,6 +337,14 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 		return nil
 	}); err != nil {
 		return ErrOperationFailed
+	}
+
+	if err := fa.conversationCache.RecoverConvLatestSeq(
+		ctx,
+		convId,
+		conv.LatestSeq,
+	); err != nil {
+		log.Println("预热会话序列缓存失败：", err)
 	}
 
 	state := &friendcache.RelationState{Status: friendvo.Friend}

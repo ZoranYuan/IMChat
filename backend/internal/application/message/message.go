@@ -609,11 +609,14 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 			return ErrMessageSave
 		}
 
-		if !isDanmaku {
-			if err = convRepo.Upsert(ctx, conv); err != nil {
-				return ErrConversationSequenceUpdate
+		if err = convRepo.UpdateLatestSequence(ctx, conv, !isDanmaku); err != nil {
+			if errors.Is(err, conversationentity.ErrConversationNotCreated) {
+				return ErrConversationNotFound
 			}
+			return ErrConversationSequenceUpdate
+		}
 
+		if !isDanmaku {
 			if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
 				log.Printf("警告：更新发送者用户会话失败：%v", err)
 			}
@@ -670,16 +673,68 @@ func (ma *MessageApplication) nextConversationSeq(
 	if err == nil {
 		return seq, nil
 	}
+	if errors.Is(err, convcache.ErrConversationNotFound) {
+		return 0, ErrConversationNotFound
+	}
 	if !errors.Is(err, conversationentity.ErrConversationNotCreated) {
 		return 0, err
 	}
 
-	dbLatestSeq, dbErr := ma.conversationRepository.GetConversationSeq(ctx, conversationId)
-	if dbErr != nil {
-		return 0, dbErr
+	resultChan := ma.sf.DoChan("conversation-seq-init:"+conversationId, func() (any, error) {
+		recoveryCtx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			2*time.Second,
+		)
+		defer cancel()
+
+		// 双重检查
+		if _, err := ma.conversationCache.GetConvLatestSeq(
+			recoveryCtx,
+			conversationId,
+		); err == nil {
+			return struct{}{}, nil
+		} else if errors.Is(err, convcache.ErrConversationNotFound) {
+			return nil, ErrConversationNotFound
+		} else if !errors.Is(
+			err,
+			conversationentity.ErrConversationNotCreated,
+		) {
+			return nil, err
+		}
+		dbSeq, err := ma.conversationRepository.GetConversationSeq(
+			recoveryCtx,
+			conversationId,
+		)
+
+		if errors.Is(err, conversationentity.ErrConversationNotCreated) {
+			// 会话没有创建，加入空缓存，避免缓存击穿
+			_ = ma.conversationCache.MarkConversationNotFound(
+				recoveryCtx,
+				conversationId,
+			)
+			return nil, ErrConversationNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		return struct{}{}, ma.conversationCache.RecoverConvLatestSeq(
+			recoveryCtx,
+			conversationId,
+			dbSeq,
+		)
+	})
+
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case result := <-resultChan:
+		if result.Err != nil {
+			return 0, result.Err
+		}
 	}
 
-	return ma.conversationCache.RecoverConvLatestSeqAndIncr(ctx, conversationId, dbLatestSeq)
+	return ma.conversationCache.IncrConvLatestSeq(ctx, conversationId)
 }
 
 // 通过游标的方式来获取历史记录

@@ -176,6 +176,7 @@ func main() {
 		roomUserRepository,
 		userConversationRepository,
 		conversationRepository,
+		conversationCache,
 		roomCache,
 		roomMemberCache,
 		txManager,
