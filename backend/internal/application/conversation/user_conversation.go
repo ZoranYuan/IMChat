@@ -9,6 +9,7 @@ import (
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
 	conversationentity "IM_backend/internal/domain/conversation/entity"
 	conversationvo "IM_backend/internal/domain/conversation/value_object"
+	friendentity "IM_backend/internal/domain/friend/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"context"
 	"sort"
@@ -204,6 +205,17 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 		}
 	}
 
+	relations, err := uc.friendRepository.FindRelations(ctx, userId, privatePeerIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	peerFriendRelations := make(map[string]*friendentity.Friend)
+
+	for _, relation := range relations {
+		peerFriendRelations[relation.FriendUserId] = relation
+	}
+
 	items := make([]ConversationItemDTO, 0, len(userConversations))
 	for _, userConv := range userConversations {
 		if userConv == nil {
@@ -236,20 +248,22 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 			item.TargetId = peerID
 
 			peerUser := userByID[peerID]
-			if relation, err := uc.friendRepository.FindRelation(userId, peerID); err == nil && relation != nil {
-				peerUser.Remark = relation.Remarks
+
+			if peer, ok := peerFriendRelations[peerUser.UserId]; !ok {
+				continue
+			} else {
+				peerUser.Remark = peer.Remarks
 			}
-			if peerUser.UserId != "" {
-				item.PeerUser = &peerUser
-				item.DisplayName = peerUser.Remark
-				if item.DisplayName == "" {
-					item.DisplayName = peerUser.NickName
-				}
-				if item.DisplayName == "" {
-					item.DisplayName = peerUser.UserName
-				}
-				item.Avatar = peerUser.Avatar
+
+			item.PeerUser = &peerUser
+			item.DisplayName = peerUser.Remark
+			if item.DisplayName == "" {
+				item.DisplayName = peerUser.NickName
 			}
+			if item.DisplayName == "" {
+				item.DisplayName = peerUser.UserName
+			}
+			item.Avatar = peerUser.Avatar
 			if item.DisplayName == "" {
 				item.DisplayName = "好友 " + peerUser.UserName
 			}

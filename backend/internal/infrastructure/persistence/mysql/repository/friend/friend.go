@@ -4,6 +4,7 @@ import (
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
 	friendentity "IM_backend/internal/domain/friend/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
+	"context"
 	"errors"
 
 	"gorm.io/gorm"
@@ -74,4 +75,42 @@ func (fr *FriendRepository) FindRelation(userId, friendId string) (*friendentity
 
 	d := toDomain(m)
 	return &d, nil
+}
+
+func (fr *FriendRepository) FindRelations(
+	ctx context.Context,
+	userId string,
+	friendIds []string,
+) ([]*friendentity.Friend, error) {
+	if len(friendIds) == 0 {
+		return []*friendentity.Friend{}, nil
+	}
+
+	var models []model.Friend
+
+	err := fr.db.
+		WithContext(ctx).
+		Where(
+			"user_id = ? AND friend_user_id IN ?",
+			userId,
+			friendIds,
+		).
+		Find(&models).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	relations := make(
+		[]*friendentity.Friend,
+		0,
+		len(models),
+	)
+
+	for _, m := range models {
+		domain := toDomain(m)
+		relations = append(relations, &domain)
+	}
+
+	return relations, nil
 }
