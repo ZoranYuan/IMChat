@@ -32,7 +32,7 @@ func NewRedisLimit(client *redis.Client, perfix string) *RedisLimit {
 
 func (r *RedisLimit) Allow(ctx context.Context, key string, policy shared_ratelimit.Policy) (shared_ratelimit.Decision, error) {
 	if r.client == nil {
-		return shared_ratelimit.Decision{}, errors.New("限流器 Redis 客户端不能为空")
+		return shared_ratelimit.Decision{}, errors.New("限流器缓存客户端不能为空")
 	}
 
 	if key == "" {
@@ -110,7 +110,7 @@ func redisInt64(value interface{}) (int64, error) {
 
 	default:
 		return 0, fmt.Errorf(
-			"Redis 整数类型异常：%T",
+			"缓存整数类型异常：%T",
 			value,
 		)
 	}

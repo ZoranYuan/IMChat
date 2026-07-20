@@ -121,12 +121,12 @@ func LoadConfig(path string) Config {
 	data, err := os.ReadFile(path)
 
 	if err != nil {
-		log.Fatal("failed to load config file ", err)
+		log.Fatal("加载配置文件失败：", err)
 	}
 
 	var config Config
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.Fatal("failed to load config file ", err)
+		log.Fatal("解析配置文件失败：", err)
 	}
 
 	return config

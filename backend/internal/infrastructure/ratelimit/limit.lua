@@ -2,7 +2,7 @@ local rate = tonumber(ARGV[1])
 local burst = tonumber(ARGV[2])
 
 if rate == nil or rate <= 0 or burst == nil or burst <= 0 then
-    return redis.error_reply("invalid rate limit policy")
+    return redis.error_reply("限流策略参数无效")
 end
 
 -- 使用 redis 时间，避免时钟不一致

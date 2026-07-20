@@ -143,7 +143,7 @@ func (ma *MessageApplication) HandleReadMessage(
 	uconv.UpdateReadSeq(lastReadSeq)
 
 	if ma.txManager == nil || ma.messageOutboxRepository == nil {
-		return fmt.Errorf("消息 Outbox 未配置")
+		return fmt.Errorf("消息出箱组件未配置")
 	}
 
 	sfKey := "user-profile:" + userId
@@ -164,7 +164,7 @@ func (ma *MessageApplication) HandleReadMessage(
 		userProfile, exist, err = ma.userCache.GetUserProfile(ctx, userId)
 
 		if err != nil {
-			log.Println("failed to get user profile ", err)
+			log.Println("获取用户资料缓存失败：", err)
 		}
 
 		if !exist {
@@ -190,7 +190,7 @@ func (ma *MessageApplication) HandleReadMessage(
 			}
 
 			if err := ma.userCache.SetUserProfile(ctx, userProfile, time.Duration(ma.config.Cache.UserProfile.TTL)); err != nil {
-				log.Println("failed to record user profile ", err)
+				log.Println("写入用户资料缓存失败：", err)
 			}
 
 			return userProfile, nil
@@ -496,7 +496,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 	}
 
 	// 从缓存中获取到当前会话的 Seq
-	seq, err := ma.conversationCache.IncrConvLatestSeq(ctx, conversationId)
+	seq, err := ma.nextConversationSeq(ctx, conversationId)
 
 	if err != nil {
 		return &MessageAppeDTO{
@@ -547,7 +547,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 	// 弹幕需要同时满足前端发送有视频时间以及在房间内
 	isDanmaku := dto.ConvType == int(conversationvo.RoomChat) && dto.VideoTime != nil
 	if ma.txManager == nil || ma.messageOutboxRepository == nil {
-		return nil, fmt.Errorf("消息 Outbox 未配置")
+		return nil, fmt.Errorf("消息出箱组件未配置")
 	}
 
 	value := ctx.Value("op")
@@ -660,6 +660,26 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		SenderUsername: senderUsername,
 		Status:         string(protocol.AckStatusSent),
 	}, nil
+}
+
+func (ma *MessageApplication) nextConversationSeq(
+	ctx context.Context,
+	conversationId string,
+) (int64, error) {
+	seq, err := ma.conversationCache.IncrConvLatestSeq(ctx, conversationId)
+	if err == nil {
+		return seq, nil
+	}
+	if !errors.Is(err, conversationentity.ErrConversationNotCreated) {
+		return 0, err
+	}
+
+	dbLatestSeq, dbErr := ma.conversationRepository.GetConversationSeq(ctx, conversationId)
+	if dbErr != nil {
+		return 0, dbErr
+	}
+
+	return ma.conversationCache.RecoverConvLatestSeqAndIncr(ctx, conversationId, dbLatestSeq)
 }
 
 // 通过游标的方式来获取历史记录
@@ -924,154 +944,6 @@ func (ma *MessageApplication) fillMediaFields(ctx context.Context, messages []Me
 	}
 }
 
-func (ma *MessageApplication) fillConversationDisplayNames(
-	messages []MessageAppeDTO,
-	conversations []*conversationentity.Conversation,
-	userId string,
-) {
-	if len(messages) == 0 || len(conversations) == 0 {
-		return
-	}
-
-	conversationById := make(map[string]*conversationentity.Conversation, len(conversations))
-	privatePeerIds := make([]string, 0, len(conversations))
-	privateSeen := make(map[string]struct{}, len(conversations))
-	roomIds := make([]string, 0, len(conversations))
-	roomSeen := make(map[string]struct{}, len(conversations))
-
-	for _, conv := range conversations {
-		conversationById[conv.ConversationId] = conv
-
-		switch conv.Convtype {
-		case conversationvo.PrivateChat:
-			peerId := conv.UserId1
-			if peerId == userId {
-				peerId = conv.UserId2
-			}
-			if _, ok := privateSeen[peerId]; !ok {
-				privateSeen[peerId] = struct{}{}
-				privatePeerIds = append(privatePeerIds, peerId)
-			}
-		case conversationvo.RoomChat:
-			if conv.RoomId != "" {
-				if _, ok := roomSeen[conv.RoomId]; !ok {
-					roomSeen[conv.RoomId] = struct{}{}
-					roomIds = append(roomIds, conv.RoomId)
-				}
-			}
-		}
-	}
-
-	userMetaByID := make(map[string]userentity.User, len(privatePeerIds))
-	if len(privatePeerIds) > 0 && ma.userRepository != nil {
-		if users, err := ma.userRepository.FindByUserIDs(privatePeerIds); err == nil {
-			for _, user := range users {
-				userMetaByID[user.UserId] = user
-			}
-		}
-	}
-
-	type roomMeta struct {
-		displayName string
-		avatar      string
-	}
-
-	roomMetaByID := make(map[string]roomMeta, len(roomIds))
-	if len(roomIds) > 0 && ma.roomRepository != nil {
-		for _, roomID := range roomIds {
-			room, err := ma.roomRepository.FindActiveRoom(roomID, int(roomvo.Activate))
-			if err != nil || room == nil {
-				continue
-			}
-			roomMetaByID[roomID] = roomMeta{displayName: room.RoomName, avatar: room.Avatar}
-		}
-	}
-
-	for i := range messages {
-		conv := conversationById[messages[i].ConversationID]
-		if conv == nil {
-			continue
-		}
-
-		messages[i].ConvType = int(conv.Convtype)
-		switch conv.Convtype {
-		case conversationvo.PrivateChat:
-			peerId := conv.UserId1
-			if peerId == userId {
-				peerId = conv.UserId2
-			}
-			if user, ok := userMetaByID[peerId]; ok {
-				if user.NickName != "" {
-					messages[i].DisplayName = user.NickName
-				} else {
-					messages[i].DisplayName = user.UserName
-				}
-				messages[i].Avatar = user.Avatar
-				continue
-			}
-
-			// 批量查询结果优先，单条查询兜底
-			messages[i].DisplayName = ma.getUserDisplayName(peerId)
-			messages[i].Avatar = ma.getUserAvatar(peerId)
-		case conversationvo.RoomChat:
-			if meta, ok := roomMetaByID[conv.RoomId]; ok {
-				messages[i].DisplayName = meta.displayName
-				messages[i].Avatar = meta.avatar
-				continue
-			}
-			messages[i].DisplayName = ma.getRoomDisplayName(conv.RoomId)
-			messages[i].Avatar = ma.getRoomAvatar(conv.RoomId)
-		}
-	}
-}
-
-func (ma *MessageApplication) getUserDisplayName(userId string) string {
-	if userId == "" || ma.userRepository == nil {
-		return ""
-	}
-	user, err := ma.userRepository.FindByUserID(userId)
-	if err != nil || user == nil {
-		return ""
-	}
-	if user.NickName != "" {
-		return user.NickName
-	}
-	return user.UserName
-}
-
-func (ma *MessageApplication) getUserAvatar(userId string) string {
-	if userId == "" || ma.userRepository == nil {
-		return ""
-	}
-	user, err := ma.userRepository.FindByUserID(userId)
-	if err != nil || user == nil {
-		return ""
-	}
-	return user.Avatar
-}
-
-func (ma *MessageApplication) getRoomDisplayName(roomId string) string {
-	if roomId == "" || ma.roomRepository == nil {
-		return ""
-	}
-	room, err := ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
-	if err != nil || room == nil {
-		return ""
-	}
-	return room.RoomName
-}
-
-func (ma *MessageApplication) getRoomAvatar(roomId string) string {
-	if roomId == "" || ma.roomRepository == nil {
-		return ""
-	}
-	room, err := ma.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
-	if err != nil || room == nil {
-		return ""
-	}
-	return room.Avatar
-}
-
 func (ma *MessageApplication) GetVideoDanmaku(
 	ctx context.Context,
 	roomId string,
@@ -1163,71 +1035,4 @@ func (ma *MessageApplication) GetRoomVideoHistory(
 	}
 
 	return res, nil
-}
-func (ma *MessageApplication) GetOfflineMessages(
-	ctx context.Context,
-	userId string,
-) ([]MessageAppeDTO, map[string]int64, error) {
-	uconvs, err := ma.userConversationRepository.ListByUser(ctx, userId)
-	if err != nil {
-		return nil, nil, ErrConversationNotFound
-	}
-
-	readMap := make(map[string]int64)
-	convIds := make([]string, 0, len(uconvs))
-	for _, uc := range uconvs {
-		readMap[uc.ConversationId] = uc.LastReadSeq
-		convIds = append(convIds, uc.ConversationId)
-	}
-
-	convs, err := ma.conversationRepository.ListByIDs(ctx, convIds)
-	if err != nil {
-		return nil, nil, ErrConversationNotFound
-	}
-
-	syncMap := make(map[string]int64)
-	unreadMap := make(map[string]int64)
-
-	for _, c := range convs {
-		unreadMap[c.ConversationId] = c.LatestSeq - readMap[c.ConversationId]
-		syncMap[c.ConversationId] = c.LatestSeq
-	}
-
-	msgs, err := ma.messageRepository.GetLatestMessagesByConversationIDs(
-		ctx,
-		convIds,
-	)
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	syncItems := make([]*conversationentity.UserConversation, 0, len(uconvs))
-
-	for _, uconv := range uconvs {
-		latestSeq := syncMap[uconv.ConversationId]
-		if latestSeq == uconv.LatestSyncSeq {
-			continue
-		}
-
-		syncItems = append(syncItems, conversationentity.BuildUserConversation(
-			uconv.UserId,
-			uconv.ConversationId,
-			0,
-			latestSeq,
-			uconv.Convtype,
-		))
-	}
-
-	if len(syncItems) > 0 {
-		if err := ma.userConversationRepository.BatchUpdateSyncSeq(ctx, syncItems); err != nil {
-			log.Printf("警告：批量更新同步序列失败：%v", err)
-		}
-	}
-
-	msgsApp := toMessagesAppDTO(msgs)
-	ma.fillSenderUsernames(msgsApp)
-	ma.fillMediaFields(ctx, msgsApp)
-	ma.fillConversationDisplayNames(msgsApp, convs, userId)
-	return msgsApp, unreadMap, nil
 }

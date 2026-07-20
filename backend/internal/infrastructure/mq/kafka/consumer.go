@@ -15,8 +15,8 @@ const defaultConsumeRetryInterval = time.Second
 
 var (
 	ErrHandlerNotFound = errors.New("消息处理器不存在")
-	ErrInvalidClient   = errors.New("Kafka 客户端无效")
-	ErrEmptyTopics     = errors.New("Kafka 主题不能为空")
+	ErrInvalidClient   = errors.New("消息队列客户端无效")
+	ErrEmptyTopics     = errors.New("消息主题不能为空")
 )
 
 type ConsumerRouter struct {
@@ -99,10 +99,10 @@ func (h saramaAdapter) ConsumeClaim(
 							Payload:      cloneBytes(message.Value),
 						},
 					); publishErr != nil {
-						return fmt.Errorf("发布 Kafka 死信失败：%w", publishErr)
+						return fmt.Errorf("发布死信消息失败：%w", publishErr)
 					}
 					log.Printf(
-						"Kafka 毒消息已转入死信：topic=%s partition=%d offset=%d err=%v",
+						"毒消息已转入死信队列：主题=%s 分区=%d 偏移量=%d 错误=%v",
 						message.Topic,
 						message.Partition,
 						message.Offset,
@@ -113,7 +113,7 @@ func (h saramaAdapter) ConsumeClaim(
 				}
 				// 不调用 MarkMessage，当前 offset 不会被当前处理流程提交。
 				return fmt.Errorf(
-					"处理 Kafka 消息失败：topic=%s partition=%d offset=%d：%w",
+					"处理消息队列消息失败：主题=%s 分区=%d 偏移量=%d：%w",
 					message.Topic,
 					message.Partition,
 					message.Offset,
@@ -205,7 +205,7 @@ func (c *ConsumerGroup) Start(ctx context.Context) error {
 	for ctx.Err() == nil {
 		if err := c.group.Consume(ctx, c.topics, handler); err != nil {
 			log.Printf(
-				"消费 Kafka 主题失败，topics=%v，retry_after=%s，err=%v",
+				"消费消息主题失败：主题=%v，重试间隔=%s，错误=%v",
 				c.topics,
 				c.retryInterval,
 				err,

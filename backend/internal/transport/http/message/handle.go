@@ -45,22 +45,6 @@ func (mh *MessageHandle) GetHistoryMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, response.Success(toHistoryMessageRes(messagesApp, nextCursor, hasMore)))
 }
 
-func (mh *MessageHandle) GetOfflineMessages(c *gin.Context) {
-	userId := c.GetString("userId")
-	if userId == "" {
-		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
-		return
-	}
-
-	messagesApp, unreadMap, err := mh.app.GetOfflineMessages(c.Request.Context(), userId)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取消息失败，请稍后再试"))
-		return
-	}
-
-	c.JSON(http.StatusOK, response.Success(toOfflineMessageRes(messagesApp, unreadMap)))
-}
-
 func (mh *MessageHandle) GetVideoDanmaku(c *gin.Context) {
 	userId := c.GetString("userId")
 	if userId == "" {

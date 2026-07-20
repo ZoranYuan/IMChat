@@ -110,7 +110,7 @@ func main() {
 	}
 	defer func() {
 		if err := kafkaClient.Close(); err != nil {
-			log.Printf("关闭 Kafka 客户端失败：%v", err)
+			log.Printf("关闭消息队列客户端失败：%v", err)
 		}
 	}()
 
@@ -219,7 +219,7 @@ func main() {
 
 	go func() {
 		if err := messageConsumerGroup.Start(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("Kafka 消费者已停止：%v", err)
+			log.Printf("消息队列消费者已停止：%v", err)
 		}
 	}()
 

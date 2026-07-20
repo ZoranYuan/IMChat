@@ -73,7 +73,7 @@ func (g *Gateway) DeliverToUser(eventType, userID string, payload []byte) error 
 	for _, session := range g.sessionsForUser(userID) {
 		if err := session.Enqueue(Message{Op: eventType, Data: encoded}); err != nil {
 			if errors.Is(err, ErrOutboundQueueFull) {
-				log.Printf("断开处理缓慢的 WebSocket 会话：user=%s session=%s", session.UserID(), session.SessionID())
+				log.Printf("断开处理缓慢的实时通道会话：用户=%s 会话=%s", session.UserID(), session.SessionID())
 				session.Close()
 			}
 		}

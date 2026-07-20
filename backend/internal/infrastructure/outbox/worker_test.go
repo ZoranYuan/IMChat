@@ -75,7 +75,7 @@ func TestWorkerPublishesStoredPayload(t *testing.T) {
 
 func TestWorkerMarksExhaustedItemDead(t *testing.T) {
 	repository := &outboxRepositoryStub{}
-	worker := NewWorker(nil, repository, &publisherStub{err: errors.New("Kafka 不可用")})
+	worker := NewWorker(nil, repository, &publisherStub{err: errors.New("消息队列不可用")})
 	item := &outboxport.Entry{ID: "o1", RetryCount: worker.maxRetries}
 
 	if err := worker.dispatchOne(context.Background(), item); err != nil {

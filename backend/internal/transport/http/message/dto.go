@@ -48,14 +48,6 @@ type Message struct {
 	PackId         string `json:"packId,omitempty"`
 }
 
-type OfflineMessageRes struct {
-	ConversationId string  `json:"conversationId"`
-	DisplayName    string  `json:"displayName"`
-	Avatar         string  `json:"avatar"`
-	UnRead         int64   `json:"unread"`
-	LatestMessage  Message `json:"latestMessage"`
-}
-
 type MessageHistoryRes struct {
 	Messages   []Message `json:"messages"`
 	NextCursor int64     `json:"nextCursor"`
@@ -152,44 +144,4 @@ func toRoomVideoHistoryRes(items []messageapp.RoomVideoHistoryDTO) (res RoomVide
 		})
 	}
 	return res
-}
-
-func toOfflineMessageRes(messages []messageapp.MessageAppeDTO, unreadMap map[string]int64) (res []OfflineMessageRes) {
-	for _, m := range messages {
-		latestMessage := Message{
-			MessageId:      m.MessageId,
-			SenderId:       m.SendId,
-			SenderUsername: m.SenderUsername,
-			Seq:            m.Seq,
-			ConvType:       m.ConvType,
-			CType:          m.CType,
-			Content:        m.Content,
-			SendTime:       m.SendTime,
-			VideoId:        m.VideoId,
-			VideoTime:      m.VideoTime,
-			MediaURL:       m.MediaURL,
-			ThumbURL:       m.ThumbURL,
-			FileId:         m.FileId,
-			ThumbFileId:    m.ThumbFileId,
-			FileName:       m.FileName,
-			FileSize:       m.FileSize,
-			Width:          m.Width,
-			Height:         m.Height,
-			DurationMs:     m.DurationMs,
-			StickerId:      m.StickerId,
-			PackId:         m.PackId,
-		}
-
-		om := OfflineMessageRes{
-			ConversationId: m.ConversationID,
-			DisplayName:    m.DisplayName,
-			Avatar:         m.Avatar,
-			UnRead:         unreadMap[m.ConversationID],
-			LatestMessage:  latestMessage,
-		}
-
-		res = append(res, om)
-	}
-
-	return
 }

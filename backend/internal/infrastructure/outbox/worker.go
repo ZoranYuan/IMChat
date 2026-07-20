@@ -44,7 +44,7 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		if err := w.dispatchPendingOnce(ctx); err != nil {
-			log.Printf("Outbox 工作任务执行失败：%v", err)
+			log.Printf("消息出箱任务执行失败：%v", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -56,7 +56,7 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 
 func (w *OutboxWorker) dispatchPendingOnce(ctx context.Context) error {
 	if w.txManager == nil || w.outboxRepo == nil || w.publisher == nil {
-		return errors.New("Outbox Worker 依赖未配置")
+		return errors.New("消息出箱工作器依赖未配置")
 	}
 	var batch []*outboxport.Entry
 	now := time.Now()
@@ -76,7 +76,7 @@ func (w *OutboxWorker) dispatchPendingOnce(ctx context.Context) error {
 			continue
 		}
 		if err := w.dispatchOne(ctx, item); err != nil {
-			log.Printf("分发 Outbox 记录 %s 失败：%v", item.ID, err)
+			log.Printf("分发消息出箱记录 %s 失败：%v", item.ID, err)
 		}
 	}
 	return nil

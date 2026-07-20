@@ -154,7 +154,7 @@ func (c *RoomMemberCache) GetMemberIDs(ctx context.Context, roomID string) ([]st
 		case []byte:
 			member = string(value)
 		default:
-			return nil, false, fmt.Errorf("房间成员 ID 类型无效：%T", raw)
+			return nil, false, fmt.Errorf("房间成员标识类型无效：%T", raw)
 		}
 		if member != roomMembersLoaded {
 			members = append(members, member)

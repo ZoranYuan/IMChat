@@ -138,7 +138,7 @@ func (r *UserConversationRepository) GetUsersByConversationID(ctx context.Contex
 
 func (r *UserConversationRepository) GetUserConversationsByUserId(ctx context.Context, userId string) ([]*conversationentity.UserConversation, error) {
 	if userId == "" {
-		return nil, errors.New("userId 不能为空")
+		return nil, errors.New("用户标识不能为空")
 	}
 
 	var userConversations []*model.UserConversation
