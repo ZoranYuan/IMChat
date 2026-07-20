@@ -10,6 +10,7 @@ tags:
   - name: Friends
   - name: FriendRequests
   - name: Rooms
+  - name: Conversations
   - name: Messages
   - name: WebSocket
 paths:
@@ -199,10 +200,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RoomJoinResponse'
+  /conversations:
+    get:
+      tags: [Conversations]
+      summary: List current user's conversations
+      description: >-
+        Returns the conversation sidebar snapshot, including the latest message
+        and unread count for each private or room conversation. Call this after
+        login, during page initialization, after a manual refresh, and after a
+        successful WebSocket reconnect. This endpoint does not return every
+        message received while offline; load a conversation's messages through
+        `/messages/history` when the user opens it.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Conversation list ordered by latest message time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationListResponse'
   /messages/history:
     get:
       tags: [Messages]
       summary: Get message history
+      description: >-
+        Loads messages for one selected conversation. Use cursor `0` to load
+        the latest page after opening a conversation, then use `nextCursor` for
+        older pages.
       security:
         - bearerAuth: []
       parameters:
@@ -227,19 +252,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageHistoryResponse'
-  /messages/offline:
-    get:
-      tags: [Messages]
-      summary: Get offline messages
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OfflineMessageListResponse'
   /ws:
     get:
       tags: [WebSocket]
@@ -474,6 +486,106 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/RoomJoinData'
+    ConversationPeerUser:
+      type: object
+      properties:
+        userId:
+          type: string
+        userName:
+          type: string
+        nickName:
+          type: string
+        remark:
+          type: string
+        avatar:
+          type: string
+    ConversationRoom:
+      type: object
+      properties:
+        roomId:
+          type: string
+        roomName:
+          type: string
+        avatar:
+          type: string
+        description:
+          type: string
+        memberCount:
+          type: integer
+    ConversationLatestMessage:
+      type: object
+      properties:
+        messageId:
+          type: string
+        conversationId:
+          type: string
+        senderId:
+          type: string
+        seq:
+          type: integer
+          format: int64
+        convType:
+          type: integer
+          enum: [1, 2]
+          description: 1 means private chat; 2 means room chat.
+        cType:
+          type: integer
+          description: Message content type.
+        content:
+          type: string
+        sendTime:
+          type: integer
+          format: int64
+    ConversationItem:
+      type: object
+      required:
+        - conversationId
+        - convType
+        - targetId
+        - displayName
+        - avatar
+        - unread
+        - isMuted
+      properties:
+        conversationId:
+          type: string
+        convType:
+          type: integer
+          enum: [1, 2]
+          description: 1 means private chat; 2 means room chat.
+        targetId:
+          type: string
+          description: Peer user ID for private chat, or room ID for room chat.
+        displayName:
+          type: string
+        avatar:
+          type: string
+        unread:
+          type: integer
+          format: int64
+          minimum: 0
+        lastMessage:
+          $ref: '#/components/schemas/ConversationLatestMessage'
+        peerUser:
+          allOf:
+            - $ref: '#/components/schemas/ConversationPeerUser'
+          description: Present only when convType is 1.
+        room:
+          allOf:
+            - $ref: '#/components/schemas/ConversationRoom'
+          description: Present only when convType is 2.
+        isMuted:
+          type: boolean
+          description: Whether notifications are muted for the current user.
+    ConversationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ConversationItem'
     MessageItem:
       type: object
       properties:
@@ -512,26 +624,3 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/MessageHistoryData'
-    OfflineMessageItem:
-      type: object
-      properties:
-        conversationId:
-          type: string
-        displayName:
-          type: string
-        avatar:
-          type: string
-        unread:
-          type: integer
-          format: int64
-        latestMessage:
-          $ref: '#/components/schemas/MessageItem'
-    OfflineMessageListResponse:
-      allOf:
-        - $ref: '#/components/schemas/BaseResponse'
-        - type: object
-          properties:
-            data:
-              type: array
-              items:
-                $ref: '#/components/schemas/OfflineMessageItem'
