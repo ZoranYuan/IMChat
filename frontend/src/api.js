@@ -1,58 +1,23 @@
 import axios from "axios";
 
 export class ApiError extends Error {
-  constructor(message, { code = 0, status = 0, data = null, raw = null } = {}) {
+  constructor(message, { code = 0, status = 0, data = null } = {}) {
     super(message);
     this.name = "ApiError";
     this.code = code;
     this.status = status;
     this.data = data;
-    this.raw = raw;
   }
 }
 
-function isSuccessCode(code) {
-  return code === 200 || code === 0;
-}
-
-function toApiError(error, fallback = "请求失败") {
-  const response = error?.response;
-  const payload = response?.data;
-
-  if (payload && typeof payload === "object") {
-    const message = payload.message || payload.msg || fallback;
-    return new ApiError(message, {
-      code: payload.code ?? response?.status ?? 0,
-      status: response?.status ?? 0,
-      data: payload.data ?? null,
-      raw: payload,
-    });
-  }
-
-  if (response) {
-    return new ApiError(response.statusText || fallback, {
-      code: response.status,
-      status: response.status,
-      raw: response,
-    });
-  }
-
-  return new ApiError(error?.message || "网络异常", {
-    code: error?.code || 0,
-    raw: error,
-  });
-}
-
-export const http = axios.create({
+const http = axios.create({
   baseURL: "/api/v1",
   timeout: 15000,
 });
 
 http.interceptors.request.use((config) => {
-  const token = config.token || localStorage.getItem("im_token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  const token = config.token || localStorage.getItem("im_token") || sessionStorage.getItem("im_token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   delete config.token;
   return config;
 });
@@ -61,139 +26,89 @@ http.interceptors.response.use(
   (response) => {
     const payload = response.data;
     if (payload && typeof payload === "object" && "code" in payload) {
-      if (!isSuccessCode(payload.code)) {
-        throw new ApiError(payload.message || payload.msg || "请求失败", {
+      if (payload.code !== 0 && payload.code !== 200) {
+        throw new ApiError(payload.message || "请求失败", {
           code: payload.code,
           status: response.status,
-          data: payload.data ?? null,
-          raw: payload,
+          data: payload.data,
         });
       }
-      return payload.data ?? payload;
+      return payload.data ?? null;
     }
     return payload;
   },
   (error) => {
-    throw toApiError(error);
+    if (error instanceof ApiError) throw error;
+    const payload = error.response?.data;
+    throw new ApiError(payload?.message || error.message || "网络连接失败", {
+      code: payload?.code || error.response?.status || 0,
+      status: error.response?.status || 0,
+      data: payload?.data,
+    });
   },
 );
 
-export function login(form) {
-  return http.post("/users/login", {
+export const loginUser = ({ phone, password }) =>
+  http.post("/users/login", { loginType: 1, phone: phone.trim(), password });
+
+export const registerUser = ({ phone, password, reconfirmPassword }) =>
+  http.post("/users/register", {
     loginType: 1,
-    phone: (form.phone || "").trim(),
-    password: form.password,
+    phone: phone.trim(),
+    password,
+    reconfirmPassword,
   });
-}
 
-export function register(form) {
-  return http.post("/users/register", {
-    loginType: 1,
-    phone: form.phone,
-    password: form.password,
-    reconfirmPassword: form.password,
-  });
-}
+export const logoutUser = (token) => http.post("/users/logout", {}, { token });
 
-export function getOfflineMessages(token) {
-  return http.get("/messages/offline", { token });
-}
+export const getUser = (token, userId) => http.get(`/users/${userId}`, { token });
 
-export function getConversations(token) {
-  return http.get("/conversations", { token });
-}
+export const getFriends = (token) => http.get("/friends", { token });
 
-export function getHistoryMessages(token, conversationId, cursor = 0, limit = 30, convType = undefined) {
-  return http.get("/messages/history", {
+export const getFriendRequests = (token) => http.get("/friend-requests", { token });
+
+export const createFriendRequest = (token, { toUserId, message }) =>
+  http.post("/friend-requests", { toUserId, message }, { token });
+
+export const operateFriendRequest = (token, { requestId, fromUserId, action }) =>
+  http.post("/friend-requests/actions", { requestId, fromUserId, action }, { token });
+
+export const createRoom = (token, { roomName, description = "", avatar = "" }) =>
+  http.post("/rooms", { roomName, description, avatar }, { token });
+
+export const joinRoom = (token, inviteCode) =>
+  http.post("/rooms/join", { inviteCode }, { token });
+
+export const getRoomInviteCode = (token, roomId) =>
+  http.get(`/rooms/${roomId}/invite-code`, { token });
+
+export const getConversations = (token) => http.get("/conversations", { token });
+
+export const getMessageHistory = (token, conversationId, cursor = 0, limit = 30) =>
+  http.get("/messages/history", {
     token,
-    params: {
-      conversationId,
-      convType,
-      cursor,
-      limit,
-    },
+    params: { conversationId, cursor, limit },
   });
-}
 
-export function createRoom(token, form) {
-  return http.post(
-    "/rooms",
-    {
-      roomName: form.roomName,
-      avatar: form.avatar || "",
-      description: form.description || "",
-    },
-    { token },
-  );
-}
-
-export function joinRoom(token, inviteCode) {
-  return http.post("/rooms/join", { inviteCode }, { token });
-}
-
-export function getInviteCode(token, roomId) {
-  return http.get(`/rooms/${roomId}/invite-code`, { token });
-}
-
-export function uploadFile(token, file) {
+export const uploadFile = (token, file) => {
   const form = new FormData();
   form.append("file", file);
   return http.post("/files", form, { token });
-}
+};
 
-export function initMultipartUpload(token, payload) {
-  return http.post("/files/multipart/init", payload, { token });
-}
+export const initMultipartUpload = (token, payload) =>
+  http.post("/files/multipart/init", payload, { token });
 
-export function uploadMultipartPart(token, uploadId, partNumber, chunk, chunkHash = "") {
+export const uploadMultipartPart = (token, uploadId, partNumber, chunk, chunkHash) => {
   const form = new FormData();
   form.append("chunk", chunk);
   form.append("chunkHash", chunkHash);
   return http.put(`/files/multipart/${uploadId}/parts/${partNumber}`, form, { token });
-}
+};
 
-export function completeMultipartUpload(token, uploadId) {
-  return http.post(`/files/multipart/${uploadId}/complete`, {}, { token });
-}
+export const completeMultipartUpload = (token, uploadId) =>
+  http.post(`/files/multipart/${uploadId}/complete`, {}, { token });
 
-export function getFile(token, fileId) {
-  return http.get(`/files/${fileId}`, { token });
-}
+export const getFile = (token, fileId) => http.get(`/files/${fileId}`, { token });
 
-export function getFriends(token) {
-  return http.get("/friends", { token });
-}
-
-export function resolveUser(token, keyword) {
-  return http.get("/users/resolve", {
-    token,
-    params: { keyword },
-  });
-}
-
-export function createFriendRequest(token, form) {
-  return http.post(
-    "/friend-requests",
-    {
-      toUserId: form.toUserId,
-      message: form.message || "你好，我想加你为好友",
-    },
-    { token },
-  );
-}
-
-export function getFriendRequests(token) {
-  return http.get("/friend-requests", { token });
-}
-
-export function operateFriendRequest(token, requestId, fromUserId, action) {
-  return http.post(
-    "/friend-requests/actions",
-    {
-      requestId,
-      fromUserId,
-      action,
-    },
-    { token },
-  );
-}
+export default http;

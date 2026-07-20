@@ -1,8 +1,14 @@
 import { computed, ref } from "vue";
-import { completeMultipartUpload, initMultipartUpload, uploadMultipartPart } from "../api";
+import {
+  completeMultipartUpload,
+  initMultipartUpload,
+  uploadFile,
+  uploadMultipartPart,
+} from "../api.js";
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 const DEFAULT_CONCURRENCY = 3;
+const MULTIPART_THRESHOLD = 8 * 1024 * 1024;
 const MAX_RETRIES = 3;
 const FINGERPRINT_SAMPLE_SIZE = 2 * 1024 * 1024;
 
@@ -18,89 +24,17 @@ export function useChunkUpload(options = {}) {
   const paused = ref(false);
   const canceled = ref(false);
 
-  const isUploading = computed(() => status.value === "hashing" || status.value === "uploading" || status.value === "completing");
+  const isUploading = computed(() =>
+    ["hashing", "initializing", "uploading", "completing"].includes(status.value),
+  );
 
-  async function upload(token, file) {
-    reset();
-    if (!file) throw new Error("文件不能为空");
+  const updateProgress = () => {
+    progress.value = totalBytes.value
+      ? Math.min(100, Math.floor((uploadedBytes.value / totalBytes.value) * 100))
+      : 0;
+  };
 
-    status.value = "hashing";
-    totalBytes.value = file.size;
-    // 返回文件 hash
-    const fileHash = await createFileFingerprint(file);
-    const totalChunks = Math.ceil(file.size / chunkSize);
-
-    status.value = "initializing";
-    const initRes = await initMultipartUpload(token, {
-      fileName: file.name,
-      contentType: file.type || "application/octet-stream",
-      size: file.size,
-      fileHash,
-      chunkSize,
-      totalChunks,
-    });
-
-    if (initRes.completed && initRes.file) {
-      progress.value = 100;
-      uploadedBytes.value = file.size;
-      status.value = "completed";
-      return initRes.file;
-    }
-
-    uploadId.value = initRes.uploadId;
-    const uploadedSet = new Set(initRes.uploadedParts || []);
-    uploadedBytes.value = uploadedUploadedBytes(file, uploadedSet, totalChunks, chunkSize);
-    updateProgress();
-
-    status.value = "uploading";
-    const queue = [];
-    for (let partNumber = 1; partNumber <= totalChunks; partNumber += 1) {
-      if (!uploadedSet.has(partNumber)) queue.push(partNumber);
-    }
-
-    let cursor = 0;
-
-    // 不阻塞当前线程，开启 worker 去进行文件 hash
-    async function worker() {
-      while (cursor < queue.length) {
-        if (canceled.value) throw new Error("上传已取消");
-        while (paused.value) await sleep(200);
-        const partNumber = queue[cursor];
-        cursor += 1;
-        await uploadPartWithRetry(token, file, uploadId.value, partNumber, totalChunks);
-      }
-    }
-
-    await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, () => worker()));
-
-    status.value = "completing";
-    const fileRes = await completeMultipartUpload(token, uploadId.value);
-    progress.value = 100;
-    uploadedBytes.value = file.size;
-    status.value = "completed";
-    return fileRes;
-  }
-
-  function pause() {
-    if (status.value === "uploading") {
-      paused.value = true;
-      status.value = "paused";
-    }
-  }
-
-  function resume() {
-    if (status.value === "paused") {
-      paused.value = false;
-      status.value = "uploading";
-    }
-  }
-
-  function cancel() {
-    canceled.value = true;
-    status.value = "canceled";
-  }
-
-  function reset() {
+  const reset = () => {
     status.value = "idle";
     progress.value = 0;
     uploadedBytes.value = 0;
@@ -109,37 +43,109 @@ export function useChunkUpload(options = {}) {
     uploadId.value = "";
     paused.value = false;
     canceled.value = false;
-  }
+  };
 
-  async function uploadPartWithRetry(token, file, currentUploadId, partNumber, totalChunks) {
+  const uploadPartWithRetry = async (token, file, currentUploadId, partNumber) => {
     const start = (partNumber - 1) * chunkSize;
-    const end = Math.min(file.size, start + chunkSize);
-    const chunk = file.slice(start, end);
+    const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
     const chunkHash = await hashBlob(chunk);
-
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
       try {
         await uploadMultipartPart(token, currentUploadId, partNumber, chunk, chunkHash);
         uploadedBytes.value += chunk.size;
         updateProgress();
         return;
-      } catch (err) {
-        if (attempt === MAX_RETRIES) {
-          error.value = err.message;
-          throw err;
-        }
+      } catch (uploadError) {
+        if (attempt === MAX_RETRIES) throw uploadError;
         await sleep(500 * attempt);
       }
     }
-  }
+  };
 
-  function updateProgress() {
-    if (!totalBytes.value) {
-      progress.value = 0;
-      return;
+  const uploadMultipart = async (token, file) => {
+    status.value = "hashing";
+    const fileHash = await createFileFingerprint(file);
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    status.value = "initializing";
+    const initialized = await initMultipartUpload(token, {
+      fileName: file.name,
+      contentType: file.type || "application/octet-stream",
+      size: file.size,
+      fileHash,
+      chunkSize,
+      totalChunks,
+    });
+    if (initialized.completed && initialized.file) return initialized.file;
+
+    uploadId.value = initialized.uploadId;
+    const uploadedParts = new Set(initialized.uploadedParts || []);
+    for (const partNumber of uploadedParts) {
+      const start = (partNumber - 1) * chunkSize;
+      uploadedBytes.value += Math.max(0, Math.min(file.size, start + chunkSize) - start);
     }
-    progress.value = Math.min(100, Math.floor((uploadedBytes.value / totalBytes.value) * 100));
-  }
+    updateProgress();
+
+    const queue = Array.from({ length: totalChunks }, (_, index) => index + 1)
+      .filter((partNumber) => !uploadedParts.has(partNumber));
+    let cursor = 0;
+    status.value = "uploading";
+
+    const worker = async () => {
+      while (cursor < queue.length) {
+        if (canceled.value) throw new Error("上传已取消");
+        while (paused.value) await sleep(150);
+        if (canceled.value) throw new Error("上传已取消");
+        const partNumber = queue[cursor];
+        cursor += 1;
+        await uploadPartWithRetry(token, file, initialized.uploadId, partNumber);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
+    status.value = "completing";
+    return completeMultipartUpload(token, initialized.uploadId);
+  };
+
+  const upload = async (token, file) => {
+    reset();
+    if (!file || file.size <= 0) throw new Error("文件不能为空");
+    totalBytes.value = file.size;
+    try {
+      let result;
+      if (file.size < MULTIPART_THRESHOLD) {
+        status.value = "uploading";
+        result = await uploadFile(token, file);
+      } else {
+        result = await uploadMultipart(token, file);
+      }
+      if (canceled.value) throw new Error("上传已取消");
+      uploadedBytes.value = file.size;
+      progress.value = 100;
+      status.value = "completed";
+      return result;
+    } catch (uploadError) {
+      error.value = uploadError.message;
+      if (!canceled.value) status.value = "failed";
+      throw uploadError;
+    }
+  };
+
+  const pause = () => {
+    if (status.value === "uploading") {
+      paused.value = true;
+      status.value = "paused";
+    }
+  };
+  const resume = () => {
+    if (status.value === "paused") {
+      paused.value = false;
+      status.value = "uploading";
+    }
+  };
+  const cancel = () => {
+    canceled.value = true;
+    paused.value = false;
+    status.value = "canceled";
+  };
 
   return {
     status,
@@ -157,63 +163,31 @@ export function useChunkUpload(options = {}) {
   };
 }
 
-function uploadedUploadedBytes(file, uploadedSet, totalChunks, chunkSize) {
-  let bytes = 0;
-  for (const partNumber of uploadedSet) {
-    const start = (partNumber - 1) * chunkSize;
-    const end = partNumber === totalChunks ? file.size : Math.min(file.size, start + chunkSize);
-    bytes += Math.max(0, end - start);
-  }
-  return bytes;
-}
-
 async function createFileFingerprint(file) {
-  const samples = sampleFileChunks(file);
-  const buffers = [];
-  let totalLength = 0;
-  for (const sample of samples) {
-    const buffer = await sample.arrayBuffer();
-    buffers.push(new Uint8Array(buffer));
-    totalLength += buffer.byteLength;
-    await sleep(0);
-  }
-
-  const meta = new TextEncoder().encode([file.name, file.size, file.type, file.lastModified].join("|"));
-  const payload = new Uint8Array(meta.byteLength + totalLength);
-  payload.set(meta, 0);
-  let offset = meta.byteLength;
-  for (const buffer of buffers) {
-    payload.set(buffer, offset);
+  const sampleSize = FINGERPRINT_SAMPLE_SIZE;
+  const samples = file.size <= sampleSize * 3
+    ? [file]
+    : [
+        file.slice(0, sampleSize),
+        file.slice(Math.floor(file.size / 2 - sampleSize / 2), Math.floor(file.size / 2 + sampleSize / 2)),
+        file.slice(file.size - sampleSize, file.size),
+      ];
+  const buffers = await Promise.all(samples.map((sample) => sample.arrayBuffer()));
+  const metadata = new TextEncoder().encode([file.name, file.size, file.type, file.lastModified].join("|"));
+  const size = buffers.reduce((total, buffer) => total + buffer.byteLength, metadata.byteLength);
+  const payload = new Uint8Array(size);
+  payload.set(metadata);
+  let offset = metadata.byteLength;
+  buffers.forEach((buffer) => {
+    payload.set(new Uint8Array(buffer), offset);
     offset += buffer.byteLength;
-  }
-
-  return digestBuffer(payload);
+  });
+  return digest(payload);
 }
 
-function sampleFileChunks(file) {
-  if (file.size <= FINGERPRINT_SAMPLE_SIZE * 3) {
-    return [file];
-  }
-
-  const middleStart = Math.max(0, Math.floor(file.size / 2 - FINGERPRINT_SAMPLE_SIZE / 2));
-  return [
-    file.slice(0, FINGERPRINT_SAMPLE_SIZE),
-    file.slice(middleStart, middleStart + FINGERPRINT_SAMPLE_SIZE),
-    file.slice(file.size - FINGERPRINT_SAMPLE_SIZE, file.size),
-  ];
-}
-
-async function hashBlob(blob) {
-  return digestBuffer(await blob.arrayBuffer());
-}
-
-async function digestBuffer(buffer) {
-  const digest = await crypto.subtle.digest("SHA-256", buffer);
-  return Array.from(new Uint8Array(digest))
-    .map((item) => item.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
+const hashBlob = async (blob) => digest(await blob.arrayBuffer());
+const digest = async (buffer) => {
+  const result = await crypto.subtle.digest("SHA-256", buffer);
+  return Array.from(new Uint8Array(result), (value) => value.toString(16).padStart(2, "0")).join("");
+};
+const sleep = (duration) => new Promise((resolve) => window.setTimeout(resolve, duration));
