@@ -13,7 +13,9 @@ type RoomUser struct {
 	MuteUtil  *int64
 	JoinTime  int64
 	LeaveTime *int64
-	Version   int64
+
+	// 标识用户在某个房间中的成员状态版本
+	Version int64
 }
 
 func NewRoomUser(userId, roomId string, role roomvo.Role) *RoomUser {

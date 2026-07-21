@@ -14,5 +14,6 @@ type UserConversationRepository interface {
 	UpdateSyncSeq(ctx context.Context, conversation *conversationentity.UserConversation) error
 	UpdateReadSeq(ctx context.Context, conversation *conversationentity.UserConversation) error
 	ListByUser(ctx context.Context, userId string) ([]*conversationentity.UserConversation, error)
+	DelUserConversation(ctx context.Context, userId string, conversationId string) error
 	WithTx(tx any) UserConversationRepository
 }

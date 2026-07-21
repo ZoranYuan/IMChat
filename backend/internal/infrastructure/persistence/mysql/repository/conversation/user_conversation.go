@@ -206,3 +206,9 @@ func (r *UserConversationRepository) ListByUser(
 
 	return result, nil
 }
+
+func (r *UserConversationRepository) DelUserConversation(ctx context.Context, userId string, conversationId string) error {
+	return r.db.WithContext(ctx).
+		Where("user_id = ? AND conversation_id =? ", userId, conversationId).
+		Delete(&model.UserConversation{}).Error
+}

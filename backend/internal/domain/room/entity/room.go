@@ -17,6 +17,7 @@ type Room struct {
 	Avatar      string
 	MemberCount int
 	MaxMembers  int
+	Version     int
 }
 
 func NewRoom(
@@ -37,6 +38,7 @@ func NewRoom(
 		RoomName:    roomName,
 		Status:      roomvo.Normal,
 		Avatar:      avatar,
+		Version:     1,
 	}, nil
 }
 

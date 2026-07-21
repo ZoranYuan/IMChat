@@ -49,6 +49,32 @@ func (rur *RoomUserRepository) ListActiveUserIDs(roomId string) ([]string, error
 	return userIds, err
 }
 
+func (r *RoomUserRepository) RejoinRoom(
+	member *roomentity.RoomUser,
+) error {
+	result := r.db.Model(&model.RoomUser{}).
+		Where("room_id = ? AND user_id = ?", member.RoomId, member.UserId).
+		Where("status = ?", roomvo.Left).
+		Where("version = ?", member.Version).
+		Updates(map[string]any{
+			"status":     roomvo.Activate,
+			"join_time":  member.JoinTime,
+			"leave_time": nil,
+			"mute_util":  nil,
+			"version":    gorm.Expr("version + 1"),
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return roomentity.ErrVersionConflict
+	}
+
+	member.Version++
+	return nil
+}
+
 func (rur *RoomUserRepository) JoinRoom(domain *roomentity.RoomUser) (*roomentity.RoomUser, error) {
 	model := ToModel(domain)
 

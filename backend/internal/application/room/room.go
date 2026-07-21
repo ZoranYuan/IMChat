@@ -183,7 +183,6 @@ func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (s
 
 func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) (*RoomUserDTO, *RoomAppDTO, error) {
 	roomId, err := ra.roomCache.GetRoomIDByCode(ctx, inviteCode)
-	conversationId := roomId
 	if err != nil {
 		if errors.Is(err, roomentity.ErrInviteCodeExpired) {
 			return nil, nil, ErrInviteCodeExpired
@@ -193,30 +192,48 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		return nil, nil, ErrUnknown
 	}
 
-	room, err := ra.roomRepository.FindActiveRoom(roomId, int(roomvo.Normal))
-	if err != nil {
-		if errors.Is(err, roomentity.ErrRoomNotFound) {
-			return nil, nil, ErrRoomNotFound
-		}
+	conversationId := roomId
 
-		return nil, nil, ErrUnknown
-	}
-
-	roomUser := roomentity.NewRoomUser(userId, roomId, roomvo.RegularUser)
-	roomUser.Join()
+	var persistedMember *roomentity.RoomUser
+	var room *roomentity.Room
 
 	if err := ra.txManager.WithinTransaction(ctx, func(tx any) error {
-		roomUserRepository := ra.roomUserRepository.WithTx(tx)
-		userConversationRepository := ra.userConversationRepository.WithTx(tx)
-		conversationRepository := ra.conversationRepository.WithTx(tx)
+		room, err = ra.roomRepository.WithTx(tx).FindActiveRoom(roomId, int(roomvo.Normal))
 
-		if _, err := roomUserRepository.JoinRoom(roomUser); err != nil {
-			if !errors.Is(err, roomentity.ErrDuplicateCreation) {
-				return err
-			}
+		if err != nil {
+			return err
 		}
 
-		conv, err := conversationRepository.GetByID(ctx, conversationId)
+		member, err := ra.roomUserRepository.WithTx(tx).GetRelationByIDs(userId, roomId)
+
+		switch {
+		case errors.Is(err, roomentity.ErrMemberNotFound):
+			// 第一次加入
+			newRoomUser := roomentity.NewRoomUser(userId, roomId, roomvo.RegularUser)
+			newRoomUser.Join()
+
+			persistedMember, err = ra.roomUserRepository.WithTx(tx).JoinRoom(newRoomUser)
+
+			if err != nil {
+				return err
+			}
+		case err != nil:
+			return err
+
+		default:
+			// 重新加入
+			if err := member.ReJoin(); err != nil {
+				return err
+			}
+
+			if err := ra.roomUserRepository.WithTx(tx).RejoinRoom(member); err != nil {
+				return err
+			}
+
+			persistedMember = member
+		}
+
+		conv, err := ra.conversationRepository.WithTx(tx).GetByID(ctx, conversationId)
 		if err != nil {
 			return err
 		}
@@ -229,7 +246,8 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 			conversationvo.RoomChat,
 		)
 
-		if err := userConversationRepository.CreateUserConversation(ctx, userConversation); err != nil {
+		// 用户退出后，重新加入房间需要重新创建一个 userConversation
+		if err := ra.userConversationRepository.WithTx(tx).CreateUserConversation(ctx, userConversation); err != nil {
 			if errors.Is(err, roomentity.ErrVersionConflict) {
 				return ErrConcurrentUpdate
 			}
@@ -241,47 +259,59 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		return nil, nil, err
 	}
 
-	memberState := &roomcache.MemberState{Status: roomUser.Status, Role: roomUser.Role, MuteUntil: roomUser.MuteUtil}
+	memberState := &roomcache.MemberState{Status: persistedMember.Status, Role: persistedMember.Role, MuteUntil: persistedMember.MuteUtil}
 	if err := ra.roomMemberCache.SetMember(ctx, roomId, userId, memberState); err != nil {
-		// best-effort cache warmup; the DB state is already authoritative
 		log.Println("更新加入房间缓存失败：", err)
 	}
 	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
 
-	return toRoomUserDTO(roomUser), toRoomAppDTO(room, ""), nil
+	return toRoomUserDTO(persistedMember), toRoomAppDTO(room, ""), nil
 }
 
 func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) error {
-	roomUser, err := ra.roomUserRepository.GetRelationByIDs(userId, roomId)
-	if err != nil {
-		return ErrUnknown
-	}
+	memberState, exist, _ :=
+		ra.roomMemberCache.GetMember(
+			ctx,
+			roomId,
+			userId,
+		)
 
-	if roomUser == nil {
+	if exist &&
+		memberState.Status != roomvo.Activate &&
+		memberState.Status != roomvo.BeMuted {
 		return ErrNotRoomMember
 	}
 
-	if err := roomUser.Leave(); err != nil {
-		return err
-	}
-
 	if err := ra.txManager.WithinTransaction(ctx, func(tx any) error {
-		roomUserRepo := ra.roomUserRepository.WithTx(tx)
+		roomUser, err := ra.roomUserRepository.WithTx(tx).GetRelationByIDs(userId, roomId)
+		if err != nil {
+			return err
+		}
 
-		if err := roomUserRepo.LeaveRoom(roomUser, []int{int(roomvo.Activate), int(roomvo.BeMuted)}); err != nil {
+		if roomUser == nil {
+			return ErrNotRoomMember
+		}
+
+		if err := roomUser.Leave(); err != nil {
+			return err
+		}
+
+		if err := ra.roomUserRepository.LeaveRoom(roomUser, []int{int(roomvo.Activate), int(roomvo.BeMuted)}); err != nil {
 			if errors.Is(err, roomentity.ErrVersionConflict) {
 				return ErrConcurrentUpdate
 			}
 			return ErrUnknown
 		}
 
-		return nil
+		// 删除 userConv
+		conversation := roomId
+
+		return ra.userConversationRepository.WithTx(tx).DelUserConversation(ctx, userId, conversation)
 	}); err != nil {
 		return err
 	}
 
 	if err := ra.roomMemberCache.SetMemberNotFound(ctx, roomId, userId); err != nil {
-		// best-effort cache warmup; the DB state is already authoritative
 		log.Println("更新退出房间缓存失败：", err)
 	}
 	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
