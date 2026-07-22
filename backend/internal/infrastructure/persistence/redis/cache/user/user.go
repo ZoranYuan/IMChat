@@ -29,8 +29,7 @@ func (u *UserCache) GetUserProfile(
 	exist, err := u.store.GetJSON(ctx, UserProfileKey(userId), &userProfile)
 
 	if !exist && err == nil {
-		// 用户不存在
-		return nil, false, ErrUserNotFonud
+		return nil, false, nil
 	}
 
 	if err != nil {

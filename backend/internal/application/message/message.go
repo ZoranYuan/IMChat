@@ -191,7 +191,12 @@ func (ma *MessageApplication) HandleReadMessage(
 
 			if user == nil {
 				// 防止缓存穿透
-				ma.userCache.SetUserProfile(ctx, userProfile, time.Duration(ma.config.Cache.UserProfile.NegativeTTL))
+				negativeProfile := &usercach.UserProfile{UserID: userId}
+				ma.userCache.SetUserProfile(
+					ctx,
+					negativeProfile,
+					time.Duration(ma.config.Cache.UserProfile.NegativeTTL)*time.Second,
+				)
 				return nil, ErrUserNotFonund
 			}
 
@@ -203,7 +208,11 @@ func (ma *MessageApplication) HandleReadMessage(
 				Status:   int(user.Status),
 			}
 
-			if err := ma.userCache.SetUserProfile(ctx, userProfile, time.Duration(ma.config.Cache.UserProfile.TTL)); err != nil {
+			if err := ma.userCache.SetUserProfile(
+				ctx,
+				userProfile,
+				time.Duration(ma.config.Cache.UserProfile.TTL)*time.Second,
+			); err != nil {
 				log.Println("写入用户资料缓存失败：", err)
 			}
 
