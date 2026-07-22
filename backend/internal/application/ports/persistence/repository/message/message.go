@@ -50,6 +50,14 @@ type MessageRepository interface {
 		conversationIDs []string,
 	) ([]*messageentity.Message, error)
 
+	ListDistinctSendersBySeqRange(
+		ctx context.Context,
+		conversationId string,
+		minSeqExclusive int64,
+		maxSeqInclusive int64,
+		excludeUserId string,
+	) ([]string, error)
+
 	WithTx(tx any) MessageRepository
 }
 

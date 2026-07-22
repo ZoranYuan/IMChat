@@ -8,5 +8,5 @@ import (
 
 type MessageDelivery interface {
 	DeliverMessage(ctx context.Context, command messageapp.DeliveryCommand) error
-	DeliverReadNotification(ctx context.Context, event protocol.MessageReadAckEvent, payload []byte) error
+	DeliverReadNotification(ctx context.Context, event protocol.MessageReadCommittedEvent) error
 }

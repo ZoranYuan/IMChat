@@ -21,9 +21,9 @@ func (handler *ReadHandler) Handle(ctx context.Context, message eventbus.Incomin
 		return eventbus.NonRetryable(err)
 	}
 
-	var event protocol.MessageReadAckEvent
+	var event protocol.MessageReadCommittedEvent
 	if err := json.Unmarshal(envelope.Payload, &event); err != nil {
 		return eventbus.NonRetryable(err)
 	}
-	return handler.delivery.DeliverReadNotification(ctx, event, envelope.Payload)
+	return handler.delivery.DeliverReadNotification(ctx, event)
 }

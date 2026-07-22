@@ -8,6 +8,7 @@ import (
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/shared/protocol"
 	"context"
+	"encoding/json"
 	"log"
 
 	"golang.org/x/sync/singleflight"
@@ -87,13 +88,34 @@ func (application *DeliveryApplication) DeliverMessage(ctx context.Context, comm
 
 func (application *DeliveryApplication) DeliverReadNotification(
 	_ context.Context,
-	event protocol.MessageReadAckEvent,
-	payload []byte,
+	event protocol.MessageReadCommittedEvent,
 ) error {
-	if event.SenderId == "" {
+	if len(event.NotifyUserIds) == 0 {
 		return nil
 	}
-	return application.delivery.DeliverToUser(protocol.EventReadMessageNotify, event.SenderId, payload)
+
+	notify := protocol.MessageReadAckEvent{
+		UserId:         event.ReaderId,
+		ConversationId: event.ConversationId,
+		LastReadSeq:    event.LastReadSeq,
+		ConvType:       event.ConvType,
+		Avatar:         event.Avatar,
+	}
+	payload, err := json.Marshal(notify)
+	if err != nil {
+		return err
+	}
+
+	for _, userId := range event.NotifyUserIds {
+		if err := application.delivery.DeliverToUser(
+			protocol.EventReadMessageNotify,
+			userId,
+			payload,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (application *DeliveryApplication) syncSequences(

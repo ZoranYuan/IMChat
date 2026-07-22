@@ -221,3 +221,36 @@ func (r *MessageRepository) GetLatestMessagesByConversationIDs(
 
 	return domains, err
 }
+
+func (r *MessageRepository) ListDistinctSendersBySeqRange(
+	ctx context.Context,
+	conversationId string,
+	minSeqExclusive int64,
+	maxSeqInclusive int64,
+	excludeUserId string,
+) ([]string, error) {
+	if maxSeqInclusive <= minSeqExclusive {
+		return nil, nil
+	}
+
+	var userIds []string
+	query := r.db.WithContext(ctx).
+		Model(&model.Message{}).
+		Distinct("send_id").
+		Where(
+			"conversation_id = ? AND seq > ? AND seq <= ?",
+			conversationId,
+			minSeqExclusive,
+			maxSeqInclusive,
+		)
+
+	if excludeUserId != "" {
+		query = query.Where("send_id <> ?", excludeUserId)
+	}
+
+	if err := query.Pluck("send_id", &userIds).Error; err != nil {
+		return nil, err
+	}
+
+	return userIds, nil
+}

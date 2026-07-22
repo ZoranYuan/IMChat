@@ -202,12 +202,12 @@ func main() {
 	readNotifyHandler := eventtransport.NewReadHandler(messageDeliveryApplication)
 	messageProducer := kafka.NewProducer(kafkaClient, "msg")
 	consumerRouter := kafka.NewConsumerRouter(map[string]eventbus.Handler{
-		protocol.EventTypeSendMessage: messageSendHandler,
-		protocol.EventReadMessageAck:  readNotifyHandler, // 当接收到读消息确认时，将已读用户通知给消息发送方
+		protocol.EventTypeSendMessage:      messageSendHandler,
+		protocol.EventReadMessageCommitted: readNotifyHandler, // 当读水位提交后，将已读用户通知给消息发送方
 	})
 
 	messageConsumerGroup, err := kafka.NewConsumerGroup(kafkaClient, []string{
-		string(protocol.EventReadMessageAck),
+		string(protocol.EventReadMessageCommitted),
 		string(protocol.EventTypeSendMessage),
 	},
 		consumerRouter,

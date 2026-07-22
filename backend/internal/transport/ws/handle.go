@@ -99,7 +99,7 @@ func (wh *WSHandler) handleReadMessageAck(ctx context.Context, session *realtime
 		return err
 	}
 
-	return wh.app.HandleReadMessage(ctx, session.UserID(), pb.GetConversationId(), pb.GetLastReadSeq(), pb.GetSenderId())
+	return wh.app.HandleReadMessage(ctx, session.UserID(), pb.GetConversationId(), pb.GetLastReadSeq())
 }
 
 func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.Session, data []byte) error {

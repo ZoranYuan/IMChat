@@ -118,18 +118,14 @@ func (ma *MessageApplication) HandleReadMessage(
 	userId string,
 	conversationId string,
 	lastReadSeq int64,
-	senderId string,
 ) error {
-	if senderId == "" || senderId == userId {
-		return nil
-	}
-
 	uconv, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
 	if err != nil {
 		return ErrConversationNotFound
 	}
 
-	if lastReadSeq <= uconv.LastReadSeq {
+	oldLastReadSeq := uconv.LastReadSeq
+	if lastReadSeq <= oldLastReadSeq {
 		return nil
 	}
 
@@ -140,6 +136,24 @@ func (ma *MessageApplication) HandleReadMessage(
 	if conv == nil {
 		return ErrConversationNotFound
 	}
+	if lastReadSeq > conv.LatestSeq {
+		lastReadSeq = conv.LatestSeq
+	}
+	if lastReadSeq <= oldLastReadSeq {
+		return nil
+	}
+
+	notifyUserIds, err := ma.messageRepository.ListDistinctSendersBySeqRange(
+		ctx,
+		conversationId,
+		oldLastReadSeq,
+		lastReadSeq,
+		userId,
+	)
+	if err != nil {
+		return err
+	}
+
 	uconv.UpdateReadSeq(lastReadSeq)
 
 	if ma.txManager == nil || ma.messageOutboxRepository == nil {
@@ -210,7 +224,7 @@ func (ma *MessageApplication) HandleReadMessage(
 
 		state, ok := result.Val.(*usercach.UserProfile)
 		if !ok || state == nil {
-			// 这个缓存设置失败，需要删除当前缓存
+			// 缓存不生效，需要删除当前缓存
 			ma.userCache.DeleteUserProfiles(ctx, []string{userId})
 			return ErrUserNotFonund
 		}
@@ -222,19 +236,22 @@ func (ma *MessageApplication) HandleReadMessage(
 		if err := ma.userConversationRepository.WithTx(tx).UpdateReadSeq(ctx, uconv); err != nil {
 			return err
 		}
-		if senderId == userId {
+
+		if len(notifyUserIds) == 0 {
 			return nil
 		}
 
-		ackEvent := protocol.MessageReadAckEvent{
+		readEvent := protocol.MessageReadCommittedEvent{
+			ReaderId:       userId,
 			ConversationId: conversationId,
+			OldReadSeq:     oldLastReadSeq,
 			LastReadSeq:    lastReadSeq,
-			UserId:         userId,
 			ConvType:       protocol.ConvType(conv.Convtype),
-			SenderId:       senderId,
+			NotifyUserIds:  notifyUserIds,
 			Avatar:         userProfile.Avatar,
 		}
-		eventPayload, err := json.Marshal(ackEvent)
+
+		eventPayload, err := json.Marshal(readEvent)
 		if err != nil {
 			return err
 		}
@@ -246,7 +263,11 @@ func (ma *MessageApplication) HandleReadMessage(
 			return err
 		}
 
-		outbox := &outboxport.Entry{EventType: string(protocol.EventReadMessageAck), MessageKey: userId + ":" + conversationId, Payload: payload}
+		outbox := &outboxport.Entry{
+			EventType:  string(protocol.EventReadMessageCommitted),
+			MessageKey: userId + ":" + conversationId,
+			Payload:    payload,
+		}
 		return ma.messageOutboxRepository.WithTx(tx).Create(ctx, outbox)
 	})
 }

@@ -19,7 +19,7 @@ func (stub *deliveryStub) DeliverMessage(_ context.Context, command messageapp.D
 	return nil
 }
 
-func (stub *deliveryStub) DeliverReadNotification(context.Context, protocol.MessageReadAckEvent, []byte) error {
+func (stub *deliveryStub) DeliverReadNotification(context.Context, protocol.MessageReadCommittedEvent) error {
 	return nil
 }
 
