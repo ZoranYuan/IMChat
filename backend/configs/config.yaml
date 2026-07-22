@@ -22,6 +22,10 @@ ws:
   timer_interval_seconds: 30
   max_message_size: 5120
   max_message_send_buffer_size: 256
+  batch_max_messages: 64
+  batch_max_bytes: 8192
+  batch_linger_milliseconds: 20
+  batch_ready_queue_size: 16
   message_event_worker_count: 100
 kafka:
   brokers:

@@ -23,9 +23,10 @@
 ## WebSocket 实时通道
 
 ```
-路径: GET /ws  (JWT 鉴权)
+路径: GET /api/v1/ws  (JWT 鉴权)
 连接: 每个用户一个 WebSocket 连接，通过 sessionId 标识
 心跳: 服务端定期 Ping，客户端回复 Pong
+批量能力: 连接参数带 `batch=1` 时，服务端启用批量帧；不带参数时保持单帧兼容
 ```
 
 ### WebSocket Op 一览
@@ -48,7 +49,13 @@ message WsFrame {
   string op = 1;    // 操作类型
   bytes data = 2;   // payload，按 op 对应不同的 proto message 编码
 }
+
+message WsBatch {
+  repeated WsFrame frames = 1;
+}
 ```
+
+批量模式下外层 `WsFrame.op` 为 `msg_batch`，`data` 解码为 `WsBatch`；客户端按 `frames` 原顺序分发每个内部 `op`。
 
 ---
 

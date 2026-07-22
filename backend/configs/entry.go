@@ -92,6 +92,10 @@ type WebSocketConfig struct {
 	TimerInterval            int `yaml:"timer_interval_seconds"`
 	MaxMessageSize           int `yaml:"max_message_size"`
 	MaxMessageSendBufferSize int `yaml:"max_message_send_buffer_size"`
+	BatchMaxMessages         int `yaml:"batch_max_messages"`
+	BatchMaxBytes            int `yaml:"batch_max_bytes"`
+	BatchLingerMilliseconds  int `yaml:"batch_linger_milliseconds"`
+	BatchReadyQueueSize      int `yaml:"batch_ready_queue_size"`
 }
 
 type Server struct {

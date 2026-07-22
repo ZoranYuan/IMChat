@@ -3,6 +3,7 @@ package ws
 import (
 	"IM_backend/configs"
 	messageapp "IM_backend/internal/application/message"
+	"IM_backend/internal/infrastructure/id/snow"
 	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
 	"IM_backend/internal/shared/protocol"
 	shared_ratelimit "IM_backend/internal/shared/ratelimit"
@@ -14,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -22,20 +24,28 @@ import (
 )
 
 type WSHandler struct {
-	upgrader   websocket.Upgrader
-	app        *messageapp.MessageApplication
-	config     configs.Config
-	dispatcher *Dispatcher
-	gateway    *realtimews.Gateway
-	limiter    shared_ratelimit.Limit
+	upgrader    websocket.Upgrader
+	app         *messageapp.MessageApplication
+	config      configs.Config
+	dispatcher  *Dispatcher
+	gateway     *realtimews.Gateway
+	limiter     shared_ratelimit.Limit
+	idGenerator *snow.Generator
 }
 
-func NewWSHandler(app *messageapp.MessageApplication, config configs.Config, dispatcher *Dispatcher, gateway *realtimews.Gateway) *WSHandler {
+func NewWSHandler(
+	app *messageapp.MessageApplication,
+	config configs.Config,
+	dispatcher *Dispatcher,
+	gateway *realtimews.Gateway,
+	idGenerator *snow.Generator,
+) *WSHandler {
 	wh := &WSHandler{
-		app:        app,
-		config:     config,
-		gateway:    gateway,
-		dispatcher: dispatcher,
+		app:         app,
+		config:      config,
+		gateway:     gateway,
+		dispatcher:  dispatcher,
+		idGenerator: idGenerator,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true
@@ -183,7 +193,10 @@ func (wh *WSHandler) replyToClient(session *realtimews.Session, op string, paylo
 	if err != nil {
 		return err
 	}
-	if err := session.Enqueue(realtimews.Message{Op: op, Data: encodedPayload}); err != nil {
+	if err := session.Enqueue(
+		realtimews.Message{Op: op, Data: encodedPayload},
+		realtimews.AppendPolicyFlush,
+	); err != nil {
 		if errors.Is(err, realtimews.ErrOutboundQueueFull) {
 			session.Close()
 		}
@@ -214,8 +227,27 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 	}
 
 	sessionId := uuid.NewString()
-	session := realtimews.NewSession(ctx, cancel, conn, userId, sessionId, wh.config.WebSocket.MaxMessageSendBufferSize)
-	wh.gateway.Register(session)
+	batchConfig := realtimews.MessageBatchConfig{
+		MaxMessages:    wh.config.WebSocket.BatchMaxMessages,
+		MaxBytes:       wh.config.WebSocket.BatchMaxBytes,
+		Linger:         time.Duration(wh.config.WebSocket.BatchLingerMilliseconds) * time.Millisecond,
+		ReadyQueueSize: wh.config.WebSocket.BatchReadyQueueSize,
+	}
+	session := realtimews.NewSession(
+		ctx,
+		cancel,
+		conn,
+		userId,
+		sessionId,
+		wh.config.WebSocket.MaxMessageSendBufferSize,
+		wh.idGenerator,
+		batchConfig,
+		c.Query("batch") == "1",
+	)
+	if err := wh.gateway.Register(session); err != nil {
+		session.ForceClose()
+		return
+	}
 	session.Start(
 		wh.config.WebSocket.PongWaitSeconds,
 		wh.config.WebSocket.PingPeriodSeconds,

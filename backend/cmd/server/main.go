@@ -259,6 +259,7 @@ func main() {
 		cfg,
 		dispatcher,
 		realtimeGateway,
+		idGenerator,
 	)
 
 	userConversationApplication := conversationapp.NewUserConvApplication(
@@ -334,13 +335,16 @@ func main() {
 
 	<-quit
 
-	// 关闭服务
-	log.Println("服务已停止")
+	log.Println("服务正在停止")
 	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Fatal("关闭服务失败：", err)
+		log.Printf("关闭 HTTP 服务失败：%v", err)
 	}
+	if err := realtimeGateway.Shutdown(shutdownCtx); err != nil {
+		log.Printf("关闭 WebSocket 会话失败：%v", err)
+	}
+	log.Println("服务已停止")
 }

@@ -29,6 +29,7 @@ const (
 	EventReadMessageNotify = "msg_read_notify" // 发送给前端，表示已经有用户读取消息
 	EventTypeMsgAck        = "msg_ack"         // 发送给前端，表示已经接收到消息
 	EventTypeSendMessage   = "msg"             // 后端发送给前端，表示新的消息
+	EventMessageBatch      = "msg_batch"       // 服务端一次性发送多个数据
 )
 
 type MessageReadAckEvent struct {

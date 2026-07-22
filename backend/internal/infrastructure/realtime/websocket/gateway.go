@@ -8,12 +8,15 @@ import (
 	"time"
 )
 
+var ErrGatewayClosed = errors.New("实时通道网关已关闭")
+
 // Gateway is the local long-connection gateway, equivalent to goim comet or
 // OpenIM msggateway. It owns only session indexing and realtime delivery.
 type Gateway struct {
 	mu           sync.RWMutex
 	sessions     map[string]*Session
 	userSessions map[string]map[string]struct{}
+	closing      bool
 }
 
 func NewGateway() *Gateway {
@@ -42,9 +45,45 @@ func (g *Gateway) KeepAlive(ctx context.Context, interval, pongWait int) {
 	}()
 }
 
-func (g *Gateway) Register(session *Session) {
+func (g *Gateway) Shutdown(ctx context.Context) error {
+	g.mu.Lock()
+	g.closing = true
+	sessions := make([]*Session, 0, len(g.sessions))
+	for _, session := range g.sessions {
+		sessions = append(sessions, session)
+	}
+	g.mu.Unlock()
+
+	for _, session := range sessions {
+		session.beginShutdown()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, session := range sessions {
+			<-session.writeDone
+		}
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		for _, session := range sessions {
+			session.ForceClose()
+		}
+		return ctx.Err()
+	}
+}
+
+func (g *Gateway) Register(session *Session) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.closing {
+		return ErrGatewayClosed
+	}
+
 	g.sessions[session.SessionID()] = session
 	ids := g.userSessions[session.UserID()]
 	if ids == nil {
@@ -52,6 +91,7 @@ func (g *Gateway) Register(session *Session) {
 		g.userSessions[session.UserID()] = ids
 	}
 	ids[session.SessionID()] = struct{}{}
+	return nil
 }
 
 func (g *Gateway) Unregister(session *Session) {
@@ -71,7 +111,10 @@ func (g *Gateway) DeliverToUser(eventType, userID string, payload []byte) error 
 		return err
 	}
 	for _, session := range g.sessionsForUser(userID) {
-		if err := session.Enqueue(Message{Op: eventType, Data: encoded}); err != nil {
+		if err := session.Enqueue(
+			Message{Op: eventType, Data: encoded},
+			AppendPolicyBatch,
+		); err != nil {
 			if errors.Is(err, ErrOutboundQueueFull) {
 				log.Printf("断开处理缓慢的实时通道会话：用户=%s 会话=%s", session.UserID(), session.SessionID())
 				session.Close()
