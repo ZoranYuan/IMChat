@@ -38,6 +38,9 @@ func InitMysql(dns string) *gorm.DB {
 	sqlDB.SetMaxIdleConns(20)                 // 空闲连接
 	sqlDB.SetConnMaxLifetime(time.Minute * 4) // 连接复用时间
 
+	renameLegacyTables(db)
+	prepareFriendRequestUniquePair(db)
+
 	db.AutoMigrate(
 		&model.User{},
 		&model.OutboxRecord{},
@@ -58,7 +61,44 @@ func InitMysql(dns string) *gorm.DB {
 	return db
 }
 
+func renameLegacyTables(db *gorm.DB) {
+	if db.Migrator().HasTable("message_outboxes") && !db.Migrator().HasTable("outboxes") {
+		if err := db.Migrator().RenameTable("message_outboxes", "outboxes"); err != nil {
+			log.Printf("重命名 message_outboxes 为 outboxes 失败：%v", err)
+		}
+	}
+}
+
+func prepareFriendRequestUniquePair(db *gorm.DB) {
+	if !db.Migrator().HasTable(&model.FriendRequest{}) {
+		return
+	}
+	if db.Migrator().HasIndex(&model.FriendRequest{}, "idx_from_to") {
+		if err := db.Migrator().DropIndex(&model.FriendRequest{}, "idx_from_to"); err != nil {
+			log.Printf("删除 friend_request.idx_from_to 失败：%v", err)
+		}
+	}
+	if err := db.Exec(`
+		DELETE fr
+		FROM friend_request fr
+		JOIN friend_request newer
+		  ON newer.from_user_id = fr.from_user_id
+		 AND newer.to_user_id = fr.to_user_id
+		 AND (
+		     newer.created_at > fr.created_at
+		  OR (newer.created_at = fr.created_at AND newer.request_id > fr.request_id)
+		 )
+	`).Error; err != nil {
+		log.Printf("清理重复 friend_request 失败：%v", err)
+	}
+}
+
 func dropLegacyColumns(db *gorm.DB) {
+	if db.Migrator().HasColumn(&model.FriendRequest{}, "active_key") {
+		if err := db.Migrator().DropColumn(&model.FriendRequest{}, "active_key"); err != nil {
+			log.Printf("删除 friend_request.active_key 失败：%v", err)
+		}
+	}
 	if db.Migrator().HasColumn(&model.UserConversation{}, "latest_sync_seq") {
 		if err := db.Migrator().DropColumn(&model.UserConversation{}, "latest_sync_seq"); err != nil {
 			log.Printf("删除 user_conversations.latest_sync_seq 失败：%v", err)

@@ -98,7 +98,6 @@ func (fa *RequestApplication) reRequest(
 	record *friendrequestentity.FriendRequest,
 	message string,
 ) (*FriendRequestDTO, error) {
-	previousStatus := record.Status
 	requestId, err := fa.idGenerator.Generate()
 	if err != nil {
 		return nil, fmt.Errorf("生成好友申请 ID 失败：%w", err)
@@ -108,16 +107,8 @@ func (fa *RequestApplication) reRequest(
 		return nil, err
 	}
 
-	switch previousStatus {
-	case friendrequestvo.Pending:
-		if err := fa.friendRequestRepository.ReRequest(record); err != nil {
-			return nil, fmt.Errorf("更新好友申请失败：%w", err)
-		}
-
-	default:
-		if _, err := fa.friendRequestRepository.Create(record); err != nil {
-			return nil, fmt.Errorf("重新创建好友申请失败：%w", err)
-		}
+	if err := fa.friendRequestRepository.ReRequest(record); err != nil {
+		return nil, fmt.Errorf("更新好友申请失败：%w", err)
 	}
 
 	dto := toDTO(record)
@@ -149,6 +140,24 @@ func (fa *RequestApplication) CreateFriendRequest(
 		return nil, ErrUserNotFound
 	}
 
+	reverse, err := fa.friendRequestRepository.FindLatestRequest(toUserID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("查询反向好友申请失败：%w", err)
+	}
+	if reverse != nil && reverse.Status == friendrequestvo.Pending {
+		if err := reverse.Accept(userID); err != nil {
+			if errors.Is(err, friendrequestentity.ErrDuplicateRequestOperation) {
+				return nil, ErrDuplicateOperation
+			}
+			return nil, err
+		}
+		if err := fa.acceptFriendRequest(reverse, userID); err != nil {
+			return nil, err
+		}
+		dto := toDTO(reverse)
+		return &dto, nil
+	}
+
 	record, err := fa.friendRequestRepository.FindLatestRequest(
 		userID,
 		toUserID,
@@ -165,7 +174,6 @@ func (fa *RequestApplication) CreateFriendRequest(
 		)
 	}
 
-	// 5. 存在历史申请，根据当前状态重新申请。
 	return fa.reRequest(record, message)
 }
 
@@ -202,6 +210,13 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 		}
 	}
 
+	return fa.acceptFriendRequest(record, userId)
+}
+
+func (fa *RequestApplication) acceptFriendRequest(
+	record *friendrequestentity.FriendRequest,
+	userID string,
+) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -219,7 +234,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 	)
 
 	toUserConv := conversationentity.BuildUserConversation(
-		userId,
+		userID,
 		convId,
 		0,
 		0,
@@ -352,7 +367,6 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 	if err := fa.friendCache.SetRelation(ctx, record.ToUserId, record.FromUserId, state); err != nil {
 		log.Println("预热反向好友关系缓存失败：", err)
 	}
-
 	return nil
 }
 

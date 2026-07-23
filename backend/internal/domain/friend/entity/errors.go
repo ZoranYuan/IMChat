@@ -6,7 +6,7 @@ var (
 	ErrCannotAddSelf             = errors.New("不能添加自己为好友")
 	ErrNotFriends                = errors.New("双方不是好友")
 	ErrAlreadyFriends            = errors.New("双方已经是好友")
-	ErrRequestSentTooFrequently  = errors.New("好友申请发送过于频繁")
+	ErrRequestSentTooFrequently  = errors.New("重复申请")
 	ErrInvalidStatusTransition   = errors.New("好友申请状态变更无效")
 	ErrDuplicateRequestOperation = errors.New("请勿重复操作好友申请")
 	ErrInvalidRequestStatus      = errors.New("好友申请状态无效")

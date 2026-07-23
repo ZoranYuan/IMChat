@@ -6,6 +6,7 @@ import (
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 	"errors"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -44,6 +45,9 @@ func (fr *FriendRequestRepo) Create(domain *friendentity.FriendRequest) (*friend
 	m := requestToModel(domain)
 
 	if err := fr.db.Create(&m).Error; err != nil {
+		if isDuplicateKey(err) {
+			return nil, friendentity.ErrRequestSentTooFrequently
+		}
 		return nil, err
 	}
 
@@ -55,15 +59,21 @@ func (fr *FriendRequestRepo) ReRequest(domain *friendentity.FriendRequest) error
 
 	result := fr.db.Model(&model.FriendRequest{}).
 		Where(
-			"request_id = ? AND status = ?",
-			m.RequestId,
-			m.Status,
+			"from_user_id = ? AND to_user_id = ?",
+			m.FromUserId,
+			m.ToUserId,
 		).
 		Updates(map[string]interface{}{
-			"message": m.Message,
+			"request_id": m.RequestId,
+			"status":     m.Status,
+			"message":    m.Message,
+			"apply_time": m.ApplyTime,
 		})
 
 	if result.Error != nil {
+		if isDuplicateKey(result.Error) {
+			return friendentity.ErrRequestSentTooFrequently
+		}
 		return result.Error
 	}
 
@@ -72,6 +82,11 @@ func (fr *FriendRequestRepo) ReRequest(domain *friendentity.FriendRequest) error
 	}
 
 	return nil
+}
+
+func isDuplicateKey(err error) bool {
+	var mysqlErr *mysqlDriver.MySQLError
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
 }
 
 func (fr *FriendRequestRepo) OperateRequest(requestId string, expectStatus, newStatus int) error {

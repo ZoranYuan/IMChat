@@ -139,7 +139,7 @@ func main() {
 	messageFileRepository := messagemysql.NewMessageFileRepository(db)
 	messageStickerRepository := messagemysql.NewMessageStickerRepository(db)
 	messageVideoRepository := messagemysql.NewMessageVideoRepository(db)
-	messageOutboxRepository := outboxmysql.NewRepository(db, idGenerator)
+	outboxRepository := outboxmysql.NewRepository(db, idGenerator)
 	conversationRepository := conversationmysql.NewConversationRepository(db)
 	userConversationRepository := conversationmysql.NewUserConversationRepository(db)
 
@@ -217,7 +217,7 @@ func main() {
 	}()
 
 	dispatcher := ws.NewDispatcher()
-	outboxWorker := outboxinfra.NewWorker(txManager, messageOutboxRepository, messageProducer)
+	outboxWorker := outboxinfra.NewWorker(txManager, outboxRepository, messageProducer)
 
 	go outboxWorker.Start(ctx)
 
@@ -230,7 +230,7 @@ func main() {
 		txManager,
 		userConversationRepository,
 		conversationRepository,
-		messageOutboxRepository,
+		outboxRepository,
 		friendRepository,
 		fileRepository,
 		messageImageRepository,

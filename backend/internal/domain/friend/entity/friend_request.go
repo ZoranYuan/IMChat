@@ -51,7 +51,9 @@ func (fq *FriendRequest) ReRequest(newRequestId string, message string) error {
 
 	// 重新请求需要重新去建立新的 request id
 	fq.RequestId = newRequestId
+	fq.Message = message
 	fq.Status = friendvo.Pending
+	fq.ApplyTime = time.Now().UnixMilli()
 
 	return nil
 }

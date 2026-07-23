@@ -19,5 +19,5 @@ type OutboxRecord struct {
 }
 
 func (OutboxRecord) TableName() string {
-	return "message_outboxes"
+	return "outboxes"
 }
