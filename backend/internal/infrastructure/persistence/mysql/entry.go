@@ -54,5 +54,14 @@ func InitMysql(dns string) *gorm.DB {
 		&model.MessageVideo{},
 		&model.File{},
 	)
+	dropLegacyColumns(db)
 	return db
+}
+
+func dropLegacyColumns(db *gorm.DB) {
+	if db.Migrator().HasColumn(&model.UserConversation{}, "latest_sync_seq") {
+		if err := db.Migrator().DropColumn(&model.UserConversation{}, "latest_sync_seq"); err != nil {
+			log.Printf("删除 user_conversations.latest_sync_seq 失败：%v", err)
+		}
+	}
 }

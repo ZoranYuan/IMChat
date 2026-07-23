@@ -1,7 +1,6 @@
 package conversation
 
 import (
-	conversationport "IM_backend/internal/application/ports/conversation"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
@@ -40,55 +39,6 @@ func NewUserConvApplication(
 		conversationRepository:     conversationRepository,
 		messageRepository:          messageRepository,
 	}
-}
-
-func (uc *UserConvApplication) SyncLatestSequences(ctx context.Context, items []conversationport.SyncItem) error {
-	if len(items) == 0 {
-		return nil
-	}
-
-	conversationIDs := make([]string, 0, len(items))
-	seen := make(map[string]struct{}, len(items))
-	for _, item := range items {
-		if item.ConversationId == "" {
-			continue
-		}
-		if _, ok := seen[item.ConversationId]; ok {
-			continue
-		}
-		seen[item.ConversationId] = struct{}{}
-		conversationIDs = append(conversationIDs, item.ConversationId)
-	}
-
-	conversations, err := uc.conversationRepository.ListByIDs(ctx, conversationIDs)
-	if err != nil {
-		return err
-	}
-
-	conversationByID := make(map[string]*conversationentity.Conversation, len(conversations))
-	for _, conv := range conversations {
-		if conv == nil {
-			continue
-		}
-		conversationByID[conv.ConversationId] = conv
-	}
-
-	userConversations := make([]*conversationentity.UserConversation, 0, len(items))
-	for _, item := range items {
-		conv := conversationByID[item.ConversationId]
-		if conv == nil {
-			continue
-		}
-		userConversations = append(userConversations, conversationentity.BuildUserConversation(
-			item.UserId,
-			item.ConversationId,
-			0,
-			item.LatestSeq,
-			conv.Convtype,
-		))
-	}
-
-	return uc.userConversationRepository.BatchUpdateSyncSeq(ctx, userConversations)
 }
 
 func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, userId string) ([]ConversationItemDTO, error) {

@@ -188,14 +188,6 @@ func main() {
 		realtimeGateway,
 		roomRepository,
 		roomUserRepository,
-		conversationapp.NewUserConvApplication(
-			userConversationRepository,
-			conversationRepository,
-			messageRepository,
-			friendRepository,
-			userRepository,
-			roomRepository,
-		),
 		roomMemberCache,
 	)
 	messageSendHandler := eventtransport.NewMessageHandler(messageDeliveryApplication)

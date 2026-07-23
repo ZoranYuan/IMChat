@@ -15,7 +15,6 @@ func toUserConversationDomain(model *model.UserConversation) *conversationentity
 		UserId:         model.UserId,
 		ConversationId: model.ConversationId,
 		LastReadSeq:    model.LastReadSeq,
-		LatestSyncSeq:  model.LatestSyncSeq,
 		IsMuted:        model.IsMuted,
 		Convtype:       conversationvo.ConvType(model.Convtype),
 	}
@@ -30,7 +29,6 @@ func toUserConversationModel(entity *conversationentity.UserConversation) *model
 		UserId:         entity.UserId,
 		ConversationId: entity.ConversationId,
 		LastReadSeq:    entity.LastReadSeq,
-		LatestSyncSeq:  entity.LatestSyncSeq,
 		IsMuted:        entity.IsMuted,
 		Convtype:       int8(entity.Convtype),
 	}

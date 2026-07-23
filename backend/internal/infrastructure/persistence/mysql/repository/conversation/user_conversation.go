@@ -50,50 +50,6 @@ func (r *UserConversationRepository) UpdateReadSeq(
 	})
 }
 
-func (r *UserConversationRepository) BatchUpdateSyncSeq(
-	ctx context.Context,
-	ucs []*conversationentity.UserConversation,
-) error {
-
-	if len(ucs) == 0 {
-		return nil
-	}
-
-	ms := make([]*model.UserConversation, 0, len(ucs))
-	for _, uc := range ucs {
-		ms = append(ms, toUserConversationModel(uc))
-	}
-
-	return r.db.WithContext(ctx).
-		Model(&model.UserConversation{}).
-		Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "user_id"},
-				{Name: "conversation_id"},
-			},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"latest_sync_seq": gorm.Expr(
-					"GREATEST(latest_sync_seq, VALUES(latest_sync_seq))",
-				),
-			}),
-		}).
-		Create(&ms).Error
-}
-
-func (r *UserConversationRepository) UpdateSyncSeq(
-	ctx context.Context,
-	uc *conversationentity.UserConversation,
-) error {
-
-	m := toUserConversationModel(uc)
-
-	return r.upsert(ctx, m, map[string]interface{}{
-		"latest_sync_seq": gorm.Expr(
-			"GREATEST(latest_sync_seq, VALUES(latest_sync_seq))",
-		),
-	})
-}
-
 func (r *UserConversationRepository) CreateUserConversation(
 	ctx context.Context,
 	uc *conversationentity.UserConversation,

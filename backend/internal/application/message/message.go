@@ -650,10 +650,6 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 			if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
 				log.Printf("警告：更新发送者用户会话失败：%v", err)
 			}
-
-			if err := userConvRepo.UpdateSyncSeq(ctx, userConv); err != nil {
-				log.Printf("警告：更新发送者用户会话失败：%v", err)
-			}
 		}
 
 		if mediaWriter != nil {

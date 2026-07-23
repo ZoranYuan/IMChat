@@ -288,10 +288,8 @@ func (fa *RequestApplication) Accept(requestId string, userId string, otherId st
 	conv.LatestMessageId = messages[len(messages)-1].MessageId
 	conv.LatestSeq = int64(len(messages))
 	toUserConv.LastReadSeq = int64(len(messages))
-	toUserConv.LatestSyncSeq = int64(len(messages))
 
 	fromUserConv.LastReadSeq = int64(len(messages))
-	fromUserConv.LatestSyncSeq = int64(len(messages))
 
 	if err := fa.txManager.WithinTransaction(ctx, func(tx any) error {
 		if err := fa.friendRequestRepository.WithTx(tx).OperateRequest(record.RequestId, int(friendrequestvo.Pending), int(record.Status)); err != nil {
