@@ -42,11 +42,14 @@ func (fh *FriendRequestHandle) Create(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response.Success(&FriendRequestRes{
-		RequestId: friendRequestApp.RequestId,
-		ToUserId:  friendRequestApp.ToUserId,
-		Message:   friendRequestApp.Message,
-		Status:    friendRequestApp.Status,
-		ApplyTime: friendRequestApp.ApplyTime,
+		RequestId:       friendRequestApp.RequestId,
+		FromUserId:      friendRequestApp.FromUserId,
+		FromUsername:    friendRequestApp.FromUsername,
+		FromDisplayName: friendRequestApp.FromDisplayName,
+		ToUserId:        friendRequestApp.ToUserId,
+		Message:         friendRequestApp.Message,
+		Status:          friendRequestApp.Status,
+		ApplyTime:       friendRequestApp.ApplyTime,
 	}))
 }
 

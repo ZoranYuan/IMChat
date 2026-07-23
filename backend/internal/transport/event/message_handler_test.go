@@ -1,7 +1,6 @@
 package event
 
 import (
-	messageapp "IM_backend/internal/application/message"
 	eventbus "IM_backend/internal/application/ports/eventbus"
 	"IM_backend/internal/shared/protocol"
 	"context"
@@ -11,15 +10,15 @@ import (
 )
 
 type deliveryStub struct {
-	command messageapp.DeliveryCommand
+	eventType string
+	userID    string
+	payload   []byte
 }
 
-func (stub *deliveryStub) DeliverMessage(_ context.Context, command messageapp.DeliveryCommand) error {
-	stub.command = command
-	return nil
-}
-
-func (stub *deliveryStub) DeliverReadNotification(context.Context, protocol.MessageReadCommittedEvent) error {
+func (stub *deliveryStub) DeliverToUser(eventType, userID string, payload []byte) error {
+	stub.eventType = eventType
+	stub.userID = userID
+	stub.payload = payload
 	return nil
 }
 
@@ -28,7 +27,7 @@ func TestMessageHandlerDecodesEnvelope(t *testing.T) {
 	eventPayload, _ := json.Marshal(event)
 	payload, _ := json.Marshal(protocol.Envelope{From: "u1", To: "u2", Payload: eventPayload})
 	stub := &deliveryStub{}
-	handler := NewMessageHandler(stub)
+	handler := NewMessageHandler(stub, nil, nil, nil)
 
 	err := handler.Handle(context.Background(), eventbus.IncomingEvent{
 		Name:    protocol.EventTypeSendMessage,
@@ -38,13 +37,21 @@ func TestMessageHandlerDecodesEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("处理消息失败：%v", err)
 	}
-	if stub.command.ConversationId != "c1" || stub.command.Message.MessageId != "m1" {
-		t.Fatalf("消息映射错误：%+v", stub.command)
+	if stub.eventType != protocol.EventTypeSendMessage || stub.userID != "u2" {
+		t.Fatalf("投递目标错误：event=%s user=%s", stub.eventType, stub.userID)
+	}
+
+	var got protocol.MessageEvent
+	if err := json.Unmarshal(stub.payload, &got); err != nil {
+		t.Fatalf("解析投递载荷失败：%v", err)
+	}
+	if got.MessageId != "m1" || got.Seq != 2 {
+		t.Fatalf("投递载荷错误：%+v", got)
 	}
 }
 
 func TestMessageHandlerMarksMalformedPayloadPermanent(t *testing.T) {
-	handler := NewMessageHandler(&deliveryStub{})
+	handler := NewMessageHandler(&deliveryStub{}, nil, nil, nil)
 	err := handler.Handle(context.Background(), eventbus.IncomingEvent{Payload: []byte("not-json")})
 
 	var permanentError *eventbus.NonRetryableError

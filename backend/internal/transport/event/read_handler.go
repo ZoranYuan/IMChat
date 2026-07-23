@@ -2,16 +2,17 @@ package event
 
 import (
 	eventbus "IM_backend/internal/application/ports/eventbus"
+	realtimeport "IM_backend/internal/application/ports/realtime"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
 )
 
 type ReadHandler struct {
-	delivery MessageDelivery
+	delivery realtimeport.Delivery
 }
 
-func NewReadHandler(delivery MessageDelivery) eventbus.Handler {
+func NewReadHandler(delivery realtimeport.Delivery) eventbus.Handler {
 	return &ReadHandler{delivery: delivery}
 }
 
@@ -25,5 +26,30 @@ func (handler *ReadHandler) Handle(ctx context.Context, message eventbus.Incomin
 	if err := json.Unmarshal(envelope.Payload, &event); err != nil {
 		return eventbus.NonRetryable(err)
 	}
-	return handler.delivery.DeliverReadNotification(ctx, event)
+	if len(event.NotifyUserIds) == 0 {
+		return nil
+	}
+
+	notify := protocol.MessageReadAckEvent{
+		UserId:         event.ReaderId,
+		ConversationId: event.ConversationId,
+		LastReadSeq:    event.LastReadSeq,
+		ConvType:       event.ConvType,
+		Avatar:         event.Avatar,
+	}
+	payload, err := json.Marshal(notify)
+	if err != nil {
+		return err
+	}
+
+	for _, userID := range event.NotifyUserIds {
+		if err := handler.delivery.DeliverToUser(
+			protocol.EventReadMessageNotify,
+			userID,
+			payload,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }

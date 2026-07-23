@@ -2,6 +2,7 @@ package friend
 
 import (
 	idport "IM_backend/internal/application/ports/id"
+	outboxport "IM_backend/internal/application/ports/outbox"
 	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
@@ -19,7 +20,9 @@ import (
 	friendvo "IM_backend/internal/domain/friend/value_object"
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
+	"IM_backend/internal/shared/protocol"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -37,6 +40,7 @@ type RequestApplication struct {
 	friendCache             friendcache.FriendCache
 	txManager               txmanager.TxManager
 	idGenerator             idport.Generator
+	outboxRepository        outboxport.Repository
 }
 
 func NewRequestApplication(
@@ -50,6 +54,7 @@ func NewRequestApplication(
 	friendCache friendcache.FriendCache,
 	txManager txmanager.TxManager,
 	idGenerator idport.Generator,
+	outboxRepository outboxport.Repository,
 ) *RequestApplication {
 	return &RequestApplication{
 		friendRequestRepository: friendRequestRepository,
@@ -62,13 +67,17 @@ func NewRequestApplication(
 		friendCache:             friendCache,
 		txManager:               txManager,
 		idGenerator:             idGenerator,
+		outboxRepository:        outboxRepository,
 	}
 }
 
 func (fa *RequestApplication) createNewFriendRequest(
+	ctx context.Context,
 	userID string,
 	toUserID string,
 	message string,
+	repository friendrequestrepo.FriendRequestRepository,
+	outboxRepository outboxport.Repository,
 ) (*FriendRequestDTO, error) {
 	requestID, err := fa.idGenerator.Generate()
 	if err != nil {
@@ -85,18 +94,61 @@ func (fa *RequestApplication) createNewFriendRequest(
 		return nil, err
 	}
 
-	record, err := fa.friendRequestRepository.Create(request)
+	record, err := repository.Create(request)
 	if err != nil {
 		return nil, fmt.Errorf("创建好友申请失败：%w", err)
+	}
+
+	if err := fa.createFriendRequestOutbox(ctx, record, outboxRepository); err != nil {
+		return nil, fmt.Errorf("创建好友申请提醒失败：%w", err)
 	}
 
 	dto := toDTO(record)
 	return &dto, nil
 }
 
+func (fa *RequestApplication) createFriendRequestOutbox(
+	ctx context.Context,
+	record *friendrequestentity.FriendRequest,
+	repository outboxport.Repository,
+) error {
+	if repository == nil || record == nil {
+		return nil
+	}
+
+	payload, err := json.Marshal(protocol.FriendRequestCreatedEvent{
+		RequestId:  record.RequestId,
+		FromUserId: record.FromUserId,
+		ToUserId:   record.ToUserId,
+		Message:    record.Message,
+		ApplyTime:  record.ApplyTime,
+	})
+	if err != nil {
+		return err
+	}
+
+	envelope, err := json.Marshal(protocol.Envelope{
+		From:    record.FromUserId,
+		To:      record.ToUserId,
+		Payload: payload,
+	})
+	if err != nil {
+		return err
+	}
+
+	return repository.Create(ctx, &outboxport.Entry{
+		EventType:  protocol.EventFriendRequestCreated,
+		MessageKey: record.ToUserId,
+		Payload:    envelope,
+	})
+}
+
 func (fa *RequestApplication) reRequest(
+	ctx context.Context,
 	record *friendrequestentity.FriendRequest,
 	message string,
+	repository friendrequestrepo.FriendRequestRepository,
+	outboxRepository outboxport.Repository,
 ) (*FriendRequestDTO, error) {
 	requestId, err := fa.idGenerator.Generate()
 	if err != nil {
@@ -107,8 +159,12 @@ func (fa *RequestApplication) reRequest(
 		return nil, err
 	}
 
-	if err := fa.friendRequestRepository.ReRequest(record); err != nil {
+	if err := repository.ReRequest(record); err != nil {
 		return nil, fmt.Errorf("更新好友申请失败：%w", err)
+	}
+
+	if err := fa.createFriendRequestOutbox(ctx, record, outboxRepository); err != nil {
+		return nil, fmt.Errorf("创建好友申请提醒失败：%w", err)
 	}
 
 	dto := toDTO(record)
@@ -167,14 +223,51 @@ func (fa *RequestApplication) CreateFriendRequest(
 	}
 
 	if record == nil {
-		return fa.createNewFriendRequest(
-			userID,
-			toUserID,
-			message,
-		)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		var result *FriendRequestDTO
+		if err := fa.txManager.WithinTransaction(ctx, func(tx any) error {
+			dto, err := fa.createNewFriendRequest(
+				ctx,
+				userID,
+				toUserID,
+				message,
+				fa.friendRequestRepository.WithTx(tx),
+				fa.outboxRepository.WithTx(tx),
+			)
+			if err != nil {
+				return err
+			}
+			result = dto
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+		return result, nil
 	}
 
-	return fa.reRequest(record, message)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var result *FriendRequestDTO
+	if err := fa.txManager.WithinTransaction(ctx, func(tx any) error {
+		dto, err := fa.reRequest(
+			ctx,
+			record,
+			message,
+			fa.friendRequestRepository.WithTx(tx),
+			fa.outboxRepository.WithTx(tx),
+		)
+		if err != nil {
+			return err
+		}
+		result = dto
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (fa *RequestApplication) Refuse(requestId string, userId string) error {
