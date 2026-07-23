@@ -39,6 +39,7 @@ func InitMysql(dns string) *gorm.DB {
 	sqlDB.SetConnMaxLifetime(time.Minute * 4) // 连接复用时间
 
 	renameLegacyTables(db)
+	prepareFriendIndexes(db)
 	prepareFriendRequestUniquePair(db)
 
 	db.AutoMigrate(
@@ -65,6 +66,33 @@ func renameLegacyTables(db *gorm.DB) {
 	if db.Migrator().HasTable("message_outboxes") && !db.Migrator().HasTable("outboxes") {
 		if err := db.Migrator().RenameTable("message_outboxes", "outboxes"); err != nil {
 			log.Printf("重命名 message_outboxes 为 outboxes 失败：%v", err)
+		}
+	}
+}
+
+func prepareFriendIndexes(db *gorm.DB) {
+	if !db.Migrator().HasTable(&model.Friend{}) {
+		return
+	}
+
+	var indexes []struct {
+		IndexName string
+	}
+	if err := db.Raw(`
+		SELECT DISTINCT INDEX_NAME AS index_name
+		FROM information_schema.STATISTICS
+		WHERE TABLE_SCHEMA = DATABASE()
+		  AND TABLE_NAME = ?
+		  AND NON_UNIQUE = 0
+		  AND INDEX_NAME <> 'PRIMARY'
+	`, (&model.Friend{}).TableName()).Scan(&indexes).Error; err != nil {
+		log.Printf("查询 friend 历史唯一索引失败：%v", err)
+		return
+	}
+
+	for _, index := range indexes {
+		if err := db.Migrator().DropIndex(&model.Friend{}, index.IndexName); err != nil {
+			log.Printf("删除 friend.%s 历史唯一索引失败：%v", index.IndexName, err)
 		}
 	}
 }
