@@ -76,7 +76,7 @@ func (handler *MessageHandler) deliverMessage(
 			if userID == envelope.From {
 				continue
 			}
-			if err := handler.delivery.DeliverToUser(eventType, envelope.To, envelope.Payload); err != nil {
+			if err := handler.delivery.DeliverToUser(eventType, userID, envelope.Payload); err != nil {
 				return err
 			}
 		}
