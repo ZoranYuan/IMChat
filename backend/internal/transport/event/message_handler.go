@@ -6,6 +6,7 @@ import (
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	realtimeport "IM_backend/internal/application/ports/realtime"
+	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"IM_backend/internal/shared/protocol"
 	"context"
@@ -15,6 +16,8 @@ import (
 
 	"golang.org/x/sync/singleflight"
 )
+
+const RoomRealtimeFanoutLimit = 500
 
 type MessageHandler struct {
 	delivery           realtimeport.Delivery
@@ -68,10 +71,22 @@ func (handler *MessageHandler) deliverMessage(
 		return handler.delivery.DeliverToUser(eventType, envelope.To, envelope.Payload)
 
 	case protocol.RoomChat:
+		room, err := handler.roomRepository.FindActiveRoom(conversationID, int(roomvo.Normal))
+		if err != nil {
+			return err
+		}
+		if room == nil {
+			return roomentity.ErrRoomNotFound
+		}
+
 		members, err := handler.roomMembers(ctx, conversationID)
 		if err != nil {
 			return err
 		}
+		if room.MemberCount > RoomRealtimeFanoutLimit {
+			return handler.deliverLargeRoomNotice(members, envelope, event)
+		}
+
 		for _, userID := range members {
 			if userID == envelope.From {
 				continue
@@ -87,6 +102,35 @@ func (handler *MessageHandler) deliverMessage(
 	}
 }
 
+func (handler *MessageHandler) deliverLargeRoomNotice(
+	members []string,
+	envelope protocol.Envelope,
+	event protocol.MessageEvent,
+) error {
+	noticePayload, err := json.Marshal(protocol.MessageNotifyEvent{
+		ConversationId: event.ConversationId,
+		MessageId:      event.MessageId,
+		Seq:            event.Seq,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, userID := range members {
+		if userID == envelope.From {
+			continue
+		}
+		if err := handler.delivery.DeliverToUser(
+			protocol.EventRoomMessageNotice,
+			userID,
+			noticePayload,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (handler *MessageHandler) roomMembers(ctx context.Context, roomID string) ([]string, error) {
 	members, cached, err := handler.roomMemberCache.GetMemberIDs(ctx, roomID)
 	if err == nil && cached {
@@ -97,9 +141,6 @@ func (handler *MessageHandler) roomMembers(ctx context.Context, roomID string) (
 		members, cached, err := handler.roomMemberCache.GetMemberIDs(ctx, roomID)
 		if err == nil && cached {
 			return members, nil
-		}
-		if _, err := handler.roomRepository.FindActiveRoom(roomID, int(roomvo.Activate)); err != nil {
-			return nil, err
 		}
 		members, err = handler.roomUserRepository.ListActiveUserIDs(roomID)
 		if err != nil {

@@ -11,6 +11,12 @@ type MessageHistoryReq struct {
 	Limit          int    `form:"limit"`
 }
 
+type MessageSyncReq struct {
+	ConversationId string `form:"conversationId" binding:"required"`
+	AfterSeq       int64  `form:"afterSeq"`
+	Limit          int    `form:"limit"`
+}
+
 type DanmakuReq struct {
 	RoomId    string `form:"roomId" binding:"required"`
 	VideoId   string `form:"videoId" binding:"required"`
@@ -54,6 +60,12 @@ type MessageHistoryRes struct {
 	HasMore    bool      `json:"hasMore"`
 }
 
+type MessageSyncRes struct {
+	Messages []Message `json:"messages"`
+	NextSeq  int64     `json:"nextSeq"`
+	HasMore  bool      `json:"hasMore"`
+}
+
 type Danmaku struct {
 	MessageId string `json:"messageId"`
 	SenderId  string `json:"senderId"`
@@ -80,6 +92,23 @@ type RoomVideoHistoryRes struct {
 }
 
 func toHistoryMessageRes(messages []messageapp.MessageAppeDTO, nextCursor int64, hashMore bool) (res MessageHistoryRes) {
+	ms := toMessagesRes(messages)
+
+	res.Messages = ms
+	res.HasMore = hashMore
+	res.NextCursor = nextCursor
+
+	return
+}
+
+func toSyncMessageRes(messages []messageapp.MessageAppeDTO, nextSeq int64, hashMore bool) (res MessageSyncRes) {
+	res.Messages = toMessagesRes(messages)
+	res.HasMore = hashMore
+	res.NextSeq = nextSeq
+	return
+}
+
+func toMessagesRes(messages []messageapp.MessageAppeDTO) []Message {
 	ms := make([]Message, 0, len(messages))
 
 	for _, m := range messages {
@@ -110,11 +139,7 @@ func toHistoryMessageRes(messages []messageapp.MessageAppeDTO, nextCursor int64,
 		ms = append(ms, message)
 	}
 
-	res.Messages = ms
-	res.HasMore = hashMore
-	res.NextCursor = nextCursor
-
-	return
+	return ms
 }
 
 func toDanmakuRes(items []messageapp.DanmakuDTO) (res DanmakuRes) {

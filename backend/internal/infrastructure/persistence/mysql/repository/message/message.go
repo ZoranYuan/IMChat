@@ -84,6 +84,31 @@ func (r *MessageRepository) GetHistoryMessage(
 	return result, nil
 }
 
+func (r *MessageRepository) ListAfterSeq(
+	ctx context.Context,
+	conversationId string,
+	afterSeq int64,
+	limit int,
+) ([]*messageentity.Message, error) {
+	var models []*model.Message
+
+	err := r.db.WithContext(ctx).
+		Where("conversation_id = ? AND seq > ? AND (video_id = '' OR video_id IS NULL)", conversationId, afterSeq).
+		Order("seq ASC").
+		Limit(limit).
+		Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*messageentity.Message, 0, len(models))
+	for _, m := range models {
+		result = append(result, toMessageDomain(m))
+	}
+
+	return result, nil
+}
+
 func (r *MessageRepository) GetMessagesBySendTime(
 	ctx context.Context,
 	conversationId string,

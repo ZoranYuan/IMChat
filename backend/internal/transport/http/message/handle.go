@@ -45,6 +45,41 @@ func (mh *MessageHandle) GetHistoryMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, response.Success(toHistoryMessageRes(messagesApp, nextCursor, hasMore)))
 }
 
+func (mh *MessageHandle) SyncMessages(c *gin.Context) {
+	userId := c.GetString("userId")
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		return
+	}
+
+	var req MessageSyncReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+
+	messagesApp, nextSeq, hasMore, err := mh.app.SyncMessages(
+		c.Request.Context(),
+		req.ConversationId,
+		userId,
+		req.AfterSeq,
+		req.Limit,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, messageapp.ErrConversationNotFound):
+			c.JSON(http.StatusNotFound, response.Error(http.StatusNotFound, "会话不存在"))
+		case errors.Is(err, messageapp.ErrForbidden):
+			c.JSON(http.StatusForbidden, response.Error(http.StatusForbidden, "无权查看该会话"))
+		default:
+			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "同步消息失败，请稍后再试"))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response.Success(toSyncMessageRes(messagesApp, nextSeq, hasMore)))
+}
+
 func (mh *MessageHandle) GetVideoDanmaku(c *gin.Context) {
 	userId := c.GetString("userId")
 	if userId == "" {

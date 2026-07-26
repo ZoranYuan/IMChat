@@ -34,10 +34,10 @@ type OutboundItem struct {
 type MessageHandler func(context.Context, *Session, string, []byte)
 
 type Session struct {
-	conn      *gorilla.Conn
-	ctx       context.Context
-	userID    string
-	sessionID string
+	conn *gorilla.Conn
+	ctx  context.Context
+
+	identity SessionIdentity
 
 	idGenerator  *snow.Generator
 	batchConfig  MessageBatchConfig
@@ -59,7 +59,7 @@ func NewSession(
 	ctx context.Context,
 	cancel context.CancelFunc,
 	conn *gorilla.Conn,
-	userID, sessionID string,
+	identity SessionIdentity,
 	maxBufferSize int,
 	idGenerator *snow.Generator,
 	batchConfig MessageBatchConfig,
@@ -69,9 +69,8 @@ func NewSession(
 		conn:         conn,
 		ctx:          ctx,
 		cancel:       cancel,
+		identity:     identity,
 		idle:         time.Now().UnixMilli(),
-		userID:       userID,
-		sessionID:    sessionID,
 		idGenerator:  idGenerator,
 		batchConfig:  batchConfig.withDefaults(),
 		batchEnabled: batchEnabled,
@@ -212,8 +211,16 @@ func (s *Session) Enqueue(message Message, policy AppendPolicy) error {
 	}
 }
 
-func (s *Session) UserID() string    { return s.userID }
-func (s *Session) SessionID() string { return s.sessionID }
+func (s *Session) UserID() string    { return s.UserID() }
+func (s *Session) SessionID() string { return s.SessionID() }
+
+func (s *Session) Platform() Platform {
+	return s.identity.Platform
+}
+
+func (s *Session) Identity() SessionIdentity {
+	return s.identity
+}
 
 func (s *Session) LastActive() time.Time {
 	s.activityMu.RLock()

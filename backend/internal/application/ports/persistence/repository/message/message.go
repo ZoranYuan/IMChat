@@ -16,6 +16,13 @@ type MessageRepository interface {
 		limit int,
 	) ([]*messageentity.Message, error)
 
+	ListAfterSeq(
+		ctx context.Context,
+		conversationId string,
+		afterSeq int64,
+		limit int,
+	) ([]*messageentity.Message, error)
+
 	GetMessagesBySendTime(
 		ctx context.Context,
 		conversationId string,

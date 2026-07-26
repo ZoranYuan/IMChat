@@ -226,24 +226,42 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 		return
 	}
 
+	deviceID := c.Query("device_id")
+	if deviceID == "" {
+		deviceID = c.GetHeader("X-Device-ID")
+	}
+
+	platform := c.Query("platform")
+	if platform == "" {
+		platform = c.GetHeader("X-Platform")
+	}
+
 	sessionId := uuid.NewString()
+	identity, err := realtimews.NewSessionIdentity(
+		userId,
+		deviceID,
+		platform,
+		sessionId,
+	)
+
 	batchConfig := realtimews.MessageBatchConfig{
 		MaxMessages:    wh.config.WebSocket.BatchMaxMessages,
 		MaxBytes:       wh.config.WebSocket.BatchMaxBytes,
 		Linger:         time.Duration(wh.config.WebSocket.BatchLingerMilliseconds) * time.Millisecond,
 		ReadyQueueSize: wh.config.WebSocket.BatchReadyQueueSize,
 	}
+
 	session := realtimews.NewSession(
 		ctx,
 		cancel,
 		conn,
-		userId,
-		sessionId,
+		identity,
 		wh.config.WebSocket.MaxMessageSendBufferSize,
 		wh.idGenerator,
 		batchConfig,
-		c.Query("batch") == "1",
+		true,
 	)
+
 	if err := wh.gateway.Register(session); err != nil {
 		session.ForceClose()
 		return

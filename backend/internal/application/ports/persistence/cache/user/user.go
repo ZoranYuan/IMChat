@@ -6,6 +6,7 @@ import (
 )
 
 type UserProfile struct {
+	Found    bool
 	UserID   string
 	UserName string
 	NickName string
@@ -27,6 +28,12 @@ type UserCache interface {
 	SetUserProfile(
 		ctx context.Context,
 		profile *UserProfile,
+		ttl time.Duration,
+	) error
+
+	SetUserProfileNotFound(
+		ctx context.Context,
+		userId string,
 		ttl time.Duration,
 	) error
 

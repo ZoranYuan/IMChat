@@ -4,6 +4,7 @@ import (
 	"IM_backend/internal/application/ports/persistence/cache/user"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -36,6 +37,10 @@ func (u *UserCache) GetUserProfile(
 		return nil, false, err
 	}
 
+	if userProfile.UserID == "" {
+		userProfile.UserID = userId
+	}
+
 	return &userProfile, true, nil
 }
 
@@ -44,10 +49,56 @@ func (u *UserCache) GetUserProfiles(
 	userIds []string,
 ) map[string]*user.UserProfile {
 	userProfileM := make(map[string]*user.UserProfile, len(userIds))
+	if len(userIds) == 0 {
+		return userProfileM
+	}
 
+	keys := make([]string, 0, len(userIds))
+	keyUserIds := make([]string, 0, len(userIds))
+	seen := make(map[string]struct{}, len(userIds))
 	for _, userId := range userIds {
-		userProfile, _, _ := u.GetUserProfile(ctx, userId)
-		userProfileM[userId] = userProfile
+		if userId == "" {
+			continue
+		}
+		if _, ok := seen[userId]; ok {
+			continue
+		}
+		seen[userId] = struct{}{}
+		keys = append(keys, UserProfileKey(userId))
+		keyUserIds = append(keyUserIds, userId)
+	}
+	if len(keys) == 0 {
+		return userProfileM
+	}
+
+	// 使用 MGET ，获取一批 key
+	values, err := u.store.Client().MGet(ctx, keys...).Result()
+	if err != nil {
+		return userProfileM
+	}
+
+	for i, value := range values {
+		if value == nil {
+			continue
+		}
+		var raw []byte
+		switch v := value.(type) {
+		case string:
+			raw = []byte(v)
+		case []byte:
+			raw = v
+		default:
+			continue
+		}
+		var profile user.UserProfile
+		if err := json.Unmarshal(raw, &profile); err != nil {
+			continue
+		}
+		userId := keyUserIds[i]
+		if profile.UserID == "" {
+			profile.UserID = userId
+		}
+		userProfileM[userId] = &profile
 	}
 
 	return userProfileM
@@ -58,7 +109,19 @@ func (u *UserCache) SetUserProfile(
 	profile *user.UserProfile,
 	ttl time.Duration,
 ) error {
+	profile.Found = true
 	return u.store.SetJSON(ctx, UserProfileKey(profile.UserID), profile, ttl)
+}
+
+func (u *UserCache) SetUserProfileNotFound(
+	ctx context.Context,
+	userId string,
+	ttl time.Duration,
+) error {
+	if userId == "" {
+		return ErrEmptyUserId
+	}
+	return u.store.SetJSON(ctx, UserProfileKey(userId), &user.UserProfile{Found: false, UserID: userId}, ttl)
 }
 
 func (u *UserCache) DeleteUserProfiles(

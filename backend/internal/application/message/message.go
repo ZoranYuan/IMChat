@@ -191,22 +191,15 @@ func (ma *MessageApplication) HandleReadMessage(
 
 			if user == nil {
 				// 防止缓存穿透
-				negativeProfile := &usercach.UserProfile{UserID: userId}
-				ma.userCache.SetUserProfile(
+				ma.userCache.SetUserProfileNotFound(
 					ctx,
-					negativeProfile,
+					userId,
 					time.Duration(ma.config.Cache.UserProfile.NegativeTTL)*time.Second,
 				)
 				return nil, ErrUserNotFonund
 			}
 
-			userProfile = &usercach.UserProfile{
-				Avatar:   user.Avatar,
-				NickName: user.NickName,
-				UserID:   userId,
-				UserName: user.UserName,
-				Status:   int(user.Status),
-			}
+			userProfile = userProfileFromEntity(*user)
 
 			if err := ma.userCache.SetUserProfile(
 				ctx,
@@ -217,6 +210,10 @@ func (ma *MessageApplication) HandleReadMessage(
 			}
 
 			return userProfile, nil
+		}
+
+		if !userProfile.Found {
+			return nil, ErrUserNotFonund
 		}
 
 		return userProfile, nil
@@ -813,7 +810,7 @@ func (ma *MessageApplication) GetHistoryMessages(
 	}
 
 	msgsApp := toMessagesAppDTO(msgs)
-	ma.fillSenderUsernames(msgsApp)
+	ma.fillSenderUsernames(ctx, msgsApp)
 	ma.fillMediaFields(ctx, msgsApp)
 
 	sort.Slice(msgsApp, func(i, j int) bool {
@@ -821,6 +818,52 @@ func (ma *MessageApplication) GetHistoryMessages(
 	})
 
 	return msgsApp, nextCursor, hasMore, nil
+}
+
+func (ma *MessageApplication) SyncMessages(
+	ctx context.Context,
+	conversationId string,
+	userId string,
+	afterSeq int64,
+	limit int,
+) ([]MessageAppeDTO, int64, bool, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if afterSeq < 0 {
+		afterSeq = 0
+	}
+
+	resolvedConversationID, err := ma.resolveHistoryConversationID(ctx, conversationId, userId)
+	if err != nil {
+		return nil, afterSeq, false, err
+	}
+
+	msgs, err := ma.messageRepository.ListAfterSeq(
+		ctx,
+		resolvedConversationID,
+		afterSeq,
+		limit+1,
+	)
+	if err != nil {
+		return nil, afterSeq, false, err
+	}
+
+	hasMore := len(msgs) > limit
+	if hasMore {
+		msgs = msgs[:limit]
+	}
+
+	msgsApp := toMessagesAppDTO(msgs)
+	ma.fillSenderUsernames(ctx, msgsApp)
+	ma.fillMediaFields(ctx, msgsApp)
+
+	nextSeq := afterSeq
+	if len(msgsApp) > 0 {
+		nextSeq = msgsApp[len(msgsApp)-1].Seq
+	}
+
+	return msgsApp, nextSeq, hasMore, nil
 }
 
 func (ma *MessageApplication) resolveHistoryConversationID(
@@ -914,29 +957,109 @@ func (ma *MessageApplication) getUsername(userId string) string {
 }
 
 // 批量回填 userName，用于前端展示
-func (ma *MessageApplication) fillSenderUsernames(messages []MessageAppeDTO) {
+func (ma *MessageApplication) fillSenderUsernames(ctx context.Context, messages []MessageAppeDTO) {
 	if len(messages) == 0 || ma.userRepository == nil {
 		return
 	}
+	userIds := uniqueSenderIDs(messages)
+	profiles := ma.loadUserProfiles(ctx, userIds)
+	for i := range messages {
+		if profile := profiles[messages[i].SendId]; profile != nil {
+			messages[i].SenderUsername = profile.UserName
+		}
+	}
+}
+
+func uniqueSenderIDs(messages []MessageAppeDTO) []string {
 	seen := make(map[string]struct{}, len(messages))
-	userIds := make([]string, 0, len(messages))
+	userIDs := make([]string, 0, len(messages))
 	for _, msg := range messages {
+		if msg.SendId == "" {
+			continue
+		}
 		if _, ok := seen[msg.SendId]; ok {
 			continue
 		}
 		seen[msg.SendId] = struct{}{}
-		userIds = append(userIds, msg.SendId)
+		userIDs = append(userIDs, msg.SendId)
 	}
-	users, err := ma.userRepository.FindByUserIDs(userIds)
+	return userIDs
+}
+
+func (ma *MessageApplication) loadUserProfiles(ctx context.Context, userIDs []string) map[string]*usercach.UserProfile {
+	profiles := make(map[string]*usercach.UserProfile, len(userIDs))
+	if len(userIDs) == 0 {
+		return profiles
+	}
+
+	missUserIds := userIDs
+	if ma.userCache != nil {
+		cachedProfiles := ma.userCache.GetUserProfiles(ctx, userIDs)
+		missUserIds = make([]string, 0, len(userIDs))
+		for _, userId := range userIDs {
+			profile := cachedProfiles[userId]
+			if profile == nil {
+				missUserIds = append(missUserIds, userId)
+				continue
+			}
+			if !profile.Found {
+				continue
+			}
+			profiles[userId] = profile
+		}
+	}
+
+	if len(missUserIds) == 0 {
+		return profiles
+	}
+	missSet := make(map[string]struct{}, len(missUserIds))
+	for _, userId := range missUserIds {
+		missSet[userId] = struct{}{}
+	}
+
+	users, err := ma.userRepository.FindByUserIDs(missUserIds)
 	if err != nil {
-		return
+		return profiles
 	}
-	usernameById := make(map[string]string, len(users))
+
+	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancel()
+	cacheTTL := time.Duration(ma.config.Cache.UserProfile.TTL) * time.Second
+	if cacheTTL <= 0 {
+		cacheTTL = 10 * time.Minute
+	}
+
 	for _, user := range users {
-		usernameById[user.UserId] = user.UserName
+		// 设置能够成功查询到的用户的信息缓存
+		profile := userProfileFromEntity(user)
+		profiles[user.UserId] = profile
+		delete(missSet, user.UserId)
+		if ma.userCache != nil {
+			_ = ma.userCache.SetUserProfile(cacheCtx, profile, cacheTTL)
+		}
 	}
-	for i := range messages {
-		messages[i].SenderUsername = usernameById[messages[i].SendId]
+
+	negativeTTL := time.Duration(ma.config.Cache.UserProfile.NegativeTTL) * time.Second
+	if negativeTTL <= 0 {
+		negativeTTL = 2 * time.Minute
+	}
+	if ma.userCache != nil {
+		for userId := range missSet {
+			_ = ma.userCache.SetUserProfileNotFound(cacheCtx, userId, negativeTTL)
+		}
+	}
+
+	return profiles
+}
+
+func userProfileFromEntity(user userentity.User) *usercach.UserProfile {
+	return &usercach.UserProfile{
+		Found:    true,
+		UserID:   user.UserId,
+		UserName: user.UserName,
+		NickName: user.NickName,
+		Avatar:   user.Avatar,
+		Status:   int(user.Status),
 	}
 }
 
