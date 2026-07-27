@@ -22,11 +22,19 @@ ws:
   timer_interval_seconds: 30
   max_message_size: 5120
   max_message_send_buffer_size: 256
+  send_message_rate: 10
+  send_message_burst: 20
   batch_max_messages: 64
   batch_max_bytes: 8192
   batch_linger_milliseconds: 20
   batch_ready_queue_size: 16
   message_event_worker_count: 100
+message:
+  room_realtime_fanout_limit: 500
+  history_default_limit: 20
+  history_max_limit: 30
+  sync_default_limit: 50
+  sync_max_limit: 100
 kafka:
   brokers:
     - "kafka:9092"

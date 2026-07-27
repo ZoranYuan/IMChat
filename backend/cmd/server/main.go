@@ -190,6 +190,9 @@ func main() {
 		roomRepository,
 		roomUserRepository,
 		roomMemberCache,
+		eventtransport.MessageHandlerOptions{
+			RoomRealtimeFanoutLimit: cfg.Message.RoomRealtimeFanoutLimit,
+		},
 	)
 	readNotifyHandler := eventtransport.NewReadHandler(realtimeGateway)
 	friendRequestHandler := eventtransport.NewFriendRequestHandler(realtimeGateway)

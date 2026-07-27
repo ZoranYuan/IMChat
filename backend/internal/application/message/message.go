@@ -768,10 +768,7 @@ func (ma *MessageApplication) GetHistoryMessages(
 	limit int,
 	cursor int64,
 ) ([]MessageAppeDTO, int64, bool, error) {
-	// 限制 limit 大小
-	if limit <= 0 || limit >= 31 {
-		limit = 20
-	}
+	limit = ma.normalizeHistoryLimit(limit)
 
 	resolvedConversationID, err := ma.resolveHistoryConversationID(ctx, conversationId, userId)
 	if err != nil {
@@ -827,9 +824,7 @@ func (ma *MessageApplication) SyncMessages(
 	afterSeq int64,
 	limit int,
 ) ([]MessageAppeDTO, int64, bool, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
+	limit = ma.normalizeSyncLimit(limit)
 	if afterSeq < 0 {
 		afterSeq = 0
 	}
@@ -864,6 +859,36 @@ func (ma *MessageApplication) SyncMessages(
 	}
 
 	return msgsApp, nextSeq, hasMore, nil
+}
+
+func (ma *MessageApplication) normalizeHistoryLimit(limit int) int {
+	defaultLimit := ma.config.Message.HistoryDefaultLimit
+	if defaultLimit <= 0 {
+		defaultLimit = 20
+	}
+	maxLimit := ma.config.Message.HistoryMaxLimit
+	if maxLimit <= 0 {
+		maxLimit = 30
+	}
+	if limit <= 0 || limit > maxLimit {
+		return defaultLimit
+	}
+	return limit
+}
+
+func (ma *MessageApplication) normalizeSyncLimit(limit int) int {
+	defaultLimit := ma.config.Message.SyncDefaultLimit
+	if defaultLimit <= 0 {
+		defaultLimit = 50
+	}
+	maxLimit := ma.config.Message.SyncMaxLimit
+	if maxLimit <= 0 {
+		maxLimit = 100
+	}
+	if limit <= 0 || limit > maxLimit {
+		return defaultLimit
+	}
+	return limit
 }
 
 func (ma *MessageApplication) resolveHistoryConversationID(

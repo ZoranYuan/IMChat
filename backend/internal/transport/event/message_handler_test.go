@@ -31,7 +31,7 @@ func TestMessageHandlerDecodesEnvelope(t *testing.T) {
 	eventPayload, _ := json.Marshal(event)
 	payload, _ := json.Marshal(protocol.Envelope{From: "u1", To: "u2", Payload: eventPayload})
 	stub := &deliveryStub{}
-	handler := NewMessageHandler(stub, nil, nil, nil)
+	handler := NewMessageHandler(stub, nil, nil, nil, MessageHandlerOptions{})
 
 	err := handler.Handle(context.Background(), eventbus.IncomingEvent{
 		Name:    protocol.EventTypeSendMessage,
@@ -55,7 +55,7 @@ func TestMessageHandlerDecodesEnvelope(t *testing.T) {
 }
 
 func TestMessageHandlerMarksMalformedPayloadPermanent(t *testing.T) {
-	handler := NewMessageHandler(&deliveryStub{}, nil, nil, nil)
+	handler := NewMessageHandler(&deliveryStub{}, nil, nil, nil, MessageHandlerOptions{})
 	err := handler.Handle(context.Background(), eventbus.IncomingEvent{Payload: []byte("not-json")})
 
 	var permanentError *eventbus.NonRetryableError
@@ -183,6 +183,7 @@ func TestMessageHandlerDeliversRoomMessageToMemberUsers(t *testing.T) {
 		}},
 		roomUsers,
 		&roomMemberCacheStub{},
+		MessageHandlerOptions{RoomRealtimeFanoutLimit: 500},
 	)
 
 	err := handler.Handle(context.Background(), eventbus.IncomingEvent{
@@ -212,10 +213,11 @@ func TestMessageHandlerDeliversNoticeForLargeRoom(t *testing.T) {
 		&roomRepositoryStub{room: &roomentity.Room{
 			RoomId:      "room1",
 			Status:      roomvo.Normal,
-			MemberCount: RoomRealtimeFanoutLimit + 1,
+			MemberCount: 501,
 		}},
 		roomUsers,
 		&roomMemberCacheStub{},
+		MessageHandlerOptions{RoomRealtimeFanoutLimit: 500},
 	)
 
 	err := handler.Handle(context.Background(), eventbus.IncomingEvent{

@@ -17,13 +17,18 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-const RoomRealtimeFanoutLimit = 500
+const defaultRoomRealtimeFanoutLimit = 500
+
+type MessageHandlerOptions struct {
+	RoomRealtimeFanoutLimit int
+}
 
 type MessageHandler struct {
 	delivery           realtimeport.Delivery
 	roomMemberCache    roomcache.RoomMemberCache
 	roomRepository     roomrepo.RoomRepository
 	roomUserRepository roomrepo.RoomUserRepository
+	options            MessageHandlerOptions
 	singleflight       singleflight.Group
 }
 
@@ -32,12 +37,17 @@ func NewMessageHandler(
 	roomRepository roomrepo.RoomRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
 	roomMemberCache roomcache.RoomMemberCache,
+	options MessageHandlerOptions,
 ) eventbus.Handler {
+	if options.RoomRealtimeFanoutLimit <= 0 {
+		options.RoomRealtimeFanoutLimit = defaultRoomRealtimeFanoutLimit
+	}
 	return &MessageHandler{
 		delivery:           delivery,
 		roomMemberCache:    roomMemberCache,
 		roomRepository:     roomRepository,
 		roomUserRepository: roomUserRepository,
+		options:            options,
 	}
 }
 
@@ -83,7 +93,7 @@ func (handler *MessageHandler) deliverMessage(
 		if err != nil {
 			return err
 		}
-		if room.MemberCount > RoomRealtimeFanoutLimit {
+		if room.MemberCount > handler.options.RoomRealtimeFanoutLimit {
 			return handler.deliverLargeRoomNotice(members, envelope, event)
 		}
 

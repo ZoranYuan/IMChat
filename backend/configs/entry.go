@@ -13,6 +13,7 @@ type Config struct {
 	Database  Database        `yaml:"database"`
 	JWT       JWT             `yaml:"jwt"`
 	WebSocket WebSocketConfig `yaml:"ws"`
+	Message   MessageConfig   `yaml:"message"`
 	Kafka     KafkaConfig     `yaml:"kafka"`
 	Storage   StorageConfig   `yaml:"storage"`
 	Cache     CacheConfig     `yaml:"cache"`
@@ -92,10 +93,20 @@ type WebSocketConfig struct {
 	TimerInterval            int `yaml:"timer_interval_seconds"`
 	MaxMessageSize           int `yaml:"max_message_size"`
 	MaxMessageSendBufferSize int `yaml:"max_message_send_buffer_size"`
+	SendMessageRate          int `yaml:"send_message_rate"`
+	SendMessageBurst         int `yaml:"send_message_burst"`
 	BatchMaxMessages         int `yaml:"batch_max_messages"`
 	BatchMaxBytes            int `yaml:"batch_max_bytes"`
 	BatchLingerMilliseconds  int `yaml:"batch_linger_milliseconds"`
 	BatchReadyQueueSize      int `yaml:"batch_ready_queue_size"`
+}
+
+type MessageConfig struct {
+	RoomRealtimeFanoutLimit int `yaml:"room_realtime_fanout_limit"`
+	HistoryDefaultLimit     int `yaml:"history_default_limit"`
+	HistoryMaxLimit         int `yaml:"history_max_limit"`
+	SyncDefaultLimit        int `yaml:"sync_default_limit"`
+	SyncMaxLimit            int `yaml:"sync_max_limit"`
 }
 
 type Server struct {

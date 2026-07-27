@@ -108,13 +108,22 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 		return err
 	}
 
+	sendRate := wh.config.WebSocket.SendMessageRate
+	if sendRate <= 0 {
+		sendRate = 10
+	}
+	sendBurst := int64(wh.config.WebSocket.SendMessageBurst)
+	if sendBurst <= 0 {
+		sendBurst = 20
+	}
+
 	allowed := wh.allowEvent(
 		ctx,
 		protocol.EventTypeSendMessage,
 		session.UserID(),
 		shared_ratelimit.Policy{
-			Rate:  10,
-			Burst: 20,
+			Rate:  float64(sendRate),
+			Burst: sendBurst,
 		},
 	)
 
