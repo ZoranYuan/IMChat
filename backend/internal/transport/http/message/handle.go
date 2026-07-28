@@ -58,6 +58,11 @@ func (mh *MessageHandle) SyncMessages(c *gin.Context) {
 		return
 	}
 
+	if req.ConversationId == "" {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+
 	messagesApp, nextSeq, hasMore, err := mh.app.SyncMessages(
 		c.Request.Context(),
 		req.ConversationId,

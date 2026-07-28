@@ -844,12 +844,25 @@ func (ma *MessageApplication) SyncMessages(
 		return nil, afterSeq, false, err
 	}
 
+	sort.SliceStable(msgs, func(i, j int) bool {
+		if msgs[i] == nil {
+			return false
+		}
+		if msgs[j] == nil {
+			return true
+		}
+		return msgs[i].Seq < msgs[j].Seq
+	})
+
 	hasMore := len(msgs) > limit
 	if hasMore {
 		msgs = msgs[:limit]
 	}
 
 	msgsApp := toMessagesAppDTO(msgs)
+	sort.SliceStable(msgsApp, func(i, j int) bool {
+		return msgsApp[i].Seq < msgsApp[j].Seq
+	})
 	ma.fillSenderUsernames(ctx, msgsApp)
 	ma.fillMediaFields(ctx, msgsApp)
 
@@ -885,8 +898,14 @@ func (ma *MessageApplication) normalizeSyncLimit(limit int) int {
 	if maxLimit <= 0 {
 		maxLimit = 100
 	}
-	if limit <= 0 || limit > maxLimit {
+	if defaultLimit > maxLimit {
+		defaultLimit = maxLimit
+	}
+	if limit <= 0 {
 		return defaultLimit
+	}
+	if limit > maxLimit {
+		return maxLimit
 	}
 	return limit
 }

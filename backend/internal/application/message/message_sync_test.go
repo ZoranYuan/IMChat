@@ -169,33 +169,11 @@ func (stub *syncUserCacheStub) DeleteUserProfiles(context.Context, []string) err
 
 func TestSyncMessagesReturnsMessagesAfterSeqWithPagination(t *testing.T) {
 	msgRepo := &syncMessageRepositoryStub{listAfterSeqResult: []*messageentity.Message{
-		messageentity.NewMessage("m3", "room1", "u1", 3, messagevo.Text, "three", "", nil),
 		messageentity.NewMessage("m4", "room1", "u2", 4, messagevo.Text, "four", "", nil),
+		messageentity.NewMessage("m3", "room1", "u1", 3, messagevo.Text, "three", "", nil),
 		messageentity.NewMessage("m5", "room1", "u3", 5, messagevo.Text, "five", "", nil),
 	}}
-	app := NewMessageApplication(
-		nil,
-		nil,
-		nil,
-		nil,
-		&syncUserCacheStub{},
-		nil,
-		nil,
-		&syncConversationRepositoryStub{conv: &conversationentity.Conversation{ConversationId: "room1", Convtype: conversationvo.RoomChat, RoomId: "room1"}},
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		&syncUserRepositoryStub{users: []userentity.User{{UserId: "u1", UserName: "alice"}, {UserId: "u2", UserName: "bob"}}},
-		msgRepo,
-		&syncRoomUserRepositoryStub{},
-		nil,
-		nil,
-		configsForTest(),
-	)
+	app := newSyncTestApplication(msgRepo)
 
 	msgs, nextSeq, hasMore, err := app.SyncMessages(context.Background(), "room1", "viewer", 2, 2)
 	if err != nil {
@@ -218,6 +196,38 @@ func TestSyncMessagesReturnsMessagesAfterSeqWithPagination(t *testing.T) {
 	}
 	if !hasMore {
 		t.Fatal("want hasMore=true")
+	}
+}
+
+func newSyncTestApplication(msgRepo *syncMessageRepositoryStub) *MessageApplication {
+	return NewMessageApplication(
+		nil, nil, nil, nil, &syncUserCacheStub{}, nil, nil,
+		&syncConversationRepositoryStub{conv: &conversationentity.Conversation{ConversationId: "room1", Convtype: conversationvo.RoomChat, RoomId: "room1"}},
+		nil, nil, nil, nil, nil, nil, nil,
+		&syncUserRepositoryStub{users: []userentity.User{{UserId: "u1", UserName: "alice"}, {UserId: "u2", UserName: "bob"}}},
+		msgRepo, &syncRoomUserRepositoryStub{}, nil, nil, configsForTest(),
+	)
+}
+
+func TestSyncMessagesKeepsCursorWhenNoMessages(t *testing.T) {
+	msgRepo := &syncMessageRepositoryStub{}
+	app := newSyncTestApplication(msgRepo)
+	messages, nextSeq, hasMore, err := app.SyncMessages(context.Background(), "room1", "viewer", 42, 10)
+	if err != nil {
+		t.Fatalf("empty sync failed: %v", err)
+	}
+	if len(messages) != 0 || nextSeq != 42 || hasMore {
+		t.Fatalf("empty sync must preserve cursor: messages=%d nextSeq=%d hasMore=%v", len(messages), nextSeq, hasMore)
+	}
+}
+
+func TestNormalizeSyncLimitClampsToMaximum(t *testing.T) {
+	app := &MessageApplication{config: configs.Config{Message: configs.MessageConfig{SyncDefaultLimit: 200, SyncMaxLimit: 100}}}
+	if got := app.normalizeSyncLimit(0); got != 100 {
+		t.Fatalf("default sync limit must not exceed max: got=%d", got)
+	}
+	if got := app.normalizeSyncLimit(1000); got != 100 {
+		t.Fatalf("requested sync limit must be clamped: got=%d", got)
 	}
 }
 
