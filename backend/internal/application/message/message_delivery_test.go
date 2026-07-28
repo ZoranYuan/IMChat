@@ -112,6 +112,10 @@ func (stub *deliveryRoomMemberCacheStub) SetMember(context.Context, string, stri
 	return nil
 }
 
+func (stub *deliveryRoomMemberCacheStub) SetMemberIfVersionGreater(context.Context, string, string, *roomcache.MemberState) (bool, error) {
+	return true, nil
+}
+
 func (stub *deliveryRoomMemberCacheStub) SetMemberNotFound(context.Context, string, string) error {
 	return nil
 }

@@ -32,7 +32,8 @@ const (
 	EventTypeMsgAck           = "msg_ack"                // 发送给前端，表示已经接收到消息
 	EventTypeSendMessage      = "msg"                    // 后端发送给前端，表示新的消息
 	EventRoomMessageNotice    = "room_msg_notice"        // 大群轻量新消息提醒，客户端按 seq 拉取详情
-	EventMessageBatch         = "msg_batch"              // 服务端一次性发送多个数据
+	EventRoomMemberChanged    = "room_member_changed"
+	EventMessageBatch         = "msg_batch" // 服务端一次性发送多个数据
 )
 
 type MessageReadAckEvent struct {
@@ -74,6 +75,15 @@ type MessageNotifyEvent struct {
 	ConversationId string `json:"conversationId"`
 	MessageId      string `json:"messageId"`
 	Seq            int64  `json:"seq"`
+}
+
+type RoomMemberChangedEvent struct {
+	RoomID    string `json:"roomId"`
+	UserID    string `json:"userId"`
+	Status    int    `json:"status"`
+	Role      int    `json:"role"`
+	MuteUntil *int64 `json:"muteUntil,omitempty"`
+	Version   int64  `json:"version"`
 }
 
 type MessageEvent struct {

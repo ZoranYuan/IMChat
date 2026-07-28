@@ -129,5 +129,7 @@ func (rur *RoomUserRepository) LeaveRoom(domain *roomentity.RoomUser, status []i
 		return roomentity.ErrVersionConflict
 	}
 
+	domain.Version++
+
 	return nil
 }

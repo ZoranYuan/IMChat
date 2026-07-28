@@ -10,6 +10,7 @@ type MemberState struct {
 	Status    roomvo.RoomUserStatus
 	Role      roomvo.Role
 	MuteUntil *int64
+	Version   int64
 }
 
 type RoomCache interface {
@@ -22,6 +23,7 @@ type RoomCache interface {
 type RoomMemberCache interface {
 	GetMember(ctx context.Context, roomID, userID string) (*MemberState, bool, error)
 	SetMember(ctx context.Context, roomID, userID string, state *MemberState) error
+	SetMemberIfVersionGreater(ctx context.Context, roomID, userID string, state *MemberState) (bool, error)
 	SetMemberNotFound(ctx context.Context, roomID, userID string) error
 	DeleteMember(ctx context.Context, roomID, userID string) error
 	GetMemberIDs(ctx context.Context, roomID string) ([]string, bool, error)

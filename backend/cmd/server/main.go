@@ -183,6 +183,7 @@ func main() {
 		txManager,
 		idGenerator,
 		realtimeGateway,
+		outboxRepository,
 	)
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
 
@@ -202,17 +203,20 @@ func main() {
 	messageSendHandler := eventtransport.NewMessageHandler(messageDelivery)
 	readNotifyHandler := eventtransport.NewReadHandler(realtimeGateway)
 	friendRequestHandler := eventtransport.NewFriendRequestHandler(realtimeGateway)
+	roomMemberChangedHandler := eventtransport.NewRoomMemberChangedHandler(roomApp)
 	messageProducer := kafka.NewProducer(kafkaClient, "msg")
 	consumerRouter := kafka.NewConsumerRouter(map[string]eventbus.Handler{
 		protocol.EventTypeSendMessage:      messageSendHandler,
 		protocol.EventReadMessageCommitted: readNotifyHandler, // 当读水位提交后，将已读用户通知给消息发送方
 		protocol.EventFriendRequestCreated: friendRequestHandler,
+		protocol.EventRoomMemberChanged:    roomMemberChangedHandler,
 	})
 
 	messageConsumerGroup, err := kafka.NewConsumerGroup(kafkaClient, []string{
 		string(protocol.EventReadMessageCommitted),
 		string(protocol.EventTypeSendMessage),
 		string(protocol.EventFriendRequestCreated),
+		string(protocol.EventRoomMemberChanged),
 	},
 		consumerRouter,
 		kafka.WithDeadLetterPublisher(messageProducer),

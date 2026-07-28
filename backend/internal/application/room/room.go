@@ -2,6 +2,7 @@ package room
 
 import (
 	idport "IM_backend/internal/application/ports/id"
+	outboxport "IM_backend/internal/application/ports/outbox"
 	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
@@ -12,7 +13,9 @@ import (
 	conversationvo "IM_backend/internal/domain/conversation/value_object"
 	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
+	"IM_backend/internal/shared/protocol"
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"time"
@@ -29,6 +32,7 @@ type RoomApplication struct {
 	txManager                  txmanager.TxManager
 	idGenerator                idport.Generator
 	roomPresence               realtime.RoomPresence
+	roomMemberOutboxRepository outboxport.Repository
 }
 
 func NewRoomApplication(roomRepository roomrepo.RoomRepository,
@@ -41,6 +45,7 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 	txManager txmanager.TxManager,
 	idGenerator idport.Generator,
 	roomPresence realtime.RoomPresence,
+	roomMemberOutboxRepository outboxport.Repository,
 ) *RoomApplication {
 	return &RoomApplication{
 		roomRepository:             roomRepository,
@@ -53,6 +58,7 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 		txManager:                  txManager,
 		idGenerator:                idGenerator,
 		roomPresence:               roomPresence,
+		roomMemberOutboxRepository: roomMemberOutboxRepository,
 	}
 }
 
@@ -113,6 +119,9 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		if _, err := roomUserRepository.JoinRoom(roomUser); err != nil {
 			return err
 		}
+		if err := ra.writeMemberChangedEvent(ctx, tx, roomUser); err != nil {
+			return err
+		}
 
 		if err := conversationRepository.CreateConversation(ctx, conversation); err != nil {
 			return err
@@ -138,12 +147,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		log.Println("预热会话序列缓存失败：", err)
 	}
 
-	memberState := &roomcache.MemberState{Status: roomUser.Status, Role: roomUser.Role, MuteUntil: roomUser.MuteUtil}
-	if err := ra.roomMemberCache.SetMember(ctx, roomId, userId, memberState); err != nil {
-		// best-effort cache warmup; the DB state is already authoritative
-		log.Println("创建房间成员缓存失败：", err)
-	}
-	_ = ra.roomMemberCache.SetMemberIDs(ctx, roomId, []string{userId})
+	ra.invalidateRoomMemberCache(ctx, roomId, userId)
 	if ra.roomPresence != nil {
 		ra.roomPresence.BindUserToRoom(userId, roomId)
 	}
@@ -239,6 +243,9 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 
 			persistedMember = member
 		}
+		if err := ra.writeMemberChangedEvent(ctx, tx, persistedMember); err != nil {
+			return err
+		}
 
 		conv, err := ra.conversationRepository.WithTx(tx).GetByID(ctx, conversationId)
 		if err != nil {
@@ -266,11 +273,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		return nil, nil, err
 	}
 
-	memberState := &roomcache.MemberState{Status: persistedMember.Status, Role: persistedMember.Role, MuteUntil: persistedMember.MuteUtil}
-	if err := ra.roomMemberCache.SetMember(ctx, roomId, userId, memberState); err != nil {
-		log.Println("更新加入房间缓存失败：", err)
-	}
-	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
+	ra.invalidateRoomMemberCache(ctx, roomId, userId)
 	if ra.roomPresence != nil {
 		ra.roomPresence.BindUserToRoom(userId, roomId)
 	}
@@ -278,13 +281,69 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 	return toRoomUserDTO(persistedMember), toRoomAppDTO(room, ""), nil
 }
 
+func (ra *RoomApplication) writeMemberChangedEvent(ctx context.Context, tx any, member *roomentity.RoomUser) error {
+	if ra.roomMemberOutboxRepository == nil || member == nil {
+		return nil
+	}
+	payload, err := json.Marshal(protocol.RoomMemberChangedEvent{
+		RoomID: member.RoomId, UserID: member.UserId,
+		Status: int(member.Status), Role: int(member.Role),
+		MuteUntil: member.MuteUtil, Version: member.Version,
+	})
+	if err != nil {
+		return err
+	}
+	return ra.roomMemberOutboxRepository.WithTx(tx).Create(ctx, &outboxport.Entry{
+		EventType:  protocol.EventRoomMemberChanged,
+		MessageKey: member.RoomId + ":" + member.UserId,
+		Payload:    payload,
+	})
+}
+
+func (ra *RoomApplication) ApplyMemberChanged(ctx context.Context, event protocol.RoomMemberChangedEvent) error {
+	state := &roomcache.MemberState{
+		Status:    roomvo.RoomUserStatus(event.Status),
+		Role:      roomvo.Role(event.Role),
+		MuteUntil: event.MuteUntil,
+		Version:   event.Version,
+	}
+	updated := true
+	if ra.roomMemberCache != nil {
+		var err error
+		updated, err = ra.roomMemberCache.SetMemberIfVersionGreater(ctx, event.RoomID, event.UserID, state)
+		if err != nil {
+			return err
+		}
+	}
+	if !updated || ra.roomPresence == nil {
+		return nil
+	}
+	if state.Status == roomvo.Activate || state.Status == roomvo.BeMuted {
+		ra.roomPresence.BindUserToRoom(event.UserID, event.RoomID)
+	} else {
+		ra.roomPresence.UnbindUserFromRoom(event.UserID, event.RoomID)
+	}
+	return nil
+}
+
+func (ra *RoomApplication) invalidateRoomMemberCache(ctx context.Context, roomID, userID string) {
+	if ra.roomMemberCache == nil {
+		return
+	}
+	if err := ra.roomMemberCache.DeleteMember(ctx, roomID, userID); err != nil {
+		log.Printf("删除房间成员缓存失败：房间=%s 用户=%s 错误=%v", roomID, userID, err)
+	}
+	if err := ra.roomMemberCache.DeleteMemberIDs(ctx, roomID); err != nil {
+		log.Printf("删除房间成员列表缓存失败：房间=%s 错误=%v", roomID, err)
+	}
+}
+
 func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) error {
-	memberState, exist, _ :=
-		ra.roomMemberCache.GetMember(
-			ctx,
-			roomId,
-			userId,
-		)
+	var memberState *roomcache.MemberState
+	var exist bool
+	if ra.roomMemberCache != nil {
+		memberState, exist, _ = ra.roomMemberCache.GetMember(ctx, roomId, userId)
+	}
 
 	if exist &&
 		memberState.Status != roomvo.Activate &&
@@ -312,6 +371,9 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 			}
 			return ErrUnknown
 		}
+		if err := ra.writeMemberChangedEvent(ctx, tx, roomUser); err != nil {
+			return err
+		}
 
 		// 删除 userConv
 		conversation := roomId
@@ -321,10 +383,7 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 		return err
 	}
 
-	if err := ra.roomMemberCache.SetMemberNotFound(ctx, roomId, userId); err != nil {
-		log.Println("更新退出房间缓存失败：", err)
-	}
-	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
+	ra.invalidateRoomMemberCache(ctx, roomId, userId)
 	if ra.roomPresence != nil {
 		ra.roomPresence.UnbindUserFromRoom(userId, roomId)
 	}

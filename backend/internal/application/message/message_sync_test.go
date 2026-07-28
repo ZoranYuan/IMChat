@@ -261,6 +261,11 @@ func (stub *accessRoomMemberCacheStub) SetMember(_ context.Context, _, _ string,
 	return nil
 }
 
+func (stub *accessRoomMemberCacheStub) SetMemberIfVersionGreater(_ context.Context, _, _ string, state *roomcache.MemberState) (bool, error) {
+	stub.setState = state
+	return true, nil
+}
+
 func (stub *accessRoomMemberCacheStub) SetMemberNotFound(context.Context, string, string) error {
 	stub.setNotFound = true
 	return nil
@@ -357,8 +362,8 @@ func TestConversationAccessRejectsLeftMember(t *testing.T) {
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("left member should be rejected, err=%v", err)
 	}
-	if !cache.setNotFound {
-		t.Fatal("left member should write negative cache")
+	if cache.setState == nil || cache.setState.Status != roomvo.Left {
+		t.Fatalf("left member should write versioned state: %+v", cache.setState)
 	}
 }
 func configsForTest() configs.Config {

@@ -401,17 +401,16 @@ func (ma *MessageApplication) isRoomConvMember(ctx context.Context, userID, room
 		member, err := ma.roomUserRepository.GetRelationByIDs(userID, roomID)
 		if err != nil {
 			if errors.Is(err, roomentity.ErrMemberNotFound) {
-				// 防止缓存击穿
-				if ma.roomMemberCache != nil {
-					_ = ma.roomMemberCache.SetMemberNotFound(ctx, roomID, userID)
-				}
 				return nil, ErrNotRoomMember
 			}
 			return nil, err
 		}
 		if member.Status != roomvo.Activate && member.Status != roomvo.BeMuted {
 			if ma.roomMemberCache != nil {
-				_ = ma.roomMemberCache.SetMemberNotFound(ctx, roomID, userID)
+				_, _ = ma.roomMemberCache.SetMemberIfVersionGreater(ctx, roomID, userID, &roomcache.MemberState{
+					Status: member.Status, Role: member.Role,
+					MuteUntil: member.MuteUtil, Version: member.Version,
+				})
 			}
 			return nil, ErrNotRoomMember
 		}
@@ -420,9 +419,10 @@ func (ma *MessageApplication) isRoomConvMember(ctx context.Context, userID, room
 			Status:    member.Status,
 			Role:      member.Role,
 			MuteUntil: member.MuteUtil,
+			Version:   member.Version,
 		}
 		if ma.roomMemberCache != nil {
-			_ = ma.roomMemberCache.SetMember(ctx, roomID, userID, state)
+			_, _ = ma.roomMemberCache.SetMemberIfVersionGreater(ctx, roomID, userID, state)
 		}
 		return state, nil
 	})
