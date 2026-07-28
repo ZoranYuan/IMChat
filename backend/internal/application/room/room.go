@@ -7,6 +7,7 @@ import (
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
+	"IM_backend/internal/application/ports/realtime"
 	conversationentity "IM_backend/internal/domain/conversation/entity"
 	conversationvo "IM_backend/internal/domain/conversation/value_object"
 	roomentity "IM_backend/internal/domain/room/entity"
@@ -27,6 +28,7 @@ type RoomApplication struct {
 	roomMemberCache            roomcache.RoomMemberCache
 	txManager                  txmanager.TxManager
 	idGenerator                idport.Generator
+	roomPresence               realtime.RoomPresence
 }
 
 func NewRoomApplication(roomRepository roomrepo.RoomRepository,
@@ -38,6 +40,7 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 	roomMemberCache roomcache.RoomMemberCache,
 	txManager txmanager.TxManager,
 	idGenerator idport.Generator,
+	roomPresence realtime.RoomPresence,
 ) *RoomApplication {
 	return &RoomApplication{
 		roomRepository:             roomRepository,
@@ -49,6 +52,7 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 		roomMemberCache:            roomMemberCache,
 		txManager:                  txManager,
 		idGenerator:                idGenerator,
+		roomPresence:               roomPresence,
 	}
 }
 
@@ -140,6 +144,9 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		log.Println("创建房间成员缓存失败：", err)
 	}
 	_ = ra.roomMemberCache.SetMemberIDs(ctx, roomId, []string{userId})
+	if ra.roomPresence != nil {
+		ra.roomPresence.BindUserToRoom(userId, roomId)
+	}
 
 	return toRoomAppDTO(room, inviteCode), nil
 }
@@ -264,6 +271,9 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		log.Println("更新加入房间缓存失败：", err)
 	}
 	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
+	if ra.roomPresence != nil {
+		ra.roomPresence.BindUserToRoom(userId, roomId)
+	}
 
 	return toRoomUserDTO(persistedMember), toRoomAppDTO(room, ""), nil
 }
@@ -315,6 +325,9 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 		log.Println("更新退出房间缓存失败：", err)
 	}
 	_ = ra.roomMemberCache.DeleteMemberIDs(ctx, roomId)
+	if ra.roomPresence != nil {
+		ra.roomPresence.UnbindUserFromRoom(userId, roomId)
+	}
 
 	return nil
 }

@@ -99,7 +99,10 @@ func (wh *WSHandler) handleReadMessageAck(ctx context.Context, session *realtime
 		return err
 	}
 
-	return wh.app.HandleReadMessage(ctx, session.UserID(), pb.GetConversationId(), pb.GetLastReadSeq())
+	if err := wh.app.HandleReadMessage(ctx, session.UserID(), pb.GetConversationId(), pb.GetLastReadSeq()); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.Session, data []byte) error {
@@ -274,6 +277,12 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 	if err := wh.gateway.Register(session); err != nil {
 		session.ForceClose()
 		return
+	}
+	roomIDs, err := wh.app.ListActiveRoomIDs(userId)
+	if err != nil {
+		log.Printf("加载用户在线房间索引失败：用户=%s 错误=%v", userId, err)
+	} else {
+		wh.gateway.BindOnlineRooms(session, roomIDs)
 	}
 	session.Start(
 		wh.config.WebSocket.PongWaitSeconds,

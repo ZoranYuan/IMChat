@@ -49,6 +49,14 @@ func (rur *RoomUserRepository) ListActiveUserIDs(roomId string) ([]string, error
 	return userIds, err
 }
 
+func (rur *RoomUserRepository) ListActiveRoomIDs(userId string) ([]string, error) {
+	var roomIds []string
+	err := rur.db.Model(&model.RoomUser{}).
+		Where("user_id = ? AND status IN ?", userId, []int{int(roomvo.Activate), int(roomvo.BeMuted)}).
+		Pluck("room_id", &roomIds).Error
+	return roomIds, err
+}
+
 func (r *RoomUserRepository) RejoinRoom(
 	member *roomentity.RoomUser,
 ) error {

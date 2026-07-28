@@ -928,6 +928,21 @@ func (ma *MessageApplication) resolveHistoryConversationID(
 	return resolvedID, nil
 }
 
+func (ma *MessageApplication) ResolveAccessibleConversationID(
+	ctx context.Context,
+	conversationId string,
+	userId string,
+) (string, error) {
+	return ma.resolveHistoryConversationID(ctx, conversationId, userId)
+}
+
+func (ma *MessageApplication) ListActiveRoomIDs(userID string) ([]string, error) {
+	if ma.roomUserRepository == nil {
+		return nil, errors.New("房间成员仓储未配置")
+	}
+	return ma.roomUserRepository.ListActiveRoomIDs(userID)
+}
+
 func normalizePrivateConversationID(conversationId string, userId string) string {
 	parts := strings.Split(conversationId, "_")
 	if len(parts) != 2 {

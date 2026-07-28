@@ -182,18 +182,24 @@ func main() {
 		roomMemberCache,
 		txManager,
 		idGenerator,
+		realtimeGateway,
 	)
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
 
-	messageSendHandler := eventtransport.NewMessageHandler(
+	messageDelivery := messageapp.NewDelivery(
 		realtimeGateway,
 		roomRepository,
 		roomUserRepository,
 		roomMemberCache,
-		eventtransport.MessageHandlerOptions{
-			RoomRealtimeFanoutLimit: cfg.Message.RoomRealtimeFanoutLimit,
+		messageapp.DeliveryOptions{
+			RoomRealtimeFanoutLimit:           cfg.Message.RoomRealtimeFanoutLimit,
+			LargeRoomNoticeLingerMilliseconds: cfg.Message.LargeRoomNoticeLingerMilliseconds,
+			LargeRoomNoticeShardCount:         cfg.Message.LargeRoomNoticeShardCount,
+			LargeRoomNoticeMaxPending:         cfg.Message.LargeRoomNoticeMaxPending,
 		},
 	)
+	defer messageDelivery.Close(context.Background())
+	messageSendHandler := eventtransport.NewMessageHandler(messageDelivery)
 	readNotifyHandler := eventtransport.NewReadHandler(realtimeGateway)
 	friendRequestHandler := eventtransport.NewFriendRequestHandler(realtimeGateway)
 	messageProducer := kafka.NewProducer(kafkaClient, "msg")

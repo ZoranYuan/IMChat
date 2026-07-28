@@ -117,6 +117,8 @@ func (stub *syncRoomUserRepositoryStub) GetRelationByIDs(userId, roomId string) 
 
 func (stub *syncRoomUserRepositoryStub) ListActiveUserIDs(string) ([]string, error) { return nil, nil }
 
+func (stub *syncRoomUserRepositoryStub) ListActiveRoomIDs(string) ([]string, error) { return nil, nil }
+
 func (stub *syncRoomUserRepositoryStub) LeaveRoom(*roomentity.RoomUser, []int) error { return nil }
 
 type syncUserRepositoryStub struct {

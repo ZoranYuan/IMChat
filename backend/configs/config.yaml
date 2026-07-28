@@ -31,6 +31,9 @@ ws:
   message_event_worker_count: 100
 message:
   room_realtime_fanout_limit: 500
+  large_room_notice_linger_milliseconds: 200
+  large_room_notice_shard_count: 16
+  large_room_notice_max_pending: 100000
   history_default_limit: 20
   history_max_limit: 30
   sync_default_limit: 50

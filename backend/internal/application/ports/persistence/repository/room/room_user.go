@@ -12,5 +12,6 @@ type RoomUserRepository interface {
 	) error
 	GetRelationByIDs(string, string) (*roomentity.RoomUser, error)
 	ListActiveUserIDs(roomId string) ([]string, error)
+	ListActiveRoomIDs(userId string) ([]string, error)
 	LeaveRoom(*roomentity.RoomUser, []int) error
 }

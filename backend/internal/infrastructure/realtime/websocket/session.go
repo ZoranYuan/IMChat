@@ -211,8 +211,8 @@ func (s *Session) Enqueue(message Message, policy AppendPolicy) error {
 	}
 }
 
-func (s *Session) UserID() string    { return s.UserID() }
-func (s *Session) SessionID() string { return s.SessionID() }
+func (s *Session) UserID() string    { return s.identity.UserId }
+func (s *Session) SessionID() string { return s.identity.SessionId }
 
 func (s *Session) Platform() Platform {
 	return s.identity.Platform
@@ -424,6 +424,7 @@ func (s *Session) writeBatchLoop(pingPeriod, writeWait int) error {
 	go func() {
 		errCh <- s.accumulateLoop(ctx, accumulator, readyQueue)
 	}()
+
 	go func() {
 		errCh <- s.sendLoop(ctx, readyQueue, pingPeriod, writeWait)
 	}()

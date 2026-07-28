@@ -102,11 +102,14 @@ type WebSocketConfig struct {
 }
 
 type MessageConfig struct {
-	RoomRealtimeFanoutLimit int `yaml:"room_realtime_fanout_limit"`
-	HistoryDefaultLimit     int `yaml:"history_default_limit"`
-	HistoryMaxLimit         int `yaml:"history_max_limit"`
-	SyncDefaultLimit        int `yaml:"sync_default_limit"`
-	SyncMaxLimit            int `yaml:"sync_max_limit"`
+	RoomRealtimeFanoutLimit           int `yaml:"room_realtime_fanout_limit"`
+	LargeRoomNoticeLingerMilliseconds int `yaml:"large_room_notice_linger_milliseconds"`
+	LargeRoomNoticeShardCount         int `yaml:"large_room_notice_shard_count"`
+	LargeRoomNoticeMaxPending         int `yaml:"large_room_notice_max_pending"`
+	HistoryDefaultLimit               int `yaml:"history_default_limit"`
+	HistoryMaxLimit                   int `yaml:"history_max_limit"`
+	SyncDefaultLimit                  int `yaml:"sync_default_limit"`
+	SyncMaxLimit                      int `yaml:"sync_max_limit"`
 }
 
 type Server struct {
