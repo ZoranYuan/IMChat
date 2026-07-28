@@ -379,28 +379,40 @@ func (ma *MessageApplication) isRoomConvMember(ctx context.Context, userID, room
 		)
 		defer cancel()
 
-		state, hit, cacheErr := ma.roomMemberCache.GetMember(ctx, roomID, userID)
+		var state *roomcache.MemberState
+		var hit bool
+		var cacheErr error
+		if ma.roomMemberCache != nil {
+			state, hit, cacheErr = ma.roomMemberCache.GetMember(ctx, roomID, userID)
+		}
 		if cacheErr == nil && hit {
-			if state == nil {
+			if state == nil || state.Status == roomvo.Left {
+				return nil, ErrNotRoomMember
+			}
+			if state.Status == roomvo.BeKicked {
+				return nil, ErrForbidden
+			}
+			if state.Status != roomvo.Activate && state.Status != roomvo.BeMuted {
 				return nil, ErrNotRoomMember
 			}
 			return state, nil
 		}
 
-		if _, err := ma.roomRepository.FindActiveRoom(roomID, int(roomvo.Activate)); err != nil {
-			return nil, err
-		}
 		member, err := ma.roomUserRepository.GetRelationByIDs(userID, roomID)
 		if err != nil {
 			if errors.Is(err, roomentity.ErrMemberNotFound) {
 				// 防止缓存击穿
-				_ = ma.roomMemberCache.SetMemberNotFound(ctx, roomID, userID)
+				if ma.roomMemberCache != nil {
+					_ = ma.roomMemberCache.SetMemberNotFound(ctx, roomID, userID)
+				}
 				return nil, ErrNotRoomMember
 			}
 			return nil, err
 		}
 		if member.Status != roomvo.Activate && member.Status != roomvo.BeMuted {
-			_ = ma.roomMemberCache.SetMemberNotFound(ctx, roomID, userID)
+			if ma.roomMemberCache != nil {
+				_ = ma.roomMemberCache.SetMemberNotFound(ctx, roomID, userID)
+			}
 			return nil, ErrNotRoomMember
 		}
 
@@ -409,7 +421,9 @@ func (ma *MessageApplication) isRoomConvMember(ctx context.Context, userID, room
 			Role:      member.Role,
 			MuteUntil: member.MuteUtil,
 		}
-		_ = ma.roomMemberCache.SetMember(ctx, roomID, userID, state)
+		if ma.roomMemberCache != nil {
+			_ = ma.roomMemberCache.SetMember(ctx, roomID, userID, state)
+		}
 		return state, nil
 	})
 
@@ -936,7 +950,7 @@ func (ma *MessageApplication) resolveHistoryConversationID(
 		return "", ErrConversationNotFound
 	}
 
-	allowed, err := ma.canAccessConversation(conv, userId)
+	allowed, err := ma.canAccessConversation(ctx, conv, userId)
 	if err != nil {
 		return "", err
 	}
@@ -979,6 +993,7 @@ func normalizePrivateConversationID(conversationId string, userId string) string
 }
 
 func (ma *MessageApplication) canAccessConversation(
+	ctx context.Context,
 	conv *conversationentity.Conversation,
 	userId string,
 ) (bool, error) {
@@ -989,15 +1004,16 @@ func (ma *MessageApplication) canAccessConversation(
 		if ma.roomUserRepository == nil {
 			return false, ErrForbidden
 		}
-
-		_, err := ma.roomUserRepository.GetRelationByIDs(userId, conv.RoomId)
+		err := ma.isRoomConvMember(ctx, userId, conv.RoomId)
 		if err != nil {
-			if errors.Is(err, roomentity.ErrMemberNotFound) {
+			if errors.Is(err, roomentity.ErrMemberNotFound) || errors.Is(err, ErrNotRoomMember) {
+				return false, nil
+			}
+			if errors.Is(err, ErrForbidden) {
 				return false, nil
 			}
 			return false, err
 		}
-
 		return true, nil
 	default:
 		return false, ErrUnknownConversationType
