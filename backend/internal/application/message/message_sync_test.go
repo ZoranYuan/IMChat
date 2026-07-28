@@ -2,6 +2,7 @@ package message
 
 import (
 	"IM_backend/configs"
+	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	usercache "IM_backend/internal/application/ports/persistence/cache/user"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
@@ -15,6 +16,7 @@ import (
 	roomvo "IM_backend/internal/domain/room/value_object"
 	userentity "IM_backend/internal/domain/user/entity"
 	context "context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -101,7 +103,11 @@ func (stub *syncConversationRepositoryStub) WithTx(any) conversationrepo.Convers
 	return stub
 }
 
-type syncRoomUserRepositoryStub struct{}
+type syncRoomUserRepositoryStub struct {
+	relation *roomentity.RoomUser
+	err      error
+	calls    int
+}
 
 func (stub *syncRoomUserRepositoryStub) JoinRoom(user *roomentity.RoomUser) (*roomentity.RoomUser, error) {
 	return user, nil
@@ -112,6 +118,13 @@ func (stub *syncRoomUserRepositoryStub) WithTx(any) roomrepo.RoomUserRepository 
 func (stub *syncRoomUserRepositoryStub) RejoinRoom(*roomentity.RoomUser) error { return nil }
 
 func (stub *syncRoomUserRepositoryStub) GetRelationByIDs(userId, roomId string) (*roomentity.RoomUser, error) {
+	stub.calls++
+	if stub.err != nil {
+		return nil, stub.err
+	}
+	if stub.relation != nil {
+		return stub.relation, nil
+	}
 	return &roomentity.RoomUser{UserId: userId, RoomId: roomId, Status: roomvo.Activate}, nil
 }
 
@@ -173,7 +186,7 @@ func TestSyncMessagesReturnsMessagesAfterSeqWithPagination(t *testing.T) {
 		messageentity.NewMessage("m3", "room1", "u1", 3, messagevo.Text, "three", "", nil),
 		messageentity.NewMessage("m5", "room1", "u3", 5, messagevo.Text, "five", "", nil),
 	}}
-	app := newSyncTestApplication(msgRepo)
+	app := newSyncTestApplication(msgRepo, nil)
 
 	msgs, nextSeq, hasMore, err := app.SyncMessages(context.Background(), "room1", "viewer", 2, 2)
 	if err != nil {
@@ -199,9 +212,9 @@ func TestSyncMessagesReturnsMessagesAfterSeqWithPagination(t *testing.T) {
 	}
 }
 
-func newSyncTestApplication(msgRepo *syncMessageRepositoryStub) *MessageApplication {
+func newSyncTestApplication(msgRepo *syncMessageRepositoryStub, memberCache roomcache.RoomMemberCache) *MessageApplication {
 	return NewMessageApplication(
-		nil, nil, nil, nil, &syncUserCacheStub{}, nil, nil,
+		nil, nil, nil, memberCache, &syncUserCacheStub{}, nil, nil,
 		&syncConversationRepositoryStub{conv: &conversationentity.Conversation{ConversationId: "room1", Convtype: conversationvo.RoomChat, RoomId: "room1"}},
 		nil, nil, nil, nil, nil, nil, nil,
 		&syncUserRepositoryStub{users: []userentity.User{{UserId: "u1", UserName: "alice"}, {UserId: "u2", UserName: "bob"}}},
@@ -211,7 +224,7 @@ func newSyncTestApplication(msgRepo *syncMessageRepositoryStub) *MessageApplicat
 
 func TestSyncMessagesKeepsCursorWhenNoMessages(t *testing.T) {
 	msgRepo := &syncMessageRepositoryStub{}
-	app := newSyncTestApplication(msgRepo)
+	app := newSyncTestApplication(msgRepo, nil)
 	messages, nextSeq, hasMore, err := app.SyncMessages(context.Background(), "room1", "viewer", 42, 10)
 	if err != nil {
 		t.Fatalf("empty sync failed: %v", err)
@@ -231,6 +244,123 @@ func TestNormalizeSyncLimitClampsToMaximum(t *testing.T) {
 	}
 }
 
+type accessRoomMemberCacheStub struct {
+	state       *roomcache.MemberState
+	hit         bool
+	err         error
+	setState    *roomcache.MemberState
+	setNotFound bool
+}
+
+func (stub *accessRoomMemberCacheStub) GetMember(context.Context, string, string) (*roomcache.MemberState, bool, error) {
+	return stub.state, stub.hit, stub.err
+}
+
+func (stub *accessRoomMemberCacheStub) SetMember(_ context.Context, _, _ string, state *roomcache.MemberState) error {
+	stub.setState = state
+	return nil
+}
+
+func (stub *accessRoomMemberCacheStub) SetMemberNotFound(context.Context, string, string) error {
+	stub.setNotFound = true
+	return nil
+}
+
+func (stub *accessRoomMemberCacheStub) DeleteMember(context.Context, string, string) error {
+	return nil
+}
+
+func (stub *accessRoomMemberCacheStub) GetMemberIDs(context.Context, string) ([]string, bool, error) {
+	return nil, false, nil
+}
+
+func (stub *accessRoomMemberCacheStub) SetMemberIDs(context.Context, string, []string) error {
+	return nil
+}
+
+func (stub *accessRoomMemberCacheStub) DeleteMemberIDs(context.Context, string) error {
+	return nil
+}
+
+func TestConversationAccessUsesMemberCacheHit(t *testing.T) {
+	repository := &syncRoomUserRepositoryStub{}
+	cache := &accessRoomMemberCacheStub{
+		state: &roomcache.MemberState{Status: roomvo.Activate},
+		hit:   true,
+	}
+	app := newSyncTestApplication(&syncMessageRepositoryStub{}, cache)
+	app.roomUserRepository = repository
+
+	if _, _, _, err := app.SyncMessages(context.Background(), "room1", "viewer", 0, 10); err != nil {
+		t.Fatalf("cache hit should allow sync: %v", err)
+	}
+	if repository.calls != 0 {
+		t.Fatalf("cache hit should not query repository, calls=%d", repository.calls)
+	}
+}
+
+func TestConversationAccessFallsBackAndWarmsCache(t *testing.T) {
+	repository := &syncRoomUserRepositoryStub{}
+	cache := &accessRoomMemberCacheStub{}
+	app := newSyncTestApplication(&syncMessageRepositoryStub{}, cache)
+	app.roomUserRepository = repository
+
+	if _, _, _, err := app.SyncMessages(context.Background(), "room1", "viewer", 0, 10); err != nil {
+		t.Fatalf("cache miss should fall back to repository: %v", err)
+	}
+	if repository.calls != 1 {
+		t.Fatalf("cache miss should query repository once, calls=%d", repository.calls)
+	}
+	if cache.setState == nil || cache.setState.Status != roomvo.Activate {
+		t.Fatalf("active member should be written back to cache: %+v", cache.setState)
+	}
+}
+
+func TestConversationAccessRejectsNegativeCache(t *testing.T) {
+	repository := &syncRoomUserRepositoryStub{}
+	cache := &accessRoomMemberCacheStub{hit: true}
+	app := newSyncTestApplication(&syncMessageRepositoryStub{}, cache)
+	app.roomUserRepository = repository
+
+	_, _, _, err := app.SyncMessages(context.Background(), "room1", "viewer", 0, 10)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("negative cache should reject access, err=%v", err)
+	}
+	if repository.calls != 0 {
+		t.Fatalf("negative cache should not query repository, calls=%d", repository.calls)
+	}
+}
+
+func TestConversationAccessFallsBackWhenCacheFails(t *testing.T) {
+	repository := &syncRoomUserRepositoryStub{}
+	cache := &accessRoomMemberCacheStub{err: errors.New("cache unavailable")}
+	app := newSyncTestApplication(&syncMessageRepositoryStub{}, cache)
+	app.roomUserRepository = repository
+
+	if _, _, _, err := app.SyncMessages(context.Background(), "room1", "viewer", 0, 10); err != nil {
+		t.Fatalf("cache failure should fall back to repository: %v", err)
+	}
+	if repository.calls != 1 {
+		t.Fatalf("cache failure should query repository once, calls=%d", repository.calls)
+	}
+}
+
+func TestConversationAccessRejectsLeftMember(t *testing.T) {
+	repository := &syncRoomUserRepositoryStub{
+		relation: &roomentity.RoomUser{Status: roomvo.Left},
+	}
+	cache := &accessRoomMemberCacheStub{}
+	app := newSyncTestApplication(&syncMessageRepositoryStub{}, cache)
+	app.roomUserRepository = repository
+
+	_, _, _, err := app.SyncMessages(context.Background(), "room1", "viewer", 0, 10)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("left member should be rejected, err=%v", err)
+	}
+	if !cache.setNotFound {
+		t.Fatal("left member should write negative cache")
+	}
+}
 func configsForTest() configs.Config {
 	cfg := configs.Config{}
 	cfg.Cache.UserProfile.TTL = 600
