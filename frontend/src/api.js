@@ -48,8 +48,13 @@ http.interceptors.response.use(
   },
 );
 
-export const loginUser = ({ phone, password }) =>
-  http.post("/users/login", { loginType: 1, phone: phone.trim(), password });
+export const loginUser = ({ account, phone, userName, password }) => {
+  const credential = (account || phone || userName || "").trim();
+  const payload = { loginType: 1, password };
+  if (/^1\d{10}$/.test(credential)) payload.phone = credential;
+  else payload.userName = credential;
+  return http.post("/users/login", payload);
+};
 
 export const registerUser = ({ phone, password, reconfirmPassword }) =>
   http.post("/users/register", {
@@ -70,8 +75,8 @@ export const getFriendRequests = (token) => http.get("/friend-requests", { token
 export const createFriendRequest = (token, { toUserId, message }) =>
   http.post("/friend-requests", { toUserId, message }, { token });
 
-export const operateFriendRequest = (token, { requestId, fromUserId, action }) =>
-  http.post("/friend-requests/actions", { requestId, fromUserId, action }, { token });
+export const operateFriendRequest = (token, { requestId, action }) =>
+  http.post("/friend-requests/actions", { requestId, action }, { token });
 
 export const createRoom = (token, { roomName, description = "", avatar = "" }) =>
   http.post("/rooms", { roomName, description, avatar }, { token });

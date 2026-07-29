@@ -1,5 +1,6 @@
 <script setup>
 import { MessageCircle, Plus, UserRound, Users, X } from "@lucide/vue";
+import { storeToRefs } from "pinia";
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppRail from "../components/chat/AppRail.vue";
@@ -10,16 +11,16 @@ import ConversationDetails from "../components/chat/ConversationDetails.vue";
 import ConversationList from "../components/chat/ConversationList.vue";
 import ProfilePanel from "../components/chat/ProfilePanel.vue";
 import ConfirmDialog from "../components/common/ConfirmDialog.vue";
-import { useChatStore } from "../composables/useChatStore.js";
+import { useChatStore } from "../stores/chat.js";
 import { useResponsive } from "../composables/useResponsive.js";
 import { messageTips } from "../utils/messageTips.js";
 
 const router = useRouter();
 const { isMobile } = useResponsive();
+const chatStore = useChatStore();
+const { activeConversation, activeMessages } = storeToRefs(chatStore);
 const {
   state,
-  activeConversation,
-  activeMessages,
   loadWorkspace,
   selectConversation,
   loadOlderMessages,
@@ -41,7 +42,7 @@ const {
   resumeUpload,
   cancelUpload,
   logout,
-} = useChatStore();
+} = chatStore;
 
 const activeSection = ref("conversations");
 const mobileChatOpen = ref(false);

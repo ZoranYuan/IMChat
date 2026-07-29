@@ -1,4 +1,5 @@
 import { computed, reactive } from "vue";
+import { defineStore } from "pinia";
 import {
   createFriendRequest,
   createRoom,
@@ -21,7 +22,7 @@ import {
 } from "../mocks/chat.js";
 import { createWsClient } from "../services/wsClient.js";
 import { deleteMessages, readMessages, writeMessages } from "../services/messageDb.js";
-import { useChunkUpload } from "./useChunkUpload.js";
+import { useChunkUpload } from "../composables/useChunkUpload.js";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const readJson = (key) => {
@@ -255,16 +256,16 @@ const connectSocket = () => wsClient.connect(state.token);
 
 export const hasChatAuth = () => Boolean(localStorage.getItem("im_token") || sessionStorage.getItem("im_token"));
 
-export function useChatStore() {
+export const useChatStore = defineStore("chat", () => {
   const activeConversation = computed(() =>
     state.conversations.find((item) => item.id === state.activeConversationId) || null,
   );
   const activeMessages = computed(() => state.messages[state.activeConversationId] || []);
 
-  const authenticate = async ({ mode, phone, password, reconfirmPassword, remember }) => {
+  const authenticate = async ({ mode, account, password, reconfirmPassword, remember }) => {
     const auth = mode === "register"
-      ? await registerUser({ phone, password, reconfirmPassword })
-      : await loginUser({ phone, password });
+      ? await registerUser({ phone: account, password, reconfirmPassword })
+      : await loginUser({ account, password });
     state.token = auth.token;
     state.currentUser = auth;
     state.dataSource = "api";
@@ -393,37 +394,9 @@ export function useChatStore() {
   };
 
   const sendAttachment = async (file, cType) => {
-    const conversation = activeConversation.value;
-    if (!file || !conversation) return null;
+    if (!file) return null;
     if (![2, 3, 5].includes(cType)) throw new Error("不支持的附件类型。" );
-    if (!wsClient.isConnected()) throw new Error("实时连接尚未建立，请稍后重试。" );
-
-    const uploaded = await attachmentUpload.upload(state.token, file);
-    const mediaMeta = cType === 2
-      ? await getImageDimensions(file).catch(() => ({ width: 0, height: 0, durationMs: 0 }))
-      : cType === 3
-        ? await getVideoMetadata(file).catch(() => ({ width: 0, height: 0, durationMs: 0 }))
-        : { width: 0, height: 0, durationMs: 0 };
-    const clientMsgId = crypto.randomUUID?.() || `message-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const payload = {
-      clientMsgId,
-      recvId: conversation.targetId,
-      convType: conversation.convType || (conversation.type === "group" ? 2 : 1),
-      cType,
-      content: mediaContent(cType, uploaded.fileName || file.name),
-      mediaUrl: uploaded.url || "",
-      thumbUrl: cType === 2 ? uploaded.url || "" : "",
-      fileId: uploaded.fileId || "",
-      thumbFileId: "",
-      fileName: uploaded.fileName || file.name,
-      fileSize: uploaded.size || file.size,
-      width: mediaMeta.width,
-      height: mediaMeta.height,
-      durationMs: mediaMeta.durationMs,
-      hasVideoTime: false,
-    };
-    if (!wsClient.sendMessage(payload)) throw new Error("文件已上传，但实时连接已断开，请重新发送。" );
-    return appendOutgoingMessage(conversation, payload);
+    throw new Error("接口文档未提供文件上传接口，暂时无法发送附件。" );
   };
 
   const sendReadAck = () => {
@@ -458,7 +431,6 @@ export function useChatStore() {
   const handleFriendRequest = async (request, accepted) => {
     await operateFriendRequest(state.token, {
       requestId: request.id,
-      fromUserId: request.fromUserId,
       action: accepted ? 1 : 2,
     });
     state.friendRequests = state.friendRequests.filter((item) => item.id !== request.id);
@@ -555,4 +527,4 @@ export function useChatStore() {
     cancelUpload: attachmentUpload.cancel,
     logout,
   };
-}
+});

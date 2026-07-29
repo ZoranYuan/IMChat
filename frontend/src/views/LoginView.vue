@@ -2,7 +2,7 @@
 import { Eye, EyeOff, Globe2, LockKeyhole, MessageCircle, Phone, QrCode, ShieldCheck, Users, Zap } from "@lucide/vue";
 import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { useChatStore } from "../composables/useChatStore.js";
+import { useChatStore } from "../stores/chat.js";
 import { messageTips } from "../utils/messageTips.js";
 
 const route = useRoute();
@@ -12,16 +12,18 @@ const { authenticate } = useChatStore();
 const mode = ref("login");
 const showPassword = ref(false);
 const submitting = ref(false);
-const form = reactive({ phone: "", password: "", reconfirmPassword: "", remember: true });
-const errors = reactive({ phone: "", password: "", reconfirmPassword: "", submit: "" });
+const form = reactive({ account: "", password: "", reconfirmPassword: "", remember: true });
+const errors = reactive({ account: "", password: "", reconfirmPassword: "", submit: "" });
 
 const title = computed(() => mode.value === "login" ? "欢迎回来" : "创建你的账号");
 const validate = () => {
-  errors.phone = /^1\d{10}$/.test(form.phone) ? "" : "请输入 11 位手机号";
+  errors.account = mode.value === "register"
+    ? (/^1\d{10}$/.test(form.account) ? "" : "注册请输入 11 位手机号")
+    : (form.account.trim() ? "" : "请输入手机号或用户名");
   errors.password = form.password.length >= 6 ? "" : "密码至少需要 6 位";
   errors.reconfirmPassword = mode.value === "register" && form.reconfirmPassword !== form.password ? "两次输入的密码不一致" : "";
   errors.submit = "";
-  return !errors.phone && !errors.password && !errors.reconfirmPassword;
+  return !errors.account && !errors.password && !errors.reconfirmPassword;
 };
 
 const submit = async () => {
@@ -40,7 +42,7 @@ const submit = async () => {
 };
 
 watch(mode, () => {
-  errors.phone = "";
+  errors.account = "";
   errors.password = "";
   errors.reconfirmPassword = "";
   errors.submit = "";
@@ -79,7 +81,7 @@ watch(mode, () => {
         </div>
 
         <form @submit.prevent="submit">
-          <label class="auth-field"><span>账号</span><div><Phone :size="18" /><input v-model.trim="form.phone" inputmode="tel" autocomplete="tel" maxlength="11" placeholder="请输入手机号 / 邮箱 / 用户名" /></div><small v-if="errors.phone">{{ errors.phone }}</small></label>
+          <label class="auth-field"><span>账号</span><div><Phone :size="18" /><input v-model.trim="form.account" inputmode="tel" autocomplete="tel" maxlength="11" placeholder="请输入手机号 / 邮箱 / 用户名" /></div><small v-if="errors.account">{{ errors.account }}</small></label>
           <label class="auth-field"><span>密码</span><div><LockKeyhole :size="18" /><input v-model="form.password" :type="showPassword ? 'text' : 'password'" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" placeholder="请输入密码" /><button type="button" :title="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword"><EyeOff v-if="showPassword" :size="18" /><Eye v-else :size="18" /></button></div><small v-if="errors.password">{{ errors.password }}</small></label>
           <label v-if="mode === 'register'" class="auth-field"><span>确认密码</span><div><LockKeyhole :size="18" /><input v-model="form.reconfirmPassword" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" placeholder="请再次输入密码" /></div><small v-if="errors.reconfirmPassword">{{ errors.reconfirmPassword }}</small></label>
 
