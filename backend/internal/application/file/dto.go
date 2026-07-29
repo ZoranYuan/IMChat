@@ -1,6 +1,23 @@
 package file
 
-import "io"
+import (
+	fileentity "IM_backend/internal/domain/file/entity"
+	"io"
+)
+
+func toDTO(file *fileentity.File) *FileDTO {
+	return &FileDTO{
+		FileId:      file.FileId,
+		UploaderId:  file.UploaderId,
+		Bucket:      file.Bucket,
+		ObjectKey:   file.ObjectKey,
+		FileName:    file.FileName,
+		ContentType: file.ContentType,
+		Size:        file.Size,
+		URL:         file.URL,
+		CreatedAt:   file.CreatedAt,
+	}
+}
 
 type UploadDTO struct {
 	UploaderId  string
@@ -29,13 +46,10 @@ type MultipartInitResDTO struct {
 	File          *FileDTO `json:"file,omitempty"`
 }
 
-type MultipartPartDTO struct {
-	UploadId   string
-	UploaderId string
-	PartNumber int
-	ChunkHash  string
-	Size       int64
-	Reader     io.Reader
+type MultipartPartURLDTO struct {
+	UploadId   string `json:"uploadId"`
+	PartNumber int    `json:"partNumber"`
+	URL        string `json:"url"`
 }
 
 type FileDTO struct {

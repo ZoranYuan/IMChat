@@ -68,15 +68,18 @@ type StorageConfig struct {
 }
 
 type MinIOConfig struct {
-	Endpoint        string `yaml:"endpoint"`
-	PublicEndpoint  string `yaml:"public_endpoint"`
-	AccessKeyID     string `yaml:"access_key_id"`
-	SecretAccessKey string `yaml:"secret_access_key"`
-	Bucket          string `yaml:"bucket"`
-	UseSSL          bool   `yaml:"use_ssl"`
-	CacheTTLSeconds int    `yaml:"cache_ttl_seconds"`
-	URLTTLSeconds   int    `yaml:"url_ttl_seconds"`
-	MultipartTTL    int    `yaml:"multipartTTL"`
+	Endpoint                        string `yaml:"endpoint"`
+	PublicEndpoint                  string `yaml:"public_endpoint"`
+	AccessKeyID                     string `yaml:"access_key_id"`
+	SecretAccessKey                 string `yaml:"secret_access_key"`
+	Bucket                          string `yaml:"bucket"`
+	UseSSL                          bool   `yaml:"use_ssl"`
+	CacheTTLSeconds                 int    `yaml:"cache_ttl_seconds"`
+	URLTTLSeconds                   int    `yaml:"url_ttl_seconds"`
+	MultipartTTL                    int    `yaml:"multipartTTL"`
+	PartURLTTLSeconds               int    `yaml:"part_url_ttl_seconds"`
+	MultipartInitLockTTLSeconds     int    `yaml:"multipart_init_lock_ttl_seconds"`
+	MultipartCompleteLockTTLSeconds int    `yaml:"multipart_complete_lock_ttl_seconds"`
 }
 
 type App struct {

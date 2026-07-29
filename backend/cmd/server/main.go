@@ -130,10 +130,13 @@ func main() {
 
 	// 构造依赖
 	fileRepository := filemysql.NewFileRepository(db)
-	fileApplication := fileapp.NewApplication(fileapp.Options{
-		MultipartTTL: time.Duration(cfg.Storage.MinIO.MultipartTTL) * time.Second,
-		CacheTTL:     time.Duration(cfg.Storage.MinIO.CacheTTLSeconds) * time.Second,
-		URLTTL:       time.Duration(cfg.Storage.MinIO.URLTTLSeconds) * time.Second,
+	fileApplication := fileapp.NewFileApplication(fileapp.Options{
+		MultipartTTL:             time.Duration(cfg.Storage.MinIO.MultipartTTL) * time.Second,
+		CacheTTL:                 time.Duration(cfg.Storage.MinIO.CacheTTLSeconds) * time.Second,
+		URLTTL:                   time.Duration(cfg.Storage.MinIO.URLTTLSeconds) * time.Second,
+		PartURLTTL:               time.Duration(cfg.Storage.MinIO.PartURLTTLSeconds) * time.Second,
+		MultipartInitLockTTL:     time.Duration(cfg.Storage.MinIO.MultipartInitLockTTLSeconds) * time.Second,
+		MultipartCompleteLockTTL: time.Duration(cfg.Storage.MinIO.MultipartCompleteLockTTLSeconds) * time.Second,
 	}, fileRepository, fileCache, objectStorage, idGenerator)
 	fileHandle := filehttp.NewHandle(fileApplication)
 

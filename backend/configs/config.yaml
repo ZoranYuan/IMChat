@@ -67,11 +67,14 @@ storage:
     public_endpoint: "localhost:9000"
     access_key_id: "minioadmin"
     secret_access_key: "minioadmin"
-    bucket: "im-videos"
+    bucket: "im"
     use_ssl: false
     cache_ttl_seconds: 600
     url_ttl_seconds: 3600
     multipartTTL: 86400
+    part_url_ttl_seconds: 900
+    multipart_init_lock_ttl_seconds: 15
+    multipart_complete_lock_ttl_seconds: 30
 
 cache:
   user_profile:

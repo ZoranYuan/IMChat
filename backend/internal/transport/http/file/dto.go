@@ -32,10 +32,14 @@ type MultipartInitRes struct {
 	File          *FileRes `json:"file,omitempty"`
 }
 
-type MultipartPartRes struct {
-	UploadId      string `json:"uploadId"`
-	PartNumber    int    `json:"partNumber"`
-	UploadedParts []int  `json:"uploadedParts"`
+type MultipartPartsPresignReq struct {
+	PartNumbers []int `json:"partNumbers" binding:"required"`
+}
+
+type MultipartPartURLRes struct {
+	UploadId   string `json:"uploadId"`
+	PartNumber int    `json:"partNumber"`
+	URL        string `json:"url"`
 }
 
 func toFileRes(dto *fileapp.FileDTO) FileRes {

@@ -6,16 +6,15 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
 type Handle struct {
-	app *fileapp.Application
+	app *fileapp.FileApplication
 }
 
-func NewHandle(app *fileapp.Application) *Handle {
+func NewHandle(app *fileapp.FileApplication) *Handle {
 	return &Handle{app: app}
 }
 
@@ -83,6 +82,10 @@ func (h *Handle) InitMultipartUpload(c *gin.Context) {
 		TotalChunks: req.TotalChunks,
 	})
 	if err != nil {
+		if errors.Is(err, fileapp.ErrUploadBusy) {
+			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
+			return
+		}
 		log.Println("初始化分片上传失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "初始化上传失败"))
 		return
@@ -91,50 +94,33 @@ func (h *Handle) InitMultipartUpload(c *gin.Context) {
 	c.JSON(http.StatusOK, response.Success(toMultipartInitRes(dto)))
 }
 
-func (h *Handle) UploadMultipartPart(c *gin.Context) {
+func (h *Handle) PresignMultipartParts(c *gin.Context) {
 	userId := c.GetString("userId")
 	if userId == "" {
 		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 		return
 	}
 	uploadId := c.Param("uploadId")
-	partNumber, err := strconv.Atoi(c.Param("partNumber"))
-	if uploadId == "" || err != nil {
+	if uploadId == "" {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
-
-	fileHeader, err := c.FormFile("chunk")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "分片不能为空"))
+	var req MultipartPartsPresignReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "分片参数错误"))
 		return
 	}
-	file, err := fileHeader.Open()
+	dtos, err := h.app.PresignMultipartParts(c.Request.Context(), uploadId, userId, req.PartNumbers)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "读取分片失败"))
+		log.Println("批量生成分片上传地址失败：", err)
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "分片上传任务无效"))
 		return
 	}
-	defer file.Close()
-
-	uploadedParts, err := h.app.UploadMultipartPart(c.Request.Context(), fileapp.MultipartPartDTO{
-		UploadId:   uploadId,
-		UploaderId: userId,
-		PartNumber: partNumber,
-		ChunkHash:  c.PostForm("chunkHash"),
-		Size:       fileHeader.Size,
-		Reader:     file,
-	})
-	if err != nil {
-		log.Println("上传文件分片失败：", err)
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "上传分片失败"))
-		return
+	res := make([]MultipartPartURLRes, 0, len(dtos))
+	for _, dto := range dtos {
+		res = append(res, MultipartPartURLRes{UploadId: dto.UploadId, PartNumber: dto.PartNumber, URL: dto.URL})
 	}
-
-	c.JSON(http.StatusOK, response.Success(MultipartPartRes{
-		UploadId:      uploadId,
-		PartNumber:    partNumber,
-		UploadedParts: uploadedParts,
-	}))
+	c.JSON(http.StatusOK, response.Success(res))
 }
 
 func (h *Handle) CompleteMultipartUpload(c *gin.Context) {
@@ -149,10 +135,19 @@ func (h *Handle) CompleteMultipartUpload(c *gin.Context) {
 		return
 	}
 
-	dto, err := h.app.CompleteMultipartUpload(c.Request.Context(), uploadId, userId)
+	appDTO, err := h.app.CompleteMultipartUpload(c.Request.Context(), uploadId, userId)
 	if err != nil {
-		if errors.Is(err, fileapp.ErrUploadNotCompleted) || errors.Is(err, fileapp.ErrInvalidUpload) {
-			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+		var incompleteErr *fileapp.UploadIncompleteError
+		if errors.As(err, &incompleteErr) {
+			c.JSON(http.StatusConflict, response.ErrorWithData(http.StatusConflict, incompleteErr.Error(), incompleteErr))
+			return
+		}
+		if errors.Is(err, fileapp.ErrInvalidUpload) || errors.Is(err, fileapp.ErrUploadBusy) {
+			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
+			return
+		}
+		if errors.Is(err, fileapp.ErrUploadUnauthorized) {
+			c.JSON(http.StatusForbidden, response.Error(http.StatusForbidden, "无权操作该上传任务"))
 			return
 		}
 		log.Println("完成分片上传失败：", err)
@@ -160,7 +155,7 @@ func (h *Handle) CompleteMultipartUpload(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(toFileRes(dto)))
+	c.JSON(http.StatusOK, response.Success(toFileRes(appDTO)))
 }
 
 func (h *Handle) Get(c *gin.Context) {

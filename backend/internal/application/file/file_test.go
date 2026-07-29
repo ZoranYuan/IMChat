@@ -77,27 +77,35 @@ func (c *fakeFileCache) GetMultipartUpload(ctx context.Context, uploadId string)
 	return nil, c.err
 }
 
-func (c *fakeFileCache) AddMultipartPart(ctx context.Context, uploadId string, part filecache.MultipartUploadPart, ttl time.Duration) error {
+func (c *fakeFileCache) AcquireMultipartInitLock(ctx context.Context, uploaderId string, fileHash string, ttl time.Duration) (string, bool, error) {
+	return "test-lock-token", c.err == nil, c.err
+}
+
+func (c *fakeFileCache) ReleaseMultipartInitLock(ctx context.Context, uploaderId string, fileHash string, token string) error {
 	return c.err
 }
 
-func (c *fakeFileCache) ListMultipartParts(ctx context.Context, uploadId string) ([]filecache.MultipartUploadPart, error) {
-	return nil, c.err
+func (c *fakeFileCache) AcquireMultipartCompleteLock(ctx context.Context, uploadId string, ttl time.Duration) (string, bool, error) {
+	return "test-lock-token", c.err == nil, c.err
+}
+
+func (c *fakeFileCache) ReleaseMultipartCompleteLock(ctx context.Context, uploadId string, token string) error {
+	return c.err
 }
 
 func (c *fakeFileCache) DeleteMultipartUpload(ctx context.Context, uploadId string) error {
 	return c.err
 }
 
-func (c *fakeFileCache) SetActiveUpload(ctx context.Context, fileHash string, uploadId string, ttl time.Duration) error {
+func (c *fakeFileCache) SetActiveUpload(ctx context.Context, uploaderId string, fileHash string, uploadId string, ttl time.Duration) error {
 	return c.err
 }
 
-func (c *fakeFileCache) GetActiveUploadId(ctx context.Context, fileHash string) (string, error) {
+func (c *fakeFileCache) GetActiveUploadId(ctx context.Context, uploaderId string, fileHash string) (string, error) {
 	return "", c.err
 }
 
-func (c *fakeFileCache) DeleteActiveUpload(ctx context.Context, fileHash string) error {
+func (c *fakeFileCache) DeleteActiveUpload(ctx context.Context, uploaderId string, fileHash string) error {
 	return c.err
 }
 
@@ -116,7 +124,6 @@ type fakeObjectStorage struct {
 	putType    string
 	putContent string
 	uploadId   string
-	parts      []filecache.MultipartUploadPart
 	presignKey string
 	presignTTL time.Duration
 	putErr     error
@@ -145,18 +152,12 @@ func (s *fakeObjectStorage) CreateMultipartUpload(ctx context.Context, objectKey
 	return s.uploadId, s.putErr
 }
 
-func (s *fakeObjectStorage) UploadMultipartPart(ctx context.Context, objectKey string, uploadId string, partNumber int, reader io.Reader, size int64) (string, error) {
-	if s.putErr != nil {
-		return "", s.putErr
-	}
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return "", err
-	}
-	s.putContent += string(data)
-	etag := "etag-" + string(rune('0'+partNumber))
-	s.parts = append(s.parts, filecache.MultipartUploadPart{PartNumber: partNumber, ETag: etag, Size: size})
-	return etag, nil
+func (s *fakeObjectStorage) PresignMultipartPart(ctx context.Context, objectKey string, uploadId string, partNumber int, ttl time.Duration) (string, error) {
+	return "http://minio.test/" + objectKey, s.putErr
+}
+
+func (s *fakeObjectStorage) ListMultipartParts(ctx context.Context, objectKey string, uploadId string) ([]objectstorage.MultipartPart, error) {
+	return nil, s.putErr
 }
 
 func (s *fakeObjectStorage) CompleteMultipartUpload(ctx context.Context, objectKey string, uploadId string, parts []objectstorage.MultipartPart) error {
@@ -195,7 +196,7 @@ func TestUploadStoresObjectMetadataAndCache(t *testing.T) {
 	repo := &fakeFileRepository{}
 	cache := &fakeFileCache{}
 	storage := &fakeObjectStorage{bucket: "videos"}
-	app := NewApplication(testOptions(), repo, cache, storage, fakeIDGenerator{})
+	app := NewFileApplication(testOptions(), repo, cache, storage, fakeIDGenerator{})
 
 	dto, err := app.Upload(context.Background(), UploadDTO{
 		UploaderId:  "u1",
@@ -235,7 +236,7 @@ func TestUploadStoresObjectMetadataAndCache(t *testing.T) {
 }
 
 func TestUploadRejectsEmptyFile(t *testing.T) {
-	app := NewApplication(testOptions(), &fakeFileRepository{}, &fakeFileCache{}, &fakeObjectStorage{}, fakeIDGenerator{})
+	app := NewFileApplication(testOptions(), &fakeFileRepository{}, &fakeFileCache{}, &fakeObjectStorage{}, fakeIDGenerator{})
 
 	_, err := app.Upload(context.Background(), UploadDTO{
 		UploaderId: "u1",
@@ -261,7 +262,7 @@ func TestGetUsesCacheAndRefreshesURL(t *testing.T) {
 	)
 	cache := &fakeFileCache{file: cached}
 	storage := &fakeObjectStorage{bucket: "videos"}
-	app := NewApplication(testOptions(), &fakeFileRepository{}, cache, storage, fakeIDGenerator{})
+	app := NewFileApplication(testOptions(), &fakeFileRepository{}, cache, storage, fakeIDGenerator{})
 
 	dto, err := app.Get(context.Background(), "file-1")
 	if err != nil {
@@ -290,7 +291,7 @@ func TestGetLoadsRepositoryOnCacheMiss(t *testing.T) {
 	repo := &fakeFileRepository{files: map[string]*fileentity.File{"file-1": stored}}
 	cache := &fakeFileCache{}
 	storage := &fakeObjectStorage{bucket: "videos"}
-	app := NewApplication(testOptions(), repo, cache, storage, fakeIDGenerator{})
+	app := NewFileApplication(testOptions(), repo, cache, storage, fakeIDGenerator{})
 
 	dto, err := app.Get(context.Background(), "file-1")
 	if err != nil {
@@ -299,5 +300,73 @@ func TestGetLoadsRepositoryOnCacheMiss(t *testing.T) {
 
 	if dto.FileId != "file-1" || cache.set == nil {
 		t.Fatalf("expected repository result to be returned and cached, dto=%+v cache=%+v", dto, cache.set)
+	}
+}
+
+func TestBuildCompletePartsReturnsMissingParts(t *testing.T) {
+	app := NewFileApplication(testOptions(), &fakeFileRepository{}, &fakeFileCache{}, &fakeObjectStorage{}, fakeIDGenerator{})
+	meta := &filecache.MultipartUploadMeta{
+		Size:        15,
+		ChunkSize:   5,
+		TotalChunks: 3,
+	}
+
+	_, err := app.buildCompleteParts(meta, []objectstorage.MultipartPart{
+		{PartNumber: 1, ETag: "etag-1", Size: 5},
+		{PartNumber: 3, ETag: "etag-3", Size: 5},
+	})
+
+	var incompleteErr *UploadIncompleteError
+	if !errors.As(err, &incompleteErr) {
+		t.Fatalf("expected UploadIncompleteError, got %v", err)
+	}
+	if len(incompleteErr.MissingParts) != 1 || incompleteErr.MissingParts[0] != 2 {
+		t.Fatalf("missing parts = %+v, want [2]", incompleteErr.MissingParts)
+	}
+}
+
+func TestBuildCompletePartsReturnsInvalidParts(t *testing.T) {
+	app := NewFileApplication(testOptions(), &fakeFileRepository{}, &fakeFileCache{}, &fakeObjectStorage{}, fakeIDGenerator{})
+	meta := &filecache.MultipartUploadMeta{
+		Size:        15,
+		ChunkSize:   5,
+		TotalChunks: 3,
+	}
+
+	_, err := app.buildCompleteParts(meta, []objectstorage.MultipartPart{
+		{PartNumber: 1, ETag: "etag-1", Size: 5},
+		{PartNumber: 2, ETag: "etag-2", Size: 4},
+		{PartNumber: 3, ETag: "etag-3", Size: 5},
+	})
+
+	var incompleteErr *UploadIncompleteError
+	if !errors.As(err, &incompleteErr) {
+		t.Fatalf("expected UploadIncompleteError, got %v", err)
+	}
+	if len(incompleteErr.InvalidParts) != 1 || incompleteErr.InvalidParts[0] != 2 {
+		t.Fatalf("invalid parts = %+v, want [2]", incompleteErr.InvalidParts)
+	}
+}
+
+func TestBuildCompletePartsSortsPartsForStorage(t *testing.T) {
+	app := NewFileApplication(testOptions(), &fakeFileRepository{}, &fakeFileCache{}, &fakeObjectStorage{}, fakeIDGenerator{})
+	meta := &filecache.MultipartUploadMeta{
+		Size:        15,
+		ChunkSize:   5,
+		TotalChunks: 3,
+	}
+
+	parts, err := app.buildCompleteParts(meta, []objectstorage.MultipartPart{
+		{PartNumber: 3, ETag: "etag-3", Size: 5},
+		{PartNumber: 1, ETag: "etag-1", Size: 5},
+		{PartNumber: 2, ETag: "etag-2", Size: 5},
+	})
+	if err != nil {
+		t.Fatalf("buildCompleteParts() error = %v", err)
+	}
+	for index, part := range parts {
+		if part.PartNumber != index+1 {
+			t.Fatalf("part at index %d = %d, want %d", index, part.PartNumber, index+1)
+		}
 	}
 }

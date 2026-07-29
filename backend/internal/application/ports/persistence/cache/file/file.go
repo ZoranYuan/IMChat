@@ -19,13 +19,7 @@ type MultipartUploadMeta struct {
 	ChunkSize   int64  `json:"chunkSize"`
 	TotalChunks int    `json:"totalChunks"`
 	CreatedAt   int64  `json:"createdAt"`
-}
-
-type MultipartUploadPart struct {
-	PartNumber int    `json:"partNumber"`
-	ETag       string `json:"etag"`
-	Size       int64  `json:"size"`
-	ChunkHash  string `json:"chunkHash"`
+	Status      string `json:"status"`
 }
 
 type FileCache interface {
@@ -33,12 +27,14 @@ type FileCache interface {
 	Get(ctx context.Context, fileId string) (*fileentity.File, error)
 	SetMultipartUpload(ctx context.Context, meta MultipartUploadMeta, ttl time.Duration) error
 	GetMultipartUpload(ctx context.Context, uploadId string) (*MultipartUploadMeta, error)
-	AddMultipartPart(ctx context.Context, uploadId string, part MultipartUploadPart, ttl time.Duration) error
-	ListMultipartParts(ctx context.Context, uploadId string) ([]MultipartUploadPart, error)
 	DeleteMultipartUpload(ctx context.Context, uploadId string) error
-	SetActiveUpload(ctx context.Context, fileHash string, uploadId string, ttl time.Duration) error
-	GetActiveUploadId(ctx context.Context, fileHash string) (string, error)
-	DeleteActiveUpload(ctx context.Context, fileHash string) error
+	AcquireMultipartInitLock(ctx context.Context, uploaderId string, fileHash string, ttl time.Duration) (string, bool, error)
+	ReleaseMultipartInitLock(ctx context.Context, uploaderId string, fileHash string, token string) error
+	AcquireMultipartCompleteLock(ctx context.Context, uploadId string, ttl time.Duration) (string, bool, error)
+	ReleaseMultipartCompleteLock(ctx context.Context, uploadId string, token string) error
+	SetActiveUpload(ctx context.Context, uploaderId string, fileHash string, uploadId string, ttl time.Duration) error
+	GetActiveUploadId(ctx context.Context, uploaderId string, fileHash string) (string, error)
+	DeleteActiveUpload(ctx context.Context, uploaderId string, fileHash string) error
 	SetFileHash(ctx context.Context, fileHash string, fileId string, ttl time.Duration) error
 	GetFileIdByHash(ctx context.Context, fileHash string) (string, error)
 }

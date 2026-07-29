@@ -14,3 +14,11 @@ func Error(code int, msg string) response {
 		Message: msg,
 	}
 }
+
+func ErrorWithData(code int, msg string, data interface{}) response {
+	return response{
+		Code:    code,
+		Message: msg,
+		Data:    data,
+	}
+}

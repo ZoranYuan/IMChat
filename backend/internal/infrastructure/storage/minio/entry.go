@@ -4,8 +4,11 @@ import (
 	"IM_backend/configs"
 	objectport "IM_backend/internal/application/ports/storage/object"
 	"context"
+	"fmt"
 	"io"
+	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +20,7 @@ type ObjectStorage struct {
 	client         *minio.Client
 	core           *minio.Core
 	publicClient   *minio.Client
+	publicCore     *minio.Core
 	bucket         string
 	publicEndpoint string
 	useSSL         bool
@@ -27,6 +31,7 @@ func NewObjectStorage(ctx context.Context, cfg configs.MinIOConfig) (objectport.
 		Creds:  credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
 		Secure: cfg.UseSSL,
 	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -56,11 +61,13 @@ func NewObjectStorage(ctx context.Context, cfg configs.MinIOConfig) (objectport.
 		return nil, err
 	}
 	core := &minio.Core{Client: client}
+	publicCore := &minio.Core{Client: publicClient}
 
 	return &ObjectStorage{
 		client:         client,
 		core:           core,
 		publicClient:   publicClient,
+		publicCore:     publicCore,
 		bucket:         cfg.Bucket,
 		publicEndpoint: strings.TrimRight(publicEndpoint, "/"),
 		useSSL:         cfg.UseSSL,
@@ -86,12 +93,36 @@ func (s *ObjectStorage) CreateMultipartUpload(ctx context.Context, objectKey str
 	})
 }
 
-func (s *ObjectStorage) UploadMultipartPart(ctx context.Context, objectKey string, uploadId string, partNumber int, reader io.Reader, size int64) (string, error) {
-	part, err := s.core.PutObjectPart(ctx, s.bucket, objectKey, uploadId, partNumber, reader, size, minio.PutObjectPartOptions{})
+func (s *ObjectStorage) PresignMultipartPart(ctx context.Context, objectKey string, uploadId string, partNumber int, ttl time.Duration) (string, error) {
+	if uploadId == "" || partNumber <= 0 {
+		return "", fmt.Errorf("参数错误")
+	}
+	u, err := s.publicCore.Presign(ctx, http.MethodPut, s.bucket, objectKey, ttl, url.Values{
+		"uploadId":   []string{uploadId},
+		"partNumber": []string{strconv.Itoa(partNumber)},
+	})
 	if err != nil {
 		return "", err
 	}
-	return part.ETag, nil
+	return u.String(), nil
+}
+
+func (s *ObjectStorage) ListMultipartParts(ctx context.Context, objectKey string, uploadId string) ([]objectport.MultipartPart, error) {
+	marker := 0
+	result := make([]objectport.MultipartPart, 0)
+	for {
+		listed, err := s.core.ListObjectParts(ctx, s.bucket, objectKey, uploadId, marker, 1000)
+		if err != nil {
+			return nil, err
+		}
+		for _, part := range listed.ObjectParts {
+			result = append(result, objectport.MultipartPart{PartNumber: part.PartNumber, ETag: part.ETag, Size: part.Size})
+		}
+		if !listed.IsTruncated {
+			return result, nil
+		}
+		marker = listed.NextPartNumberMarker
+	}
 }
 
 func (s *ObjectStorage) CompleteMultipartUpload(ctx context.Context, objectKey string, uploadId string, parts []objectport.MultipartPart) error {
