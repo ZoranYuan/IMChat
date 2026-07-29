@@ -7,6 +7,7 @@
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8080/api/v1" },
+    { "key": "healthUrl", "value": "http://localhost:8081/healthz" },
     { "key": "token", "value": "REPLACE_ME" },
     { "key": "userId", "value": "REPLACE_USER_ID" },
     { "key": "roomId", "value": "REPLACE_ROOM_ID" },
@@ -25,6 +26,18 @@
     ]
   },
   "item": [
+    {
+      "name": "系统模块",
+      "item": [
+        {
+          "name": "健康检查",
+          "request": {
+            "method": "GET",
+            "url": "{{healthUrl}}"
+          }
+        }
+      ]
+    },
     {
       "name": "账户模块",
       "item": [
@@ -193,6 +206,13 @@
             },
             "url": "{{baseUrl}}/rooms/join"
           }
+        },
+        {
+          "name": "退出房间",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/rooms/{{roomId}}/leave"
+          }
         }
       ]
     },
@@ -295,6 +315,14 @@
             "method": "GET",
             "description": "用户打开会话时调用。cursor=0 获取最新一页，之后使用 nextCursor 加载更早消息。",
             "url": "{{baseUrl}}/messages/history?conversationId={{conversationId}}&cursor=0&limit=20"
+          }
+        },
+        {
+          "name": "增量同步消息",
+          "request": {
+            "method": "GET",
+            "description": "收到大群轻提示 room_msg_notice、WebSocket 重连或检测到本地 seq 缺口后调用。afterSeq 表示客户端本地已持有的最后一条 seq，服务端返回 seq > afterSeq 的完整消息，按 seq 正序返回。",
+            "url": "{{baseUrl}}/messages/sync?conversationId={{conversationId}}&afterSeq=0&limit=50"
           }
         },
         {
