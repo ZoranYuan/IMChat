@@ -345,9 +345,9 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 		memberState, exist, _ = ra.roomMemberCache.GetMember(ctx, roomId, userId)
 	}
 
-	if exist &&
-		memberState.Status != roomvo.Activate &&
-		memberState.Status != roomvo.BeMuted {
+	if exist && (memberState == nil ||
+		(memberState.Status != roomvo.Activate &&
+			memberState.Status != roomvo.BeMuted)) {
 		return ErrNotRoomMember
 	}
 
@@ -365,7 +365,7 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 			return err
 		}
 
-		if err := ra.roomUserRepository.LeaveRoom(roomUser, []int{int(roomvo.Activate), int(roomvo.BeMuted)}); err != nil {
+		if err := ra.roomUserRepository.WithTx(tx).LeaveRoom(roomUser, []int{int(roomvo.Activate), int(roomvo.BeMuted)}); err != nil {
 			if errors.Is(err, roomentity.ErrVersionConflict) {
 				return ErrConcurrentUpdate
 			}
