@@ -1,5 +1,5 @@
 <script setup>
-import { ArrowLeft, FileText, Image as ImageIcon, Info, LoaderCircle, MoreHorizontal, Paperclip, Pause, Phone, Play, Send, Smile, Users, Video, X } from "@lucide/vue";
+import { ArrowLeft, Bot, ChevronRight, FileText, Image as ImageIcon, Info, LoaderCircle, MoreHorizontal, Paperclip, Pause, Phone, Play, Send, Smile, Users, Video, X } from "@lucide/vue";
 import { nextTick, ref, watch } from "vue";
 
 const props = defineProps({
@@ -14,7 +14,7 @@ const props = defineProps({
   uploadProgress: { type: Number, default: 0 },
 });
 
-const emit = defineEmits(["back", "details", "send", "attachment", "load-older", "unsupported", "pause-upload", "resume-upload", "cancel-upload"]);
+const emit = defineEmits(["back", "details", "open-summary", "send", "attachment", "load-older", "unsupported", "pause-upload", "resume-upload", "cancel-upload"]);
 const draft = ref("");
 const sending = ref(false);
 const messageList = ref(null);
@@ -87,14 +87,14 @@ watch(() => props.messages.length, scrollToBottom);
       </header>
 
       <div ref="messageList" class="message-list">
-        <div class="conversation-notice">消息仅对会话成员可见</div>
+        <div class="conversation-notice">6月3日 星期二</div>
         <button v-if="hasMore" class="load-history" type="button" :disabled="loading" @click="$emit('load-older')">
           <LoaderCircle v-if="loading" class="spin" :size="15" />{{ loading ? "加载中" : "查看更早消息" }}
         </button>
         <div v-if="loading && !messages.length" class="messages-loading"><LoaderCircle class="spin" :size="22" /><span>正在加载消息</span></div>
         <div v-else-if="!messages.length" class="messages-empty"><span>还没有消息</span><small>发送一条消息开始聊天</small></div>
 
-        <article v-for="message in messages" :key="message.id" :class="['message-row', { mine: isMine(message), system: message.type === 'system' }]">
+        <article v-for="(message, index) in messages" :key="message.id" :class="['message-row', { mine: isMine(message), system: message.type === 'system' }]">
           <template v-if="message.type === 'system'"><span>{{ message.content }}</span></template>
           <template v-else>
             <span class="message-avatar" :style="{ backgroundColor: message.avatarColor }">{{ (message.senderName || "成员").slice(0, 1) }}</span>
@@ -106,10 +106,23 @@ watch(() => props.messages.length, scrollToBottom);
               <a v-else-if="message.type === 'image'" class="image-message" :href="message.mediaUrl" target="_blank" rel="noreferrer"><img :src="message.thumbUrl || message.mediaUrl" :alt="message.fileName || '聊天图片'" /></a>
               <div v-else-if="message.type === 'video'" class="video-message"><video :src="message.mediaUrl" controls preload="metadata"></video><span>{{ message.fileName }}</span></div>
               <div v-else class="message-bubble">{{ message.content }}</div>
+              <div v-if="index === 1" class="design-file-card"><span><FileText :size="20" /></span><div><strong>IM_Project_v1.2.fig</strong><small>Figma 文件 · 24.5MB</small></div></div>
               <span class="message-meta"><time>{{ message.time }}</time><small v-if="isMine(message)">{{ message.status === 'sending' ? "发送中" : message.status === 'failed' ? "发送失败" : message.status === 'read' ? "已读" : "已发送" }}</small></span>
             </div>
           </template>
         </article>
+      </div>
+
+      <div v-if="conversation.type === 'group'" class="ai-summary-entry-wrap">
+        <div class="ai-summary-divider"><span></span><p>以下为 AI 生成的未读消息摘要</p><span></span></div>
+        <section class="ai-summary-card">
+          <span class="ai-entry-icon"><Bot :size="20" /></span>
+          <div>
+            <strong>AI 已为你总结 6 条未读消息</strong>
+            <p>快速了解本次讨论的重点、决策和待办</p>
+          </div>
+          <button class="summary-link" type="button" @click="$emit('open-summary')">查看摘要 <ChevronRight :size="15" /></button>
+        </section>
       </div>
 
       <footer class="composer-area">
@@ -129,7 +142,7 @@ watch(() => props.messages.length, scrollToBottom);
         </div>
         <div class="composer-main">
           <textarea v-model="draft" rows="1" :disabled="connection !== 'connected'" placeholder="输入消息，Enter 发送，Shift + Enter 换行" @keydown.enter="handleEnter"></textarea>
-          <button class="send-button" type="button" title="发送消息" :disabled="!draft.trim() || connection !== 'connected' || sending" @click="submit"><Send :size="18" /></button>
+          <button class="send-button" type="button" title="发送消息" :disabled="!draft.trim() || connection !== 'connected' || sending" @click="submit"><span>发送</span><Send :size="16" /></button>
         </div>
         <input ref="imageInput" type="file" accept="image/*" hidden @change="selectAttachment($event, 2)" />
         <input ref="videoInput" type="file" accept="video/*" hidden @change="selectAttachment($event, 3)" />

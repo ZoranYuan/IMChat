@@ -4,6 +4,7 @@ const schema = `
 syntax = "proto3";
 package im.ws;
 message WsFrame { string op = 1; bytes data = 2; }
+message WsBatch { repeated WsFrame frames = 1; }
 message MessageReadAckReq { string conversation_id = 1; int64 last_read_seq = 2; string sender_id = 3; }
 message MessageReq {
   string client_msg_id = 1; string recv_id = 2; int32 conv_type = 3; int32 c_type = 4;
@@ -27,6 +28,7 @@ message MessageEvent {
 const root = protobuf.parse(schema).root;
 const types = {
   frame: root.lookupType("im.ws.WsFrame"),
+  batch: root.lookupType("im.ws.WsBatch"),
   messageReq: root.lookupType("im.ws.MessageReq"),
   messageAck: root.lookupType("im.ws.MessageAck"),
   messageEvent: root.lookupType("im.ws.MessageEvent"),

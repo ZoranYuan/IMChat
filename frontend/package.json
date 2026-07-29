@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "test:indexeddb": "node --test tests/messageDb.test.js",
     "typecheck": "vue-tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0"
@@ -22,6 +23,7 @@
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
     "typescript": "^5.6.3",
     "vue-tsc": "^3.3.7"
   }

@@ -16,17 +16,22 @@ const filtered = computed(() => {
   const keyword = query.value.trim().toLowerCase();
   return props.conversations.filter((item) => {
     const matchKeyword = !keyword || item.name.toLowerCase().includes(keyword) || item.subtitle.toLowerCase().includes(keyword);
-    const matchFilter = filter.value === "all" || (filter.value === "unread" && item.unread > 0) || (filter.value === "groups" && item.type === "group");
+    const matchFilter = filter.value === "all" || (filter.value === "unread" && item.unread > 0) || (filter.value === "mentions" && item.subtitle.includes("@")) || (filter.value === "pinned" && item.pinned);
     return matchKeyword && matchFilter;
   });
 });
+
+const previewText = (conversation) => {
+  if (conversation.type === "group" && conversation.unread > 0) return `AI · ${conversation.unread * 2} 条未读消息已总结`;
+  return conversation.subtitle;
+};
 </script>
 
 <template>
   <section class="directory-panel">
     <header class="directory-header">
       <div>
-        <p class="directory-kicker">SYCHAT</p>
+        <p class="directory-kicker">IMChat</p>
         <h1>消息</h1>
       </div>
       <div class="header-actions">
@@ -44,7 +49,8 @@ const filtered = computed(() => {
     <div class="segmented-control" aria-label="会话筛选">
       <button :class="{ active: filter === 'all' }" type="button" @click="filter = 'all'">全部</button>
       <button :class="{ active: filter === 'unread' }" type="button" @click="filter = 'unread'">未读</button>
-      <button :class="{ active: filter === 'groups' }" type="button" @click="filter = 'groups'">群聊</button>
+      <button :class="{ active: filter === 'mentions' }" type="button" @click="filter = 'mentions'">@我</button>
+      <button :class="{ active: filter === 'pinned' }" type="button" @click="filter = 'pinned'">置顶</button>
     </div>
 
     <div class="conversation-scroll">
@@ -70,7 +76,7 @@ const filtered = computed(() => {
             <time>{{ conversation.time }}</time>
           </span>
           <span class="conversation-line preview">
-            <span>{{ conversation.subtitle }}</span>
+            <span>{{ previewText(conversation) }}</span>
             <span class="item-signals">
               <Pin v-if="conversation.pinned" :size="12" />
               <BellOff v-if="conversation.muted" :size="12" />

@@ -1,5 +1,5 @@
 <script setup>
-import { LogOut, MessageCircle, Users, UserRound } from "@lucide/vue";
+import { CalendarDays, CheckSquare, Folder, LogOut, MessageCircle, Settings, Users, UsersRound } from "@lucide/vue";
 
 defineProps({
   activeSection: { type: String, required: true },
@@ -7,7 +7,7 @@ defineProps({
   connection: { type: String, default: "disconnected" },
 });
 
-defineEmits(["select", "logout", "retry"]);
+defineEmits(["select", "logout", "retry", "unsupported"]);
 </script>
 
 <template>
@@ -21,15 +21,31 @@ defineEmits(["select", "logout", "retry"]);
     <nav class="rail-nav" aria-label="主要导航">
       <button :class="{ active: activeSection === 'conversations' }" type="button" title="消息" @click="$emit('select', 'conversations')">
         <MessageCircle :size="21" />
-        <span>消息</span>
+        <span>会话</span>
       </button>
       <button :class="{ active: activeSection === 'contacts' }" type="button" title="联系人" @click="$emit('select', 'contacts')">
         <Users :size="21" />
-        <span>联系人</span>
+        <span>通讯录</span>
+      </button>
+      <button type="button" title="群组" @click="$emit('unsupported', '群组')">
+        <UsersRound :size="21" />
+        <span>群组</span>
+      </button>
+      <button type="button" title="文件" @click="$emit('unsupported', '文件')">
+        <Folder :size="21" />
+        <span>文件</span>
+      </button>
+      <button type="button" title="日历" @click="$emit('unsupported', '日历')">
+        <CalendarDays :size="21" />
+        <span>日历</span>
+      </button>
+      <button type="button" title="待办" @click="$emit('unsupported', '待办')">
+        <CheckSquare :size="21" />
+        <span>待办</span>
       </button>
       <button :class="{ active: activeSection === 'profile' }" type="button" title="我的" @click="$emit('select', 'profile')">
-        <UserRound :size="21" />
-        <span>我的</span>
+        <Settings :size="21" />
+        <span>设置</span>
       </button>
     </nav>
 

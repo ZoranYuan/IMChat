@@ -1,8 +1,9 @@
 <script setup>
 import { MessageCircle, Plus, UserRound, Users, X } from "@lucide/vue";
-import { onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import AppRail from "../components/chat/AppRail.vue";
+import AiSummaryPanel from "../components/chat/AiSummaryPanel.vue";
 import ChatPanel from "../components/chat/ChatPanel.vue";
 import ContactsPanel from "../components/chat/ContactsPanel.vue";
 import ConversationDetails from "../components/chat/ConversationDetails.vue";
@@ -45,12 +46,70 @@ const {
 const activeSection = ref("conversations");
 const mobileChatOpen = ref(false);
 const detailsOpen = ref(false);
+const detailsMode = ref("info");
 const roomDialogOpen = ref(false);
 const roomMode = ref("create");
 const roomSubmitting = ref(false);
 const clearConfirmOpen = ref(false);
 const loadError = ref("");
 const roomForm = reactive({ roomName: "", description: "", avatar: "", inviteCode: "" });
+
+const SIDEBAR_MIN_WIDTH = 240;
+const SIDEBAR_MAX_WIDTH = 420;
+const DETAILS_MIN_WIDTH = 260;
+const DETAILS_MAX_WIDTH = 720;
+const readStoredNumber = (key, fallback) => {
+  const value = Number(localStorage.getItem(key));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const sidebarWidth = ref(clamp(readStoredNumber("im_sidebar_width", 300), SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH));
+const detailsWidth = ref(clamp(readStoredNumber("im_details_width", 300), DETAILS_MIN_WIDTH, DETAILS_MAX_WIDTH));
+const sidebarCollapsed = ref(localStorage.getItem("im_sidebar_collapsed") === "1");
+const resizeTarget = ref("");
+let stopResize = null;
+
+const workspaceStyle = computed(() => ({
+  "--sidebar-width": !isMobile.value && !sidebarCollapsed.value ? `${sidebarWidth.value}px` : "0px",
+  "--details-width": !isMobile.value && detailsOpen.value ? `${detailsWidth.value}px` : "0px",
+}));
+
+const finishResize = () => {
+  if (stopResize) stopResize();
+  stopResize = null;
+  resizeTarget.value = "";
+  document.body.classList.remove("column-resize-active");
+  localStorage.setItem("im_sidebar_width", String(sidebarWidth.value));
+  localStorage.setItem("im_details_width", String(detailsWidth.value));
+};
+
+const startResize = (target, event) => {
+  if (isMobile.value) return;
+  event.preventDefault();
+  if (target === "sidebar" && sidebarCollapsed.value) sidebarCollapsed.value = false;
+  resizeTarget.value = target;
+  document.body.classList.add("column-resize-active");
+  const startX = event.clientX;
+  const startSidebar = target === "sidebar" && sidebarCollapsed.value ? SIDEBAR_MIN_WIDTH : sidebarWidth.value;
+  const startDetails = detailsWidth.value;
+  const handleMove = (moveEvent) => {
+    const deltaX = moveEvent.clientX - startX;
+    if (target === "sidebar") sidebarWidth.value = clamp(startSidebar + deltaX, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+    if (target === "details") detailsWidth.value = clamp(startDetails - deltaX, DETAILS_MIN_WIDTH, DETAILS_MAX_WIDTH);
+  };
+  const handleUp = () => finishResize();
+  document.addEventListener("pointermove", handleMove);
+  document.addEventListener("pointerup", handleUp, { once: true });
+  stopResize = () => {
+    document.removeEventListener("pointermove", handleMove);
+    document.removeEventListener("pointerup", handleUp);
+  };
+};
+
+const toggleSidebar = () => {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  localStorage.setItem("im_sidebar_collapsed", sidebarCollapsed.value ? "1" : "0");
+};
 
 const initialize = async () => {
   loadError.value = "";
@@ -68,12 +127,15 @@ const chooseSection = (section) => {
   activeSection.value = section;
   mobileChatOpen.value = false;
   detailsOpen.value = false;
+  detailsMode.value = "info";
 };
 
 const chooseConversation = async (id) => {
+  mobileChatOpen.value = true;
   try {
     await selectConversation(id);
-    mobileChatOpen.value = true;
+    detailsOpen.value = false;
+    detailsMode.value = "info";
     sendReadAck();
   } catch (error) {
     messageTips.error({ title: "消息加载失败", message: error.message });
@@ -159,20 +221,48 @@ const handleLogout = async () => {
   router.replace("/login");
 };
 
+const openDetails = () => {
+  detailsMode.value = "info";
+  if (detailsWidth.value > 420) detailsWidth.value = 300;
+  detailsOpen.value = true;
+};
+
+const openSummary = () => {
+  if (!activeConversation.value || activeConversation.value.type !== "group") return;
+  detailsMode.value = "summary";
+  detailsWidth.value = clamp(Math.max(detailsWidth.value, 560), DETAILS_MIN_WIDTH, DETAILS_MAX_WIDTH);
+  detailsOpen.value = true;
+};
+
+const closeDetails = () => {
+  detailsOpen.value = false;
+  detailsMode.value = "info";
+};
+
+watch(isMobile, (mobile) => {
+  if (mobile) {
+    detailsOpen.value = false;
+    sidebarCollapsed.value = false;
+  }
+});
+
 onMounted(initialize);
+onBeforeUnmount(() => finishResize());
 </script>
 
 <template>
   <main class="im-app">
-    <AppRail :active-section="activeSection" :current-user="state.currentUser" :connection="state.connection" @select="chooseSection" @retry="retryConnection" @logout="handleLogout" />
+    <AppRail :active-section="activeSection" :current-user="state.currentUser" :connection="state.connection" @select="chooseSection" @retry="retryConnection" @logout="handleLogout" @unsupported="(name) => messageTips.info(`${name}功能待对应接口完善后接入`)" />
 
-    <section :class="['im-workspace', { 'details-visible': detailsOpen }]">
+    <section :class="['im-workspace', { 'details-visible': detailsOpen, 'sidebar-collapsed': sidebarCollapsed, resizing: resizeTarget }]" :style="workspaceStyle">
+      <button v-if="!isMobile" class="sidebar-toggle" type="button" :title="sidebarCollapsed ? '展开会话列表' : '收起会话列表'" @click="toggleSidebar">{{ sidebarCollapsed ? '›' : '‹' }}</button>
       <aside :class="['directory-shell', { 'mobile-hidden': mobileChatOpen }]">
         <ConversationList v-if="activeSection === 'conversations'" :conversations="state.conversations" :active-id="state.activeConversationId" :loading="state.loading" @select="chooseConversation" @create-room="roomDialogOpen = true" />
         <ContactsPanel v-else-if="activeSection === 'contacts'" :contacts="state.contacts" :requests="state.friendRequests" @open-chat="handleContact" @handle-request="handleRequest" @add-friend="handleAddFriend" />
         <ProfilePanel v-else :current-user="state.currentUser" @logout="handleLogout" />
         <div v-if="loadError" class="directory-error"><strong>暂时无法同步数据</strong><span>{{ loadError }}</span><button type="button" @click="initialize">重新加载</button></div>
       </aside>
+      <div v-if="!isMobile" class="column-resizer sidebar-resizer" role="separator" aria-label="调整会话列表宽度" @pointerdown="startResize('sidebar', $event)" @dblclick="toggleSidebar"></div>
 
       <ChatPanel
         :class="{ 'mobile-visible': mobileChatOpen }"
@@ -186,7 +276,8 @@ onMounted(initialize);
         :upload-status="uploadStatus"
         :upload-progress="uploadProgress"
         @back="mobileChatOpen = false"
-        @details="detailsOpen = true"
+        @details="openDetails"
+        @open-summary="openSummary"
         @send="handleSend"
         @attachment="handleAttachment"
         @pause-upload="pauseUpload"
@@ -196,8 +287,10 @@ onMounted(initialize);
         @unsupported="(name) => messageTips.info(`${name}功能待对应接口完善后接入`)"
       />
 
-      <div v-if="detailsOpen" class="details-backdrop" @click="detailsOpen = false"></div>
-      <ConversationDetails :class="{ open: detailsOpen }" :conversation="activeConversation" @close="detailsOpen = false" @toggle-pin="messageTips.success(togglePinned(activeConversation.id) ? '会话已置顶' : '已取消置顶')" @toggle-mute="messageTips.success(toggleMuted(activeConversation.id) ? '已开启消息免打扰' : '已开启消息通知')" @clear="clearConfirmOpen = true" />
+      <div v-if="detailsOpen" class="details-backdrop" @click="closeDetails"></div>
+      <div v-if="detailsOpen && !isMobile" class="column-resizer details-resizer" role="separator" aria-label="调整会话详情宽度" @pointerdown="startResize('details', $event)"></div>
+      <AiSummaryPanel v-if="detailsOpen && detailsMode === 'summary'" class="open" :conversation="activeConversation" @close="closeDetails" @unsupported="(name) => messageTips.info(`${name}功能待对应接口完善后接入`)" />
+      <ConversationDetails v-else-if="detailsOpen" class="open" :conversation="activeConversation" @close="closeDetails" @toggle-pin="messageTips.success(togglePinned(activeConversation.id) ? '会话已置顶' : '已取消置顶')" @toggle-mute="messageTips.success(toggleMuted(activeConversation.id) ? '已开启消息免打扰' : '已开启消息通知')" @clear="clearConfirmOpen = true" />
     </section>
 
     <nav v-if="!mobileChatOpen" class="mobile-bottom-nav" aria-label="移动端导航">

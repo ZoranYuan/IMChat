@@ -5,6 +5,7 @@
     "moduleResolution": "Bundler",
     "allowJs": true,
     "checkJs": false,
+    "noEmit": true,
     "jsx": "preserve",
     "resolveJsonModule": true,
     "isolatedModules": true,

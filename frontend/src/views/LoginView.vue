@@ -1,5 +1,5 @@
 <script setup>
-import { CheckCircle2, Eye, EyeOff, LockKeyhole, MessageCircle, Phone, Users } from "@lucide/vue";
+import { Eye, EyeOff, Globe2, LockKeyhole, MessageCircle, Phone, QrCode, ShieldCheck, Users, Zap } from "@lucide/vue";
 import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useChatStore } from "../composables/useChatStore.js";
@@ -50,24 +50,28 @@ watch(mode, () => {
 <template>
   <main class="auth-page">
     <section class="auth-brand-panel">
-      <div class="auth-brand"><span><MessageCircle :size="24" /></span><div><strong>SYCHAT</strong><small>专注沟通，高效协作</small></div></div>
+      <div class="auth-brand"><span><MessageCircle :size="24" /></span><div><strong>IMChat</strong></div></div>
       <div class="auth-copy">
-        <span class="auth-eyebrow">TEAM MESSAGING</span>
-        <h1>让每一次沟通<br />都有清晰上下文</h1>
-        <p>实时消息、好友与群组协作集中在一处，适配桌面和移动设备。</p>
+        <h1>高效沟通，<br />连接无限可能</h1>
+        <p>IMChat 是一款企业级即时通讯工具，帮助团队更高效地协同工作。</p>
+        <div class="auth-feature-list">
+          <span><i><Zap :size="22" /></i><b>极速消息</b><small>全球加速，消息秒达</small></span>
+          <span><i><ShieldCheck :size="22" /></i><b>安全可靠</b><small>端到端加密，数据安全有保障</small></span>
+          <span><i><Users :size="22" /></i><b>团队协作</b><small>群组、文件、任务一站式协同</small></span>
+        </div>
       </div>
       <div class="auth-preview">
-        <div class="preview-top"><span class="preview-avatar">林</span><div><strong>IM 产品共创组</strong><small><i></i>8 位成员在线</small></div></div>
-        <div class="preview-message"><span>林岚</span><p>交互稿已经更新，可以开始联调了。</p><time>10:42</time></div>
-        <div class="preview-message mine"><p>收到，我会先检查移动端适配。</p><CheckCircle2 :size="14" /></div>
+        <span class="preview-card-dot"></span>
+        <span class="preview-card-dot"></span>
+        <div class="preview-screen"><i></i><i></i><i></i><p></p><p></p><b></b></div>
+        <div class="preview-chat-bubble"><span></span><span></span><span></span></div>
       </div>
-      <div class="auth-trust"><Users :size="17" /><span>为团队内部沟通提供稳定的实时连接</span></div>
     </section>
 
     <section class="auth-form-panel">
-      <div class="mobile-auth-brand"><span><MessageCircle :size="22" /></span><strong>SYCHAT</strong></div>
+      <div class="mobile-auth-brand"><span><MessageCircle :size="22" /></span><strong>IMChat</strong></div>
       <div class="auth-form-wrap">
-        <header><h2>{{ title }}</h2><p>{{ mode === "login" ? "登录后继续处理你的会话" : "使用手机号注册一个新账号" }}</p></header>
+        <header><span class="auth-card-logo"><MessageCircle :size="34" /></span><h2>{{ title }}</h2><p>{{ mode === "login" ? "请登录您的账号" : "使用手机号注册一个新账号" }}</p></header>
 
         <div class="auth-tabs">
           <button :class="{ active: mode === 'login' }" type="button" @click="mode = 'login'">登录</button>
@@ -75,16 +79,17 @@ watch(mode, () => {
         </div>
 
         <form @submit.prevent="submit">
-          <label class="auth-field"><span>手机号</span><div><Phone :size="18" /><input v-model.trim="form.phone" inputmode="tel" autocomplete="tel" maxlength="11" placeholder="请输入手机号" /></div><small v-if="errors.phone">{{ errors.phone }}</small></label>
+          <label class="auth-field"><span>账号</span><div><Phone :size="18" /><input v-model.trim="form.phone" inputmode="tel" autocomplete="tel" maxlength="11" placeholder="请输入手机号 / 邮箱 / 用户名" /></div><small v-if="errors.phone">{{ errors.phone }}</small></label>
           <label class="auth-field"><span>密码</span><div><LockKeyhole :size="18" /><input v-model="form.password" :type="showPassword ? 'text' : 'password'" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" placeholder="请输入密码" /><button type="button" :title="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword"><EyeOff v-if="showPassword" :size="18" /><Eye v-else :size="18" /></button></div><small v-if="errors.password">{{ errors.password }}</small></label>
           <label v-if="mode === 'register'" class="auth-field"><span>确认密码</span><div><LockKeyhole :size="18" /><input v-model="form.reconfirmPassword" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" placeholder="请再次输入密码" /></div><small v-if="errors.reconfirmPassword">{{ errors.reconfirmPassword }}</small></label>
 
-          <div v-if="mode === 'login'" class="auth-options"><label><input v-model="form.remember" type="checkbox" />记住登录状态</label><button type="button" @click="messageTips.info('暂未提供找回密码接口')">忘记密码</button></div>
+          <div v-if="mode === 'login'" class="auth-options"><label><input v-model="form.remember" type="checkbox" />记住我</label><button type="button" @click="messageTips.info('暂未提供找回密码接口')">忘记密码?</button></div>
           <div v-if="errors.submit" class="auth-error">{{ errors.submit }}</div>
           <button class="auth-submit" type="submit" :disabled="submitting">{{ submitting ? "正在提交..." : mode === "login" ? "登录" : "注册并登录" }}</button>
         </form>
 
-        <p class="auth-terms">继续操作即表示你同意服务条款和隐私政策</p>
+        <div class="auth-social"><span>其他登录方式</span><div><button type="button" title="微信登录" @click="messageTips.info('暂未提供第三方登录接口')"><MessageCircle :size="20" /></button><button type="button" title="GitHub 登录" @click="messageTips.info('暂未提供第三方登录接口')"><Globe2 :size="20" /></button><button type="button" title="扫码登录" @click="messageTips.info('暂未提供扫码登录接口')"><QrCode :size="20" /></button></div></div>
+        <p class="auth-terms">{{ mode === "login" ? "还没有账号？" : "已有账号？" }} <button type="button" @click="mode = mode === 'login' ? 'register' : 'login'">{{ mode === "login" ? "立即注册" : "返回登录" }}</button></p>
       </div>
     </section>
   </main>

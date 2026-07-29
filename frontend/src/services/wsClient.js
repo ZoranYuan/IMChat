@@ -17,21 +17,30 @@ export function createWsClient(callbacks = {}) {
 
   const buildUrl = () => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${protocol}//${window.location.host}/api/v1/ws?token=${encodeURIComponent(token)}`;
+    return `${protocol}//${window.location.host}/api/v1/ws?token=${encodeURIComponent(token)}&batch=1`;
+  };
+
+  const dispatchApplicationFrame = (frame) => {
+    const payloadType = payloadTypes[frame.op];
+    if (!payloadType) {
+      callbacks.onUnknownFrame?.(frame);
+      return;
+    }
+    const payload = decodePayload(payloadType, frame.data);
+    if (frame.op === "msg") callbacks.onMessage?.(payload);
+    if (frame.op === "msg_ack") callbacks.onAck?.(payload);
+    if (frame.op === "msg_read_notify") callbacks.onReadNotify?.(payload);
   };
 
   const dispatchFrame = (event) => {
     try {
       const frame = decodeFrame(event.data);
-      const payloadType = payloadTypes[frame.op];
-      if (!payloadType) {
-        callbacks.onUnknownFrame?.(frame);
-        return;
+      if (frame.op === "msg_batch") {
+        const batch = decodePayload("batch", frame.data);
+        batch.frames.forEach(dispatchApplicationFrame);
+      } else {
+        dispatchApplicationFrame(frame);
       }
-      const payload = decodePayload(payloadType, frame.data);
-      if (frame.op === "msg") callbacks.onMessage?.(payload);
-      if (frame.op === "msg_ack") callbacks.onAck?.(payload);
-      if (frame.op === "msg_read_notify") callbacks.onReadNotify?.(payload);
     } catch (error) {
       notifyState("error");
       callbacks.onProtocolError?.(error);

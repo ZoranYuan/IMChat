@@ -20,6 +20,7 @@ import {
   mockMessages,
 } from "../mocks/chat.js";
 import { createWsClient } from "../services/wsClient.js";
+import { deleteMessages, readMessages, writeMessages } from "../services/messageDb.js";
 import { useChunkUpload } from "./useChunkUpload.js";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -97,6 +98,7 @@ const normalizeConversation = (item) => ({
 const normalizeMessage = (item) => ({
   id: item.messageId,
   senderId: item.senderId || item.sendId,
+  convType: Number(item.convType) || 1,
   senderName: item.senderUsername || "成员",
   seq: Number(item.seq) || 0,
   cType: Number(item.cType) || 1,
@@ -116,6 +118,11 @@ const normalizeMessage = (item) => ({
   clientMsgId: item.clientMsgId || "",
   avatarColor: item.senderId === state.currentUser.userId ? "#2856a6" : "#2d7d68",
 });
+
+const currentUserId = () => (state.currentUser && (state.currentUser.userId || state.currentUser.id)) || "";
+const persistMessages = (conversationId) => {
+  writeMessages(currentUserId(), conversationId, state.messages[conversationId] || []).catch(() => {});
+};
 
 const persistSession = (auth, remember) => {
   for (const storage of [localStorage, sessionStorage]) {
@@ -165,6 +172,7 @@ const upsertIncomingMessage = (payload) => {
   const list = state.messages[payload.conversationId] || [];
   if (!list.some((item) => item.id === message.id)) list.push(message);
   state.messages[payload.conversationId] = list;
+  persistMessages(payload.conversationId);
   let conversation = state.conversations.find((item) => item.id === payload.conversationId);
   if (!conversation) {
     conversation = {
@@ -195,7 +203,7 @@ const upsertIncomingMessage = (payload) => {
 };
 
 const handleMessageAck = (ack) => {
-  Object.values(state.messages).forEach((messages) => {
+  Object.entries(state.messages).forEach(([conversationId, messages]) => {
     const pending = messages.find((item) => item.clientMsgId === ack.clientMsgId);
     if (!pending) return;
     pending.id = ack.messageId || pending.id;
@@ -205,6 +213,7 @@ const handleMessageAck = (ack) => {
       pending.sendTime = ack.sendTime;
       pending.time = formatTime(ack.sendTime);
     }
+    persistMessages(conversationId);
   });
 };
 
@@ -306,9 +315,12 @@ export function useChatStore() {
     try {
       const data = await getMessageHistory(state.token, conversationId, cursor, 30);
       const incoming = (data?.messages || []).map(normalizeMessage);
+      const existing = state.messages[conversationId] || [];
+      const incomingIds = new Set(incoming.map((item) => item.id));
       state.messages[conversationId] = cursor
-        ? [...incoming, ...(state.messages[conversationId] || [])]
-        : incoming;
+        ? [...incoming, ...existing.filter((item) => !incomingIds.has(item.id))]
+        : [...incoming, ...existing.filter((item) => !incomingIds.has(item.id))].sort((a, b) => (a.seq || a.sendTime) - (b.seq || b.sendTime));
+      persistMessages(conversationId);
       state.historyCursor[conversationId] = data?.nextCursor || 0;
       state.historyHasMore[conversationId] = Boolean(data?.hasMore);
     } finally {
@@ -320,7 +332,11 @@ export function useChatStore() {
     state.activeConversationId = id;
     const conversation = state.conversations.find((item) => item.id === id);
     if (conversation) conversation.unread = 0;
-    if (state.token) await loadHistory(id, 0);
+    if (state.token) {
+      const cached = await readMessages(currentUserId(), id).catch(() => []);
+      if (state.activeConversationId === id) state.messages[id] = cached.map(normalizeMessage);
+      await loadHistory(id, 0);
+    }
   };
 
   const loadOlderMessages = () => {
@@ -336,6 +352,7 @@ export function useChatStore() {
       senderName: state.currentUser.nickName || state.currentUser.username || "我",
       content: payload.content,
       cType: payload.cType,
+      convType: payload.convType,
       type: payload.cType === 2 ? "image" : payload.cType === 3 ? "video" : payload.cType === 5 ? "file" : "text",
       fileId: payload.fileId || "",
       fileName: payload.fileName || "",
@@ -352,6 +369,7 @@ export function useChatStore() {
     };
     if (!state.messages[conversation.id]) state.messages[conversation.id] = [];
     state.messages[conversation.id].push(message);
+    persistMessages(conversation.id);
     conversation.subtitle = payload.cType === 1 ? `你：${payload.content}` : contentPreview(payload);
     conversation.time = "刚刚";
     return message;
@@ -434,6 +452,7 @@ export function useChatStore() {
 
   const clearConversation = (id) => {
     state.messages[id] = [];
+    deleteMessages(currentUserId(), id).catch(() => {});
   };
 
   const handleFriendRequest = async (request, accepted) => {
