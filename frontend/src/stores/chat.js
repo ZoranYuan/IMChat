@@ -23,6 +23,7 @@ import {
 import { createWsClient } from "../services/wsClient.js";
 import { deleteMessages, readMessages, writeMessages } from "../services/messageDb.js";
 import { useChunkUpload } from "../composables/useChunkUpload.js";
+import { MessageType, UploadableMessageTypes, messageTypeLabel, messageViewType } from "../constants/message.js";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const readJson = (key) => {
@@ -66,14 +67,12 @@ const formatTime = (timestamp) => {
 
 const contentPreview = (message) => {
   if (!message) return "暂无消息";
-  const labels = { 2: "[图片]", 3: "[视频]", 4: "[表情]", 5: "[文件]" };
-  return labels[message.cType] || message.content || "暂无消息";
+  return messageTypeLabel(message.cType) || message.content || "暂无消息";
 };
 
 const mediaContent = (cType, fileName) => {
-  if (cType === 2) return "[图片]";
-  if (cType === 3) return "[视频]";
-  if (cType === 5) return `[文件] ${fileName}`;
+  const label = messageTypeLabel(cType);
+  if (label) return cType === MessageType.FILE ? `${label} ${fileName}` : label;
   return fileName;
 };
 
@@ -103,7 +102,7 @@ const normalizeMessage = (item) => ({
   senderName: item.senderUsername || "成员",
   seq: Number(item.seq) || 0,
   cType: Number(item.cType) || 1,
-  type: Number(item.cType) === 2 ? "image" : Number(item.cType) === 3 ? "video" : Number(item.cType) === 5 ? "file" : "text",
+  type: messageViewType(item.cType),
   content: item.content || item.fileName || "",
   fileName: item.fileName || "",
   fileSize: item.fileSize || "",
@@ -354,7 +353,7 @@ export const useChatStore = defineStore("chat", () => {
       content: payload.content,
       cType: payload.cType,
       convType: payload.convType,
-      type: payload.cType === 2 ? "image" : payload.cType === 3 ? "video" : payload.cType === 5 ? "file" : "text",
+      type: messageViewType(payload.cType),
       fileId: payload.fileId || "",
       fileName: payload.fileName || "",
       fileSize: payload.fileSize || 0,
@@ -371,7 +370,7 @@ export const useChatStore = defineStore("chat", () => {
     if (!state.messages[conversation.id]) state.messages[conversation.id] = [];
     state.messages[conversation.id].push(message);
     persistMessages(conversation.id);
-    conversation.subtitle = payload.cType === 1 ? `你：${payload.content}` : contentPreview(payload);
+    conversation.subtitle = payload.cType === MessageType.TEXT ? `你：${payload.content}` : contentPreview(payload);
     conversation.time = "刚刚";
     return message;
   };
@@ -386,7 +385,7 @@ export const useChatStore = defineStore("chat", () => {
       clientMsgId,
       recvId: conversation.targetId,
       convType: conversation.convType || (conversation.type === "group" ? 2 : 1),
-      cType: 1,
+      cType: MessageType.TEXT,
       content: text,
     };
     if (!wsClient.sendMessage(payload)) throw new Error("消息发送失败，请重新连接后重试。" );
@@ -395,8 +394,36 @@ export const useChatStore = defineStore("chat", () => {
 
   const sendAttachment = async (file, cType) => {
     if (!file) return null;
-    if (![2, 3, 5].includes(cType)) throw new Error("不支持的附件类型。" );
-    throw new Error("接口文档未提供文件上传接口，暂时无法发送附件。" );
+    const type = Number(cType);
+    if (!UploadableMessageTypes.includes(type)) throw new Error("不支持的附件类型。" );
+    const conversation = activeConversation.value;
+    if (!conversation) return null;
+    if (!state.token) throw new Error("登录状态已失效，请重新登录。");
+    if (!wsClient.isConnected()) throw new Error("实时连接尚未建立，请稍后重试。");
+
+    const metadata = type === MessageType.IMAGE
+      ? await getImageDimensions(file)
+      : type === MessageType.VIDEO
+        ? await getVideoMetadata(file)
+        : {};
+    const uploaded = await attachmentUpload.upload(state.token, file);
+    const clientMsgId = crypto.randomUUID?.() || `message-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const payload = {
+      clientMsgId,
+      recvId: conversation.targetId,
+      convType: conversation.convType || (conversation.type === "group" ? 2 : 1),
+      cType: type,
+      content: file.name,
+      mediaUrl: uploaded?.url || "",
+      fileId: uploaded?.fileId || "",
+      fileName: file.name,
+      fileSize: file.size,
+      ...metadata,
+    };
+    if (type === MessageType.VIDEO && metadata.durationMs) payload.durationMs = metadata.durationMs;
+    if (!payload.mediaUrl && !payload.fileId) throw new Error("上传成功但未返回文件地址。");
+    if (!wsClient.sendMessage(payload)) throw new Error("消息发送失败，请重新连接后重试。");
+    return appendOutgoingMessage(conversation, payload);
   };
 
   const sendReadAck = () => {

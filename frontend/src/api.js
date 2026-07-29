@@ -104,12 +104,13 @@ export const uploadFile = (token, file) => {
 export const initMultipartUpload = (token, payload) =>
   http.post("/files/multipart/init", payload, { token });
 
-export const uploadMultipartPart = (token, uploadId, partNumber, chunk, chunkHash) => {
-  const form = new FormData();
-  form.append("chunk", chunk);
-  form.append("chunkHash", chunkHash);
-  return http.put(`/files/multipart/${uploadId}/parts/${partNumber}`, form, { token });
-};
+export const presignMultipartParts = (token, uploadId, partNumbers) =>
+  http.post(`/files/multipart/${uploadId}/parts/presign`, { partNumbers }, { token });
+
+export const uploadMultipartPartToStorage = (url, chunk) =>
+  axios.put(url, chunk, {
+    headers: { "Content-Type": "application/octet-stream" },
+  });
 
 export const completeMultipartUpload = (token, uploadId) =>
   http.post(`/files/multipart/${uploadId}/complete`, {}, { token });

@@ -1,15 +1,17 @@
 import { computed, ref } from "vue";
 import {
   completeMultipartUpload,
+  presignMultipartParts,
   initMultipartUpload,
+  uploadMultipartPartToStorage,
   uploadFile,
-  uploadMultipartPart,
 } from "../api.js";
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 const DEFAULT_CONCURRENCY = 3;
 const MULTIPART_THRESHOLD = 8 * 1024 * 1024;
 const MAX_RETRIES = 3;
+const MAX_COMPLETE_REPAIR_ROUNDS = 2;
 const FINGERPRINT_SAMPLE_SIZE = 2 * 1024 * 1024;
 
 export function useChunkUpload(options = {}) {
@@ -45,21 +47,72 @@ export function useChunkUpload(options = {}) {
     canceled.value = false;
   };
 
-  const uploadPartWithRetry = async (token, file, currentUploadId, partNumber) => {
+  const uploadPartWithRetry = async (token, file, currentUploadId, partNumber, partURLs, completedParts) => {
     const start = (partNumber - 1) * chunkSize;
     const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
-    const chunkHash = await hashBlob(chunk);
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
       try {
-        await uploadMultipartPart(token, currentUploadId, partNumber, chunk, chunkHash);
-        uploadedBytes.value += chunk.size;
-        updateProgress();
+        const partURL = partURLs.get(partNumber);
+        if (!partURL) throw new Error("缺少分片上传地址");
+        await uploadMultipartPartToStorage(partURL, chunk);
+        if (!completedParts.has(partNumber)) {
+          completedParts.add(partNumber);
+          uploadedBytes.value += chunk.size;
+          updateProgress();
+        }
         return;
       } catch (uploadError) {
         if (attempt === MAX_RETRIES) throw uploadError;
+        try {
+          const refreshed = await presignMultipartParts(token, currentUploadId, [partNumber]);
+          if (refreshed[0]) partURLs.set(partNumber, refreshed[0].url);
+        } catch {
+          // 保留原上传错误，下一次循环仍会按重试策略处理。
+        }
         await sleep(500 * attempt);
       }
     }
+  };
+
+  const presignParts = async (token, currentUploadId, partNumbers) => {
+    const partURLs = new Map();
+    for (let offset = 0; offset < partNumbers.length; offset += 100) {
+      const batch = await presignMultipartParts(token, currentUploadId, partNumbers.slice(offset, offset + 100));
+      batch.forEach((part) => partURLs.set(part.partNumber, part.url));
+    }
+    return partURLs;
+  };
+
+  const repairIncompleteParts = async (token, file, currentUploadId, partNumbers, completedParts) => {
+    if (!partNumbers.length) return;
+    const partURLs = await presignParts(token, currentUploadId, partNumbers);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < partNumbers.length) {
+        if (canceled.value) throw new Error("上传已取消");
+        while (paused.value) await sleep(150);
+        if (canceled.value) throw new Error("上传已取消");
+        const partNumber = partNumbers[cursor];
+        cursor += 1;
+        await uploadPartWithRetry(token, file, currentUploadId, partNumber, partURLs, completedParts);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, partNumbers.length) }, worker));
+  };
+
+  const completeWithRepair = async (token, file, currentUploadId, completedParts) => {
+    for (let round = 0; round <= MAX_COMPLETE_REPAIR_ROUNDS; round += 1) {
+      try {
+        status.value = "completing";
+        return await completeMultipartUpload(token, currentUploadId);
+      } catch (completeError) {
+        const repairParts = incompletePartNumbers(completeError);
+        if (!repairParts.length || round === MAX_COMPLETE_REPAIR_ROUNDS) throw completeError;
+        status.value = "uploading";
+        await repairIncompleteParts(token, file, currentUploadId, repairParts, completedParts);
+      }
+    }
+    throw new Error("合并文件失败");
   };
 
   const uploadMultipart = async (token, file) => {
@@ -78,15 +131,16 @@ export function useChunkUpload(options = {}) {
     if (initialized.completed && initialized.file) return initialized.file;
 
     uploadId.value = initialized.uploadId;
-    const uploadedParts = new Set(initialized.uploadedParts || []);
-    for (const partNumber of uploadedParts) {
+    const completedParts = new Set(initialized.uploadedParts || []);
+    for (const partNumber of completedParts) {
       const start = (partNumber - 1) * chunkSize;
       uploadedBytes.value += Math.max(0, Math.min(file.size, start + chunkSize) - start);
     }
     updateProgress();
 
     const queue = Array.from({ length: totalChunks }, (_, index) => index + 1)
-      .filter((partNumber) => !uploadedParts.has(partNumber));
+      .filter((partNumber) => !completedParts.has(partNumber));
+    const partURLs = await presignParts(token, initialized.uploadId, queue);
     let cursor = 0;
     status.value = "uploading";
 
@@ -97,12 +151,11 @@ export function useChunkUpload(options = {}) {
         if (canceled.value) throw new Error("上传已取消");
         const partNumber = queue[cursor];
         cursor += 1;
-        await uploadPartWithRetry(token, file, initialized.uploadId, partNumber);
+        await uploadPartWithRetry(token, file, initialized.uploadId, partNumber, partURLs, completedParts);
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
-    status.value = "completing";
-    return completeMultipartUpload(token, initialized.uploadId);
+    return completeWithRepair(token, file, initialized.uploadId, completedParts);
   };
 
   const upload = async (token, file) => {
@@ -185,9 +238,17 @@ async function createFileFingerprint(file) {
   return digest(payload);
 }
 
-const hashBlob = async (blob) => digest(await blob.arrayBuffer());
 const digest = async (buffer) => {
   const result = await crypto.subtle.digest("SHA-256", buffer);
   return Array.from(new Uint8Array(result), (value) => value.toString(16).padStart(2, "0")).join("");
 };
 const sleep = (duration) => new Promise((resolve) => window.setTimeout(resolve, duration));
+
+function incompletePartNumbers(error) {
+  if (error?.status !== 409) return [];
+  const data = error.data || {};
+  const numbers = [...(data.missingParts || []), ...(data.invalidParts || [])]
+    .map((partNumber) => Number(partNumber))
+    .filter((partNumber) => Number.isInteger(partNumber) && partNumber > 0);
+  return [...new Set(numbers)].sort((a, b) => a - b);
+}

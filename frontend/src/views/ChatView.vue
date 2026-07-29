@@ -10,6 +10,7 @@ import ContactsPanel from "../components/chat/ContactsPanel.vue";
 import ConversationDetails from "../components/chat/ConversationDetails.vue";
 import ConversationList from "../components/chat/ConversationList.vue";
 import ProfilePanel from "../components/chat/ProfilePanel.vue";
+import { MessageType } from "../constants/message.js";
 import ConfirmDialog from "../components/common/ConfirmDialog.vue";
 import { useChatStore } from "../stores/chat.js";
 import { useResponsive } from "../composables/useResponsive.js";
@@ -154,7 +155,7 @@ const handleSend = (text) => {
 const handleAttachment = async (file, cType) => {
   try {
     await sendAttachment(file, cType);
-    messageTips.success(cType === 2 ? "图片已发送" : cType === 3 ? "视频已发送" : "文件已发送");
+    messageTips.success(cType === MessageType.IMAGE ? "图片已发送" : cType === MessageType.VIDEO ? "视频已发送" : "文件已发送");
   } catch (error) {
     messageTips.error({ title: "附件发送失败", message: error.message });
   }

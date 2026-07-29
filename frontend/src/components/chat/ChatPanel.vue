@@ -1,6 +1,7 @@
 <script setup>
 import { ArrowLeft, Bot, ChevronRight, FileText, Image as ImageIcon, Info, LoaderCircle, MoreHorizontal, Paperclip, Pause, Phone, Play, Send, Smile, Users, Video, X } from "@lucide/vue";
 import { nextTick, ref, watch } from "vue";
+import { MessageType } from "../../constants/message.js";
 
 const props = defineProps({
   conversation: { type: Object, default: null },
@@ -103,7 +104,7 @@ watch(() => props.messages.length, scrollToBottom);
               <div v-if="message.type === 'file'" class="file-message">
                 <FileText :size="25" /><span><strong>{{ message.fileName || message.content }}</strong><small>{{ fileSizeText(message.fileSize) }}</small></span>
               </div>
-              <a v-else-if="message.type === 'image'" class="image-message" :href="message.mediaUrl" target="_blank" rel="noreferrer"><img :src="message.thumbUrl || message.mediaUrl" :alt="message.fileName || '聊天图片'" /></a>
+              <a v-else-if="message.type === 'image' || message.type === 'sticker'" class="image-message" :href="message.mediaUrl" target="_blank" rel="noreferrer"><img :src="message.thumbUrl || message.mediaUrl" :alt="message.fileName || (message.type === 'sticker' ? '表情包' : '聊天图片')" /></a>
               <div v-else-if="message.type === 'video'" class="video-message"><video :src="message.mediaUrl" controls preload="metadata"></video><span>{{ message.fileName }}</span></div>
               <div v-else class="message-bubble">{{ message.content }}</div>
               <div v-if="index === 1" class="design-file-card"><span><FileText :size="20" /></span><div><strong>IM_Project_v1.2.fig</strong><small>Figma 文件 · 24.5MB</small></div></div>
@@ -144,9 +145,9 @@ watch(() => props.messages.length, scrollToBottom);
           <textarea v-model="draft" rows="1" :disabled="connection !== 'connected'" placeholder="输入消息，Enter 发送，Shift + Enter 换行" @keydown.enter="handleEnter"></textarea>
           <button class="send-button" type="button" title="发送消息" :disabled="!draft.trim() || connection !== 'connected' || sending" @click="submit"><span>发送</span><Send :size="16" /></button>
         </div>
-        <input ref="imageInput" type="file" accept="image/*" hidden @change="selectAttachment($event, 2)" />
-        <input ref="videoInput" type="file" accept="video/*" hidden @change="selectAttachment($event, 3)" />
-        <input ref="fileInput" type="file" hidden @change="selectAttachment($event, 5)" />
+        <input ref="imageInput" type="file" accept="image/*" hidden @change="selectAttachment($event, MessageType.IMAGE)" />
+        <input ref="videoInput" type="file" accept="video/*" hidden @change="selectAttachment($event, MessageType.VIDEO)" />
+        <input ref="fileInput" type="file" hidden @change="selectAttachment($event, MessageType.FILE)" />
       </footer>
     </template>
 
