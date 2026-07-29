@@ -50,6 +50,37 @@ func (r *UserConversationRepository) UpdateReadSeq(
 	})
 }
 
+// AdvanceReadSeq atomically advances the read cursor and reports whether the
+// stored value actually moved forward. The result controls read notifications.
+func (r *UserConversationRepository) AdvanceReadSeq(
+	ctx context.Context,
+	uc *conversationentity.UserConversation,
+) (bool, error) {
+	m := toUserConversationModel(uc)
+	result := r.db.WithContext(ctx).
+		Model(&model.UserConversation{}).
+		Where("user_id = ? AND conversation_id = ? AND last_read_seq < ?", m.UserId, m.ConversationId, m.LastReadSeq).
+		Updates(map[string]interface{}{"last_read_seq": m.LastReadSeq})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected > 0 {
+		return true, nil
+	}
+
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Model(&model.UserConversation{}).
+		Where("user_id = ? AND conversation_id = ?", m.UserId, m.ConversationId).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	if count == 0 {
+		return false, conversationentity.ErrConversationNotCreated
+	}
+	return false, nil
+}
+
 func (r *UserConversationRepository) CreateUserConversation(
 	ctx context.Context,
 	uc *conversationentity.UserConversation,

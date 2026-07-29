@@ -1,4 +1,4 @@
-package event
+package handler
 
 import (
 	messageapp "IM_backend/internal/application/message"

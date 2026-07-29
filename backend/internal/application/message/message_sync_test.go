@@ -36,6 +36,10 @@ func (stub *syncMessageRepositoryStub) CreateNewMessage(context.Context, *messag
 	return nil
 }
 
+func (stub *syncMessageRepositoryStub) FindByClientMsgID(context.Context, string, string) (*messageentity.Message, error) {
+	return nil, nil
+}
+
 func (stub *syncMessageRepositoryStub) GetHistoryMessage(context.Context, string, int64, int) ([]*messageentity.Message, error) {
 	return nil, nil
 }

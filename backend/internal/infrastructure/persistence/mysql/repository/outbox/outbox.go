@@ -167,7 +167,7 @@ func (r *Repository) ClaimPending(
 func (r *Repository) MarkSent(ctx context.Context, id string, sentAt time.Time) error {
 	return r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
-		Where("id = ?", id).
+		Where("id = ? AND status = ?", id, outboxport.StatusProcessing).
 		Updates(map[string]interface{}{
 			"status":    outboxport.StatusSent,
 			"sent_at":   sentAt,
@@ -178,7 +178,7 @@ func (r *Repository) MarkSent(ctx context.Context, id string, sentAt time.Time) 
 func (r *Repository) MarkRetry(ctx context.Context, id string, nextRetryAt time.Time, lastError string) error {
 	return r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
-		Where("id = ?", id).
+		Where("id = ? AND status = ?", id, outboxport.StatusProcessing).
 		Updates(map[string]interface{}{
 			"status":        outboxport.StatusPending,
 			"next_retry_at": nextRetryAt,
@@ -191,7 +191,7 @@ func (r *Repository) MarkRetry(ctx context.Context, id string, nextRetryAt time.
 func (r *Repository) MarkDead(ctx context.Context, id string, lastError string) error {
 	return r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
-		Where("id = ?", id).
+		Where("id = ? AND status = ?", id, outboxport.StatusProcessing).
 		Updates(map[string]interface{}{
 			"status":     outboxport.StatusDead,
 			"last_error": lastError,

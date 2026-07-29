@@ -64,6 +64,15 @@ func cloneBytes(data []byte) []byte {
 	return copied
 }
 
+func eventIDFromHeaders(headers []*sarama.RecordHeader) string {
+	for _, header := range headers {
+		if header != nil && string(header.Key) == "event_id" {
+			return string(header.Value)
+		}
+	}
+	return ""
+}
+
 func (saramaAdapter) Setup(sarama.ConsumerGroupSession) error   { return nil }
 func (saramaAdapter) Cleanup(sarama.ConsumerGroupSession) error { return nil }
 
@@ -82,7 +91,8 @@ func (h saramaAdapter) ConsumeClaim(
 
 			err := h.router.handle(session.Context(),
 				eventbus.IncomingEvent{
-					Name: message.Topic,
+					EventID: eventIDFromHeaders(message.Headers),
+					Name:    message.Topic,
 
 					// 复制数据，避免业务层继续持有 Sarama 内部消息切片。
 					Key:     cloneBytes(message.Key),
@@ -94,6 +104,7 @@ func (h saramaAdapter) ConsumeClaim(
 					if publishErr := h.deadLetterPublisher.Publish(
 						session.Context(),
 						eventbus.IntegrationEvent{
+							EventID:      eventIDFromHeaders(message.Headers),
 							Name:         message.Topic + h.deadLetterSuffix,
 							PartitionKey: string(message.Key),
 							Payload:      cloneBytes(message.Value),

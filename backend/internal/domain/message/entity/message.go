@@ -2,13 +2,18 @@ package entity
 
 import (
 	messagevo "IM_backend/internal/domain/message/value_object"
+	"errors"
 	"time"
 )
+
+var ErrDuplicateClientMessage = errors.New("客户端消息已存在")
+var ErrClientMessageConflict = errors.New("客户端消息标识对应的内容不一致")
 
 type Message struct {
 	MessageId      string
 	ConversationId string
 	SendId         string
+	ClientMsgId    *string
 	Seq            int64
 	Type           messagevo.CType
 	Content        string

@@ -1,4 +1,4 @@
-package event
+package handler
 
 import (
 	messageapp "IM_backend/internal/application/message"
@@ -55,12 +55,12 @@ func (handler *MessageHandler) Handle(ctx context.Context, message eventbus.Inco
 		return eventbus.NonRetryable(err)
 	}
 
-	var event protocol.MessageEvent
-	if err := json.Unmarshal(envelope.Payload, &event); err != nil {
+	var messageEvent protocol.MessageEvent
+	if err := json.Unmarshal(envelope.Payload, &messageEvent); err != nil {
 		return eventbus.NonRetryable(err)
 	}
 
-	err = handler.delivery.Deliver(ctx, string(message.Name), string(message.Key), envelope, event)
+	err = handler.delivery.Deliver(ctx, string(message.Name), string(message.Key), envelope, messageEvent)
 	if errors.Is(err, messageapp.ErrUnknownConversationType) {
 		return eventbus.NonRetryable(err)
 	}

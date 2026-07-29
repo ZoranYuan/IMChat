@@ -21,12 +21,13 @@ func NewMessageCache(client *redis.Client) *MessageCache {
 
 func (c *MessageCache) SetDedupEntry(
 	ctx context.Context,
+	sendID,
 	clientMsgID, messageID string,
 	ttl time.Duration,
 ) (bool, error) {
-	return c.store.SetNXString(ctx, MessageDedupKey(clientMsgID), messageID, ttl)
+	return c.store.SetNXString(ctx, MessageDedupKey(sendID, clientMsgID), messageID, ttl)
 }
 
-func (c *MessageCache) GetDedupEntry(ctx context.Context, clientMsgID string) (string, error) {
-	return c.store.GetString(ctx, MessageDedupKey(clientMsgID))
+func (c *MessageCache) GetDedupEntry(ctx context.Context, sendID, clientMsgID string) (string, error) {
+	return c.store.GetString(ctx, MessageDedupKey(sendID, clientMsgID))
 }

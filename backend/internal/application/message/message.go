@@ -239,8 +239,12 @@ func (ma *MessageApplication) HandleReadMessage(
 	}
 
 	return ma.txManager.WithinTransaction(ctx, func(tx any) error {
-		if err := ma.userConversationRepository.WithTx(tx).UpdateReadSeq(ctx, uconv); err != nil {
+		advanced, err := ma.userConversationRepository.WithTx(tx).AdvanceReadSeq(ctx, uconv)
+		if err != nil {
 			return err
+		}
+		if !advanced {
+			return nil
 		}
 
 		if len(notifyUserIds) == 0 {
@@ -527,10 +531,33 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 
 	// 幂等检查：同一 clientMsgId 在 5 分钟内只处理一次
 	if dto.ClientMsgId != "" && ma.messageCache != nil {
-		if existingMsgId, err := ma.messageCache.GetDedupEntry(ctx, dto.ClientMsgId); err == nil && existingMsgId != "" {
+		if existingMsgId, err := ma.messageCache.GetDedupEntry(ctx, dto.SendId, dto.ClientMsgId); err == nil && existingMsgId != "" {
 			return &MessageAppeDTO{
 				ClientMsgId: dto.ClientMsgId,
 				MessageId:   existingMsgId,
+				Status:      string(protocol.AckStatusSent),
+			}, nil
+		}
+	}
+	if dto.ClientMsgId != "" {
+		existing, err := ma.messageRepository.FindByClientMsgID(ctx, dto.SendId, dto.ClientMsgId)
+		if err != nil {
+			return &MessageAppeDTO{
+				ClientMsgId: dto.ClientMsgId,
+				Status:      string(protocol.AckStatusFailed),
+			}, err
+		}
+		if existing != nil {
+			if !sameClientMessage(dto, existing) {
+				return &MessageAppeDTO{
+					ClientMsgId: dto.ClientMsgId,
+					Status:      string(protocol.AckStatusFailed),
+				}, messageentity.ErrClientMessageConflict
+			}
+			return &MessageAppeDTO{
+				ClientMsgId: dto.ClientMsgId,
+				MessageId:   existing.MessageId,
+				Seq:         existing.Seq,
 				Status:      string(protocol.AckStatusSent),
 			}, nil
 		}
@@ -558,6 +585,10 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		dto.VideoId,
 		dto.VideoTime,
 	)
+	if dto.ClientMsgId != "" {
+		clientMsgID := dto.ClientMsgId
+		message.ClientMsgId = &clientMsgID
+	}
 
 	mediaWriter, err := ma.buildMediaWriter(&dto, messageId)
 	if err != nil {
@@ -646,6 +677,9 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		outboxRepo := ma.messageOutboxRepository.WithTx(tx)
 
 		if err := msgRepo.CreateNewMessage(ctx, message); err != nil {
+			if errors.Is(err, messageentity.ErrDuplicateClientMessage) {
+				return err
+			}
 			// write failure is fatal; outbox only covers the downstream MQ dispatch
 			return ErrMessageSave
 		}
@@ -681,6 +715,26 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		return nil
 	})
 
+	if errors.Is(err, messageentity.ErrDuplicateClientMessage) && dto.ClientMsgId != "" {
+		existing, findErr := ma.messageRepository.FindByClientMsgID(ctx, dto.SendId, dto.ClientMsgId)
+		if findErr == nil && existing != nil {
+			if !sameClientMessage(dto, existing) {
+				return &MessageAppeDTO{
+					ClientMsgId: dto.ClientMsgId,
+					Status:      string(protocol.AckStatusFailed),
+				}, messageentity.ErrClientMessageConflict
+			}
+			return &MessageAppeDTO{
+				ClientMsgId: dto.ClientMsgId,
+				MessageId:   existing.MessageId,
+				Seq:         existing.Seq,
+				Status:      string(protocol.AckStatusSent),
+			}, nil
+		}
+		if findErr != nil {
+			return nil, findErr
+		}
+	}
 	if err != nil {
 		return &MessageAppeDTO{
 			ClientMsgId: dto.ClientMsgId,
@@ -691,7 +745,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 
 	// 标记已处理，5 分钟内同一 clientMsgId 幂等返回
 	if dto.ClientMsgId != "" && ma.messageCache != nil {
-		_, _ = ma.messageCache.SetDedupEntry(ctx, dto.ClientMsgId, messageId, 5*time.Minute)
+		_, _ = ma.messageCache.SetDedupEntry(ctx, dto.SendId, dto.ClientMsgId, messageId, 5*time.Minute)
 	}
 
 	return &MessageAppeDTO{
@@ -700,6 +754,17 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		SenderUsername: senderUsername,
 		Status:         string(protocol.AckStatusSent),
 	}, nil
+}
+
+func sameClientMessage(dto MessageAppeDTO, existing *messageentity.Message) bool {
+	if existing == nil || existing.ConversationId != conversationentity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType) ||
+		existing.Type != messagevo.CType(dto.CType) || existing.Content != dto.Content || existing.VideoId != dto.VideoId {
+		return false
+	}
+	if existing.VideoTime == nil || dto.VideoTime == nil {
+		return existing.VideoTime == nil && dto.VideoTime == nil
+	}
+	return *existing.VideoTime == *dto.VideoTime
 }
 
 func (ma *MessageApplication) nextConversationSeq(

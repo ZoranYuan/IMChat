@@ -36,7 +36,6 @@ import (
 	passwordsecurity "IM_backend/internal/infrastructure/security/password"
 	minioobj "IM_backend/internal/infrastructure/storage/minio"
 	"IM_backend/internal/shared/protocol"
-	eventtransport "IM_backend/internal/transport/event"
 	httpapi "IM_backend/internal/transport/http"
 	userconversationhttp "IM_backend/internal/transport/http/conversation"
 	filehttp "IM_backend/internal/transport/http/file"
@@ -46,6 +45,7 @@ import (
 	"IM_backend/internal/transport/http/middleware"
 	roomhttp "IM_backend/internal/transport/http/room"
 	userhttp "IM_backend/internal/transport/http/user"
+	mqhandler "IM_backend/internal/transport/mq/handler"
 	"IM_backend/internal/transport/ws"
 	"context"
 	"log"
@@ -200,10 +200,10 @@ func main() {
 		},
 	)
 	defer messageDelivery.Close(context.Background())
-	messageSendHandler := eventtransport.NewMessageHandler(messageDelivery)
-	readNotifyHandler := eventtransport.NewReadHandler(realtimeGateway)
-	friendRequestHandler := eventtransport.NewFriendRequestHandler(realtimeGateway)
-	roomMemberChangedHandler := eventtransport.NewRoomMemberChangedHandler(roomApp)
+	messageSendHandler := mqhandler.NewMessageHandler(messageDelivery)
+	readNotifyHandler := mqhandler.NewReadHandler(realtimeGateway)
+	friendRequestHandler := mqhandler.NewFriendRequestHandler(realtimeGateway)
+	roomMemberChangedHandler := mqhandler.NewRoomMemberChangedHandler(roomApp)
 	messageProducer := kafka.NewProducer(kafkaClient, "msg")
 	consumerRouter := kafka.NewConsumerRouter(map[string]eventbus.Handler{
 		protocol.EventTypeSendMessage:      messageSendHandler,

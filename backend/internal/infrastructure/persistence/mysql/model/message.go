@@ -1,9 +1,10 @@
 package model
 
 type Message struct {
-	MessageId      string `gorm:"size:32;primaryKey" json:"messageId"`
-	ConversationId string `gorm:"size:64;not null;index:idx_conv_seq,priority:1" json:"conversationId"`
-	SendId         string `gorm:"size:32;not null;index:idx_sender" json:"sendId"`
+	MessageId      string  `gorm:"size:32;primaryKey" json:"messageId"`
+	ConversationId string  `gorm:"size:64;not null;index:idx_conv_seq,priority:1" json:"conversationId"`
+	SendId         string  `gorm:"size:32;not null;index:idx_sender;uniqueIndex:uq_sender_client_msg,priority:1" json:"sendId"`
+	ClientMsgId    *string `gorm:"size:64;uniqueIndex:uq_sender_client_msg,priority:2" json:"clientMsgId,omitempty"`
 
 	Seq     int64  `gorm:"not null;index:idx_conv_seq,priority:2,sort:desc" json:"seq"`
 	Type    int8   `gorm:"not null;comment:1=text 2=image 3=video 4=sticker 5=file" json:"type"`

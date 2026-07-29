@@ -10,7 +10,7 @@ type RoomUser struct {
 	MuteUtil  *int64 // 禁言到什么时候（时间戳）
 	JoinTime  int64
 	LeaveTime *int64
-	Version   int64
+	Version   int64 `gorm:"not null;default:1"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

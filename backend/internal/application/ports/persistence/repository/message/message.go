@@ -8,6 +8,7 @@ import (
 type MessageRepository interface {
 	CreateNewMessages(ctx context.Context, msgs []*messageentity.Message) error
 	CreateNewMessage(ctx context.Context, msg *messageentity.Message) error
+	FindByClientMsgID(ctx context.Context, sendID, clientMsgID string) (*messageentity.Message, error)
 
 	GetHistoryMessage(
 		ctx context.Context,

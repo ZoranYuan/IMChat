@@ -28,13 +28,23 @@ func (p *Producer) Publish(ctx context.Context, event eventbus.IntegrationEvent)
 		targetTopic = event.Name
 	}
 
-	_, _, err := p.client.Producer.SendMessage(&sarama.ProducerMessage{
+	message := &sarama.ProducerMessage{
 		Topic: targetTopic,
 
 		Key: sarama.StringEncoder(event.PartitionKey),
 
 		Value: sarama.ByteEncoder(event.Payload),
-	})
+	}
+
+	// 将 eventId 加入到 ProducerMessage 的Header 中
+	if event.EventID != "" {
+		message.Headers = []sarama.RecordHeader{{
+			Key:   []byte("event_id"),
+			Value: []byte(event.EventID),
+		}}
+	}
+
+	_, _, err := p.client.Producer.SendMessage(message)
 
 	return err
 }

@@ -6,6 +6,7 @@ import (
 )
 
 type IntegrationEvent struct {
+	EventID      string
 	Name         string
 	PartitionKey string
 	Payload      []byte
@@ -16,6 +17,7 @@ type Publisher interface {
 }
 
 type IncomingEvent struct {
+	EventID string
 	Name    string
 	Key     []byte
 	Payload []byte

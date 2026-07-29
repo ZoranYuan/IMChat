@@ -41,10 +41,12 @@ func InitMysql(dns string) *gorm.DB {
 	renameLegacyTables(db)
 	prepareFriendIndexes(db)
 	prepareFriendRequestUniquePair(db)
+	prepareLegacyOutboxColumns(db)
 
-	db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&model.User{},
 		&model.OutboxRecord{},
+		&model.InboxRecord{},
 		&model.FriendRequest{},
 		&model.Friend{},
 		&model.Room{},
@@ -57,9 +59,73 @@ func InitMysql(dns string) *gorm.DB {
 		&model.MessageSticker{},
 		&model.MessageVideo{},
 		&model.File{},
-	)
+	); err != nil {
+		log.Fatalf("数据库结构迁移失败：%v", err)
+	}
+	if err := backfillMemberAndOutboxState(db); err != nil {
+		log.Fatalf("数据库历史数据迁移失败：%v", err)
+	}
 	dropLegacyColumns(db)
 	return db
+}
+
+func prepareLegacyOutboxColumns(db *gorm.DB) {
+	if !db.Migrator().HasTable(&model.OutboxRecord{}) {
+		return
+	}
+	if db.Migrator().HasColumn(&model.OutboxRecord{}, "status") {
+		if err := db.Exec(`
+			UPDATE outboxes
+			SET status = 'pending'
+			WHERE status IS NULL OR status = ''
+		`).Error; err != nil {
+			log.Fatalf("清理历史 Outbox 状态失败：%v", err)
+		}
+	}
+	if db.Migrator().HasColumn(&model.OutboxRecord{}, "next_retry_at") {
+		if err := db.Exec(`
+			ALTER TABLE outboxes
+			MODIFY COLUMN next_retry_at DATETIME(3) NULL DEFAULT NULL
+		`).Error; err != nil {
+			log.Fatalf("调整历史 Outbox 重试时间字段失败：%v", err)
+		}
+		if err := db.Exec(`
+			UPDATE outboxes
+			SET next_retry_at = NOW()
+			WHERE next_retry_at IS NULL OR next_retry_at < '1970-01-01 00:00:00'
+		`).Error; err != nil {
+			log.Fatalf("清理历史 Outbox 重试时间失败：%v", err)
+		}
+	}
+}
+
+func backfillMemberAndOutboxState(db *gorm.DB) error {
+	if err := db.Exec(`
+		UPDATE room_user
+		SET version = 1
+		WHERE version IS NULL OR version <= 0
+	`).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE outboxes
+		SET status = 'pending'
+		WHERE status IS NULL OR status = ''
+	`).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE outboxes
+		SET next_retry_at = NOW()
+		WHERE next_retry_at IS NULL OR next_retry_at < '1970-01-01 00:00:00'
+	`).Error; err != nil {
+		return err
+	}
+	return db.Exec(`
+		UPDATE outboxes
+		SET topic = event_type
+		WHERE topic IS NULL OR topic = ''
+	`).Error
 }
 
 func renameLegacyTables(db *gorm.DB) {

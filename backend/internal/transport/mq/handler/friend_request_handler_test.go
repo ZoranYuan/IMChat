@@ -1,4 +1,4 @@
-package event
+package handler
 
 import (
 	eventbus "IM_backend/internal/application/ports/eventbus"

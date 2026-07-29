@@ -8,7 +8,10 @@ import (
 	messageentity "IM_backend/internal/domain/message/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
+	mysqlDriver "github.com/go-sql-driver/mysql"
+
 	"gorm.io/gorm"
+	"errors"
 )
 
 type MessageRepository struct {
@@ -28,7 +31,34 @@ func (r *MessageRepository) WithTx(tx any) messagerepo.MessageRepository {
 // 保存消息
 func (r *MessageRepository) CreateNewMessage(ctx context.Context, msg *messageentity.Message) error {
 	m := toMessageModel(msg)
-	return r.db.WithContext(ctx).Create(m).Error
+	err := r.db.WithContext(ctx).Create(m).Error
+	if err != nil {
+		var mysqlErr *mysqlDriver.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 && m.ClientMsgId != nil {
+			return messageentity.ErrDuplicateClientMessage
+		}
+	}
+	return err
+}
+
+func (r *MessageRepository) FindByClientMsgID(
+	ctx context.Context,
+	sendID, clientMsgID string,
+) (*messageentity.Message, error) {
+	if sendID == "" || clientMsgID == "" {
+		return nil, nil
+	}
+	var m model.Message
+	err := r.db.WithContext(ctx).
+		Where("send_id = ? AND client_msg_id = ?", sendID, clientMsgID).
+		First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return toMessageDomain(&m), nil
 }
 
 func (r *MessageRepository) CreateNewMessages(ctx context.Context, msgs []*messageentity.Message) error {

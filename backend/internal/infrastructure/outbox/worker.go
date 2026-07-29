@@ -84,6 +84,7 @@ func (w *OutboxWorker) dispatchPendingOnce(ctx context.Context) error {
 
 func (w *OutboxWorker) dispatchOne(ctx context.Context, item *outboxport.Entry) error {
 	if err := w.publisher.Publish(ctx, eventbus.IntegrationEvent{
+		EventID:      item.ID,
 		Name:         item.EventType,
 		PartitionKey: item.MessageKey,
 		Payload:      item.Payload,
