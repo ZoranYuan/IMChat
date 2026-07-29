@@ -2,7 +2,7 @@ package friendrequest
 
 type FriendRequestReq struct {
 	ToUserId string `json:"toUserId" binding:"required"`
-	Message  string `json:"message" binding:"required"` // 可选留言
+	Message  string `json:"message"` // 可选留言
 }
 
 type ActionType int
@@ -26,5 +26,5 @@ type FriendRequestRes struct {
 type OperateRequestReq struct {
 	RequestId  string     `json:"requestId" binding:"required"`
 	FromUserId string     `json:"fromUserId" binding:"required"`
-	Action     ActionType `json:"action" binding:"required"` // 可选留言
+	Action     ActionType `json:"action" binding:"required"`
 }

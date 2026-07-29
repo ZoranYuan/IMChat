@@ -64,11 +64,13 @@ type FriendRequestCreatedEvent struct {
 }
 
 type MessageAckEvent struct {
-	ClientMsgId string    `json:"clientMsgId"`
-	MessageId   string    `json:"messageId"`
-	Status      AckStatus `json:"status"`
-	Extra       string    `json:"extra"`
-	SendTime    int64     `json:"sendTime"`
+	ClientMsgId    string    `json:"clientMsgId"`
+	MessageId      string    `json:"messageId"`
+	ConversationId string    `json:"conversationId,omitempty"`
+	Seq            int64     `json:"seq,omitempty"`
+	Status         AckStatus `json:"status"`
+	Extra          string    `json:"extra"`
+	SendTime       int64     `json:"sendTime"`
 }
 
 type MessageNotifyEvent struct {

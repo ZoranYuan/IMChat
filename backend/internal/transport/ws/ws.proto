@@ -45,6 +45,14 @@ message MessageAck {
   string status        = 3;
   string extra         = 4;
   int64  send_time     = 5;
+  string conversation_id = 6;
+  int64  seq               = 7;
+}
+
+message RoomMessageNotice {
+  string conversation_id = 1;
+  string message_id      = 2;
+  int64  seq             = 3;
 }
 
 message MessageReadAckEvent {

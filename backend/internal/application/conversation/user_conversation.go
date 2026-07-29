@@ -181,6 +181,8 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 			ConvType:       int8(conv.Convtype),
 			IsMuted:        userConv.IsMuted,
 			Unread:         unreadCount(userConv.LastReadSeq, conv.LatestSeq),
+			LastReadSeq:    userConv.LastReadSeq,
+			LatestSeq:      conv.LatestSeq,
 		}
 
 		if latestMessage, ok := messageByConversationID[userConv.ConversationId]; ok {

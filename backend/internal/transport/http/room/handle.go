@@ -125,3 +125,26 @@ func (rh *RoomHandle) Join(c *gin.Context) {
 		JoinTime:    roomUserApp.JoinTime,
 	}))
 }
+
+func (rh *RoomHandle) Leave(c *gin.Context) {
+	userId := c.GetString("userId")
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		return
+	}
+	roomId := c.Param("roomId")
+	if roomId == "" {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+
+	if err := rh.app.Leave(c.Request.Context(), userId, roomId); err != nil {
+		if errors.Is(err, roomapp.ErrNotRoomMember) {
+			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, response.Success(nil))
+}

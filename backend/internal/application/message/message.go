@@ -533,9 +533,10 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 	if dto.ClientMsgId != "" && ma.messageCache != nil {
 		if existingMsgId, err := ma.messageCache.GetDedupEntry(ctx, dto.SendId, dto.ClientMsgId); err == nil && existingMsgId != "" {
 			return &MessageAppeDTO{
-				ClientMsgId: dto.ClientMsgId,
-				MessageId:   existingMsgId,
-				Status:      string(protocol.AckStatusSent),
+				ClientMsgId:    dto.ClientMsgId,
+				ConversationID: conversationId,
+				MessageId:      existingMsgId,
+				Status:         string(protocol.AckStatusSent),
 			}, nil
 		}
 	}
@@ -555,10 +556,11 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 				}, messageentity.ErrClientMessageConflict
 			}
 			return &MessageAppeDTO{
-				ClientMsgId: dto.ClientMsgId,
-				MessageId:   existing.MessageId,
-				Seq:         existing.Seq,
-				Status:      string(protocol.AckStatusSent),
+				ClientMsgId:    dto.ClientMsgId,
+				ConversationID: existing.ConversationId,
+				MessageId:      existing.MessageId,
+				Seq:            existing.Seq,
+				Status:         string(protocol.AckStatusSent),
 			}, nil
 		}
 	}
@@ -725,10 +727,11 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 				}, messageentity.ErrClientMessageConflict
 			}
 			return &MessageAppeDTO{
-				ClientMsgId: dto.ClientMsgId,
-				MessageId:   existing.MessageId,
-				Seq:         existing.Seq,
-				Status:      string(protocol.AckStatusSent),
+				ClientMsgId:    dto.ClientMsgId,
+				ConversationID: existing.ConversationId,
+				MessageId:      existing.MessageId,
+				Seq:            existing.Seq,
+				Status:         string(protocol.AckStatusSent),
 			}, nil
 		}
 		if findErr != nil {
@@ -750,8 +753,10 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 
 	return &MessageAppeDTO{
 		ClientMsgId:    dto.ClientMsgId,
+		ConversationID: conversationId,
 		MessageId:      messageId,
 		SenderUsername: senderUsername,
+		Seq:            seq,
 		Status:         string(protocol.AckStatusSent),
 	}, nil
 }

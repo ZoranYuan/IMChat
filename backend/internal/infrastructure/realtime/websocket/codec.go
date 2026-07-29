@@ -29,17 +29,39 @@ func EncodePayload(eventType string, payload []byte) ([]byte, error) {
 			return nil, err
 		}
 		return proto.Marshal(messageReadAckEventToPB(event))
+	case string(protocol.EventRoomMessageNotice):
+		var event protocol.MessageNotifyEvent
+		if err := json.Unmarshal(payload, &event); err != nil {
+			return nil, err
+		}
+		return proto.Marshal(roomMessageNoticeToPB(event))
 	default:
 		return payload, nil
 	}
 }
 
 func messageAckToPB(event protocol.MessageAckEvent) *wspb.MessageAck {
-	return &wspb.MessageAck{ClientMsgId: event.ClientMsgId, MessageId: event.MessageId, Status: string(event.Status), Extra: event.Extra, SendTime: event.SendTime}
+	return &wspb.MessageAck{
+		ClientMsgId:    event.ClientMsgId,
+		MessageId:      event.MessageId,
+		Status:         string(event.Status),
+		Extra:          event.Extra,
+		SendTime:       event.SendTime,
+		ConversationId: event.ConversationId,
+		Seq:            event.Seq,
+	}
 }
 
 func messageReadAckEventToPB(event protocol.MessageReadAckEvent) *wspb.MessageReadAckEvent {
 	return &wspb.MessageReadAckEvent{UserId: event.UserId, ConversationId: event.ConversationId, LastReadSeq: event.LastReadSeq, ConvType: int32(event.ConvType), SenderId: event.SenderId, Avatar: event.Avatar}
+}
+
+func roomMessageNoticeToPB(event protocol.MessageNotifyEvent) *wspb.RoomMessageNotice {
+	return &wspb.RoomMessageNotice{
+		ConversationId: event.ConversationId,
+		MessageId:      event.MessageId,
+		Seq:            event.Seq,
+	}
 }
 
 func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {

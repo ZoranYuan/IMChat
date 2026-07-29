@@ -66,6 +66,10 @@ func (fh *FriendRequestHandle) OperateRequest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
+	if res.Action != ActionAccept && res.Action != ActionReject {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "不支持的操作"))
+		return
+	}
 
 	var err error
 	if res.Action == ActionAccept {

@@ -38,6 +38,8 @@ type ConversationItemRes struct {
 	DisplayName    string            `json:"displayName"`
 	Avatar         string            `json:"avatar"`
 	Unread         int64             `json:"unread"`
+	LastReadSeq    int64             `json:"lastReadSeq"`
+	LatestSeq      int64             `json:"latestSeq"`
 	LastMessage    *LatestMessageRes `json:"lastMessage,omitempty"`
 	PeerUser       *PeerUserRes      `json:"peerUser,omitempty"`
 	Room           *RoomRes          `json:"room,omitempty"`
@@ -54,6 +56,8 @@ func toUserConversationsRes(items []conversationapp.ConversationItemDTO) []Conve
 			DisplayName:    item.DisplayName,
 			Avatar:         item.Avatar,
 			Unread:         item.Unread,
+			LastReadSeq:    item.LastReadSeq,
+			LatestSeq:      item.LatestSeq,
 			IsMuted:        item.IsMuted,
 		}
 

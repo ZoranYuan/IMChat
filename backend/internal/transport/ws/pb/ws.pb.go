@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v3.12.4
-// source: ws.proto
+// source: internal/transport/ws/ws.proto
 
 package wspb
 
@@ -31,7 +31,7 @@ type WsFrame struct {
 
 func (x *WsFrame) Reset() {
 	*x = WsFrame{}
-	mi := &file_ws_proto_msgTypes[0]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -43,7 +43,7 @@ func (x *WsFrame) String() string {
 func (*WsFrame) ProtoMessage() {}
 
 func (x *WsFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_ws_proto_msgTypes[0]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -56,7 +56,7 @@ func (x *WsFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WsFrame.ProtoReflect.Descriptor instead.
 func (*WsFrame) Descriptor() ([]byte, []int) {
-	return file_ws_proto_rawDescGZIP(), []int{0}
+	return file_internal_transport_ws_ws_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *WsFrame) GetOp() string {
@@ -82,7 +82,7 @@ type WsBatch struct {
 
 func (x *WsBatch) Reset() {
 	*x = WsBatch{}
-	mi := &file_ws_proto_msgTypes[1]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -94,7 +94,7 @@ func (x *WsBatch) String() string {
 func (*WsBatch) ProtoMessage() {}
 
 func (x *WsBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_ws_proto_msgTypes[1]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -107,7 +107,7 @@ func (x *WsBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WsBatch.ProtoReflect.Descriptor instead.
 func (*WsBatch) Descriptor() ([]byte, []int) {
-	return file_ws_proto_rawDescGZIP(), []int{1}
+	return file_internal_transport_ws_ws_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *WsBatch) GetFrames() []*WsFrame {
@@ -127,7 +127,7 @@ type MessageReadAckReq struct {
 
 func (x *MessageReadAckReq) Reset() {
 	*x = MessageReadAckReq{}
-	mi := &file_ws_proto_msgTypes[2]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -139,7 +139,7 @@ func (x *MessageReadAckReq) String() string {
 func (*MessageReadAckReq) ProtoMessage() {}
 
 func (x *MessageReadAckReq) ProtoReflect() protoreflect.Message {
-	mi := &file_ws_proto_msgTypes[2]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -152,7 +152,7 @@ func (x *MessageReadAckReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageReadAckReq.ProtoReflect.Descriptor instead.
 func (*MessageReadAckReq) Descriptor() ([]byte, []int) {
-	return file_ws_proto_rawDescGZIP(), []int{2}
+	return file_internal_transport_ws_ws_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *MessageReadAckReq) GetConversationId() string {
@@ -195,7 +195,7 @@ type MessageReq struct {
 
 func (x *MessageReq) Reset() {
 	*x = MessageReq{}
-	mi := &file_ws_proto_msgTypes[3]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -207,7 +207,7 @@ func (x *MessageReq) String() string {
 func (*MessageReq) ProtoMessage() {}
 
 func (x *MessageReq) ProtoReflect() protoreflect.Message {
-	mi := &file_ws_proto_msgTypes[3]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -220,7 +220,7 @@ func (x *MessageReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageReq.ProtoReflect.Descriptor instead.
 func (*MessageReq) Descriptor() ([]byte, []int) {
-	return file_ws_proto_rawDescGZIP(), []int{3}
+	return file_internal_transport_ws_ws_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *MessageReq) GetClientMsgId() string {
@@ -350,19 +350,21 @@ func (x *MessageReq) GetPackId() string {
 }
 
 type MessageAck struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ClientMsgId   string                 `protobuf:"bytes,1,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
-	MessageId     string                 `protobuf:"bytes,2,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
-	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	Extra         string                 `protobuf:"bytes,4,opt,name=extra,proto3" json:"extra,omitempty"`
-	SendTime      int64                  `protobuf:"varint,5,opt,name=send_time,json=sendTime,proto3" json:"send_time,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ClientMsgId    string                 `protobuf:"bytes,1,opt,name=client_msg_id,json=clientMsgId,proto3" json:"client_msg_id,omitempty"`
+	MessageId      string                 `protobuf:"bytes,2,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	Status         string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	Extra          string                 `protobuf:"bytes,4,opt,name=extra,proto3" json:"extra,omitempty"`
+	SendTime       int64                  `protobuf:"varint,5,opt,name=send_time,json=sendTime,proto3" json:"send_time,omitempty"`
+	ConversationId string                 `protobuf:"bytes,6,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	Seq            int64                  `protobuf:"varint,7,opt,name=seq,proto3" json:"seq,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *MessageAck) Reset() {
 	*x = MessageAck{}
-	mi := &file_ws_proto_msgTypes[4]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -374,7 +376,7 @@ func (x *MessageAck) String() string {
 func (*MessageAck) ProtoMessage() {}
 
 func (x *MessageAck) ProtoReflect() protoreflect.Message {
-	mi := &file_ws_proto_msgTypes[4]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -387,7 +389,7 @@ func (x *MessageAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageAck.ProtoReflect.Descriptor instead.
 func (*MessageAck) Descriptor() ([]byte, []int) {
-	return file_ws_proto_rawDescGZIP(), []int{4}
+	return file_internal_transport_ws_ws_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *MessageAck) GetClientMsgId() string {
@@ -425,6 +427,80 @@ func (x *MessageAck) GetSendTime() int64 {
 	return 0
 }
 
+func (x *MessageAck) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *MessageAck) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+type RoomMessageNotice struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	MessageId      string                 `protobuf:"bytes,2,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	Seq            int64                  `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RoomMessageNotice) Reset() {
+	*x = RoomMessageNotice{}
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoomMessageNotice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoomMessageNotice) ProtoMessage() {}
+
+func (x *RoomMessageNotice) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoomMessageNotice.ProtoReflect.Descriptor instead.
+func (*RoomMessageNotice) Descriptor() ([]byte, []int) {
+	return file_internal_transport_ws_ws_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RoomMessageNotice) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *RoomMessageNotice) GetMessageId() string {
+	if x != nil {
+		return x.MessageId
+	}
+	return ""
+}
+
+func (x *RoomMessageNotice) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
 type MessageReadAckEvent struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	UserId         string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -439,7 +515,7 @@ type MessageReadAckEvent struct {
 
 func (x *MessageReadAckEvent) Reset() {
 	*x = MessageReadAckEvent{}
-	mi := &file_ws_proto_msgTypes[5]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -451,7 +527,7 @@ func (x *MessageReadAckEvent) String() string {
 func (*MessageReadAckEvent) ProtoMessage() {}
 
 func (x *MessageReadAckEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_ws_proto_msgTypes[5]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -464,7 +540,7 @@ func (x *MessageReadAckEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageReadAckEvent.ProtoReflect.Descriptor instead.
 func (*MessageReadAckEvent) Descriptor() ([]byte, []int) {
-	return file_ws_proto_rawDescGZIP(), []int{5}
+	return file_internal_transport_ws_ws_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *MessageReadAckEvent) GetUserId() string {
@@ -541,7 +617,7 @@ type MessageEvent struct {
 
 func (x *MessageEvent) Reset() {
 	*x = MessageEvent{}
-	mi := &file_ws_proto_msgTypes[6]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -553,7 +629,7 @@ func (x *MessageEvent) String() string {
 func (*MessageEvent) ProtoMessage() {}
 
 func (x *MessageEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_ws_proto_msgTypes[6]
+	mi := &file_internal_transport_ws_ws_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -566,7 +642,7 @@ func (x *MessageEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageEvent.ProtoReflect.Descriptor instead.
 func (*MessageEvent) Descriptor() ([]byte, []int) {
-	return file_ws_proto_rawDescGZIP(), []int{6}
+	return file_internal_transport_ws_ws_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MessageEvent) GetMessageId() string {
@@ -737,11 +813,11 @@ func (x *MessageEvent) GetVideoTime() int64 {
 	return 0
 }
 
-var File_ws_proto protoreflect.FileDescriptor
+var File_internal_transport_ws_ws_proto protoreflect.FileDescriptor
 
-const file_ws_proto_rawDesc = "" +
+const file_internal_transport_ws_ws_proto_rawDesc = "" +
 	"\n" +
-	"\bws.proto\x12\x05im.ws\"-\n" +
+	"\x1einternal/transport/ws/ws.proto\x12\x05im.ws\"-\n" +
 	"\aWsFrame\x12\x0e\n" +
 	"\x02op\x18\x01 \x01(\tR\x02op\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\"1\n" +
@@ -773,7 +849,7 @@ const file_ws_proto_rawDesc = "" +
 	"durationMs\x12\x1d\n" +
 	"\n" +
 	"sticker_id\x18\x11 \x01(\tR\tstickerId\x12\x17\n" +
-	"\apack_id\x18\x12 \x01(\tR\x06packId\"\x9a\x01\n" +
+	"\apack_id\x18\x12 \x01(\tR\x06packId\"\xd5\x01\n" +
 	"\n" +
 	"MessageAck\x12\"\n" +
 	"\rclient_msg_id\x18\x01 \x01(\tR\vclientMsgId\x12\x1d\n" +
@@ -781,7 +857,14 @@ const file_ws_proto_rawDesc = "" +
 	"message_id\x18\x02 \x01(\tR\tmessageId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x14\n" +
 	"\x05extra\x18\x04 \x01(\tR\x05extra\x12\x1b\n" +
-	"\tsend_time\x18\x05 \x01(\x03R\bsendTime\"\xcd\x01\n" +
+	"\tsend_time\x18\x05 \x01(\x03R\bsendTime\x12'\n" +
+	"\x0fconversation_id\x18\x06 \x01(\tR\x0econversationId\x12\x10\n" +
+	"\x03seq\x18\a \x01(\x03R\x03seq\"m\n" +
+	"\x11RoomMessageNotice\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x02 \x01(\tR\tmessageId\x12\x10\n" +
+	"\x03seq\x18\x03 \x01(\x03R\x03seq\"\xcd\x01\n" +
 	"\x13MessageReadAckEvent\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\"\n" +
@@ -821,28 +904,29 @@ const file_ws_proto_rawDesc = "" +
 	"video_time\x18\x18 \x01(\x03R\tvideoTimeB*Z(IM_backend/internal/transport/ws/pb;wspbb\x06proto3"
 
 var (
-	file_ws_proto_rawDescOnce sync.Once
-	file_ws_proto_rawDescData []byte
+	file_internal_transport_ws_ws_proto_rawDescOnce sync.Once
+	file_internal_transport_ws_ws_proto_rawDescData []byte
 )
 
-func file_ws_proto_rawDescGZIP() []byte {
-	file_ws_proto_rawDescOnce.Do(func() {
-		file_ws_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ws_proto_rawDesc), len(file_ws_proto_rawDesc)))
+func file_internal_transport_ws_ws_proto_rawDescGZIP() []byte {
+	file_internal_transport_ws_ws_proto_rawDescOnce.Do(func() {
+		file_internal_transport_ws_ws_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_internal_transport_ws_ws_proto_rawDesc), len(file_internal_transport_ws_ws_proto_rawDesc)))
 	})
-	return file_ws_proto_rawDescData
+	return file_internal_transport_ws_ws_proto_rawDescData
 }
 
-var file_ws_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
-var file_ws_proto_goTypes = []any{
+var file_internal_transport_ws_ws_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_internal_transport_ws_ws_proto_goTypes = []any{
 	(*WsFrame)(nil),             // 0: im.ws.WsFrame
 	(*WsBatch)(nil),             // 1: im.ws.WsBatch
 	(*MessageReadAckReq)(nil),   // 2: im.ws.MessageReadAckReq
 	(*MessageReq)(nil),          // 3: im.ws.MessageReq
 	(*MessageAck)(nil),          // 4: im.ws.MessageAck
-	(*MessageReadAckEvent)(nil), // 5: im.ws.MessageReadAckEvent
-	(*MessageEvent)(nil),        // 6: im.ws.MessageEvent
+	(*RoomMessageNotice)(nil),   // 5: im.ws.RoomMessageNotice
+	(*MessageReadAckEvent)(nil), // 6: im.ws.MessageReadAckEvent
+	(*MessageEvent)(nil),        // 7: im.ws.MessageEvent
 }
-var file_ws_proto_depIdxs = []int32{
+var file_internal_transport_ws_ws_proto_depIdxs = []int32{
 	0, // 0: im.ws.WsBatch.frames:type_name -> im.ws.WsFrame
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
@@ -851,26 +935,26 @@ var file_ws_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_ws_proto_init() }
-func file_ws_proto_init() {
-	if File_ws_proto != nil {
+func init() { file_internal_transport_ws_ws_proto_init() }
+func file_internal_transport_ws_ws_proto_init() {
+	if File_internal_transport_ws_ws_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ws_proto_rawDesc), len(file_ws_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_transport_ws_ws_proto_rawDesc), len(file_internal_transport_ws_ws_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_ws_proto_goTypes,
-		DependencyIndexes: file_ws_proto_depIdxs,
-		MessageInfos:      file_ws_proto_msgTypes,
+		GoTypes:           file_internal_transport_ws_ws_proto_goTypes,
+		DependencyIndexes: file_internal_transport_ws_ws_proto_depIdxs,
+		MessageInfos:      file_internal_transport_ws_ws_proto_msgTypes,
 	}.Build()
-	File_ws_proto = out.File
-	file_ws_proto_goTypes = nil
-	file_ws_proto_depIdxs = nil
+	File_internal_transport_ws_ws_proto = out.File
+	file_internal_transport_ws_ws_proto_goTypes = nil
+	file_internal_transport_ws_ws_proto_depIdxs = nil
 }

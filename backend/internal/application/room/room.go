@@ -156,7 +156,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 }
 
 func (ra *RoomApplication) Invite(ctx context.Context, userId, roomId string) (string, error) {
-	room, err := ra.roomRepository.FindActiveRoom(roomId, int(roomvo.Activate))
+	room, err := ra.roomRepository.FindActiveRoom(roomId, int(roomvo.Normal))
 	if err != nil {
 		if errors.Is(err, roomentity.ErrRoomNotFound) {
 			return "", ErrRoomNotFound
@@ -313,6 +313,13 @@ func (ra *RoomApplication) ApplyMemberChanged(ctx context.Context, event protoco
 		updated, err = ra.roomMemberCache.SetMemberIfVersionGreater(ctx, event.RoomID, event.UserID, state)
 		if err != nil {
 			return err
+		}
+		if updated {
+			// 成员状态发生变化后，房间成员集合必须重新从数据库加载，
+			// 否则小群消息可能继续投递给已退出或被踢出的成员。
+			if err := ra.roomMemberCache.DeleteMemberIDs(ctx, event.RoomID); err != nil {
+				return err
+			}
 		}
 	}
 	if !updated || ra.roomPresence == nil {

@@ -180,9 +180,11 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 	}
 
 	var ackEvent *protocol.MessageAckEvent = &protocol.MessageAckEvent{
-		ClientMsgId: messageApp.ClientMsgId,
-		MessageId:   messageApp.MessageId,
-		Status:      protocol.AckStatus(messageApp.Status),
+		ClientMsgId:    messageApp.ClientMsgId,
+		MessageId:      messageApp.MessageId,
+		ConversationId: messageApp.ConversationID,
+		Seq:            messageApp.Seq,
+		Status:         protocol.AckStatus(messageApp.Status),
 	}
 
 	if err != nil {

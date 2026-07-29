@@ -38,6 +38,8 @@ type ConversationItemDTO struct {
 	DisplayName    string            `json:"displayName"`
 	Avatar         string            `json:"avatar"`
 	Unread         int64             `json:"unread"`
+	LastReadSeq    int64             `json:"lastReadSeq"`
+	LatestSeq      int64             `json:"latestSeq"`
 	LastMessage    *LatestMessageDTO `json:"lastMessage"`
 
 	PeerUser *PeerUserDTO `json:"peerUser,omitempty"`

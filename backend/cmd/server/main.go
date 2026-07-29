@@ -61,6 +61,9 @@ import (
 func main() {
 	r := gin.Default()
 	r.Use(middleware.ErrorLoggerMiddleware())
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
