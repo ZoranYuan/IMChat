@@ -266,11 +266,15 @@ func (a *FileApplication) CompleteMultipartUpload(ctx context.Context, uploadId 
 	if meta.Status == multipartStatusCompleted {
 		return a.Get(ctx, meta.FileId)
 	}
+
+	// 数据库幂等兜底，确保 DB 才是文件元数据事实源
 	if existing, err := a.fileRepository.GetByID(ctx, meta.FileId); err != nil {
 		return nil, err
 	} else if existing != nil {
 		meta.Status = multipartStatusCompleted
-		_ = a.fileCache.SetMultipartUpload(ctx, *meta, a.multipartTTL())
+		if err := a.fileCache.SetMultipartUpload(ctx, *meta, a.multipartTTL()); err != nil {
+			log.Printf("修复已完成上传任务缓存失败：上传=%s 错误=%v", meta.UploadId, err)
+		}
 		return a.Get(ctx, meta.FileId)
 	}
 
