@@ -23,13 +23,13 @@ func toMessageVideoModel(e *messageentity.MessageVideo) *model.MessageVideo {
 	if e == nil {
 		return nil
 	}
-	return &model.MessageVideo{MessageId: e.MessageId, FileId: e.FileId, CoverFileId: e.CoverFileId, DurationMs: e.DurationMs, Width: e.Width, Height: e.Height, URL: e.URL}
+	return &model.MessageVideo{MessageId: e.MessageId, DurationMs: e.DurationMs, Width: e.Width, Height: e.Height}
 }
 func toMessageVideoDomain(m *model.MessageVideo) *messageentity.MessageVideo {
 	if m == nil {
 		return nil
 	}
-	return &messageentity.MessageVideo{MessageId: m.MessageId, FileId: m.FileId, CoverFileId: m.CoverFileId, DurationMs: m.DurationMs, Width: m.Width, Height: m.Height, URL: m.URL}
+	return &messageentity.MessageVideo{MessageId: m.MessageId, DurationMs: m.DurationMs, Width: m.Width, Height: m.Height}
 }
 func (r *MessageVideoRepository) Create(ctx context.Context, item *messageentity.MessageVideo) error {
 	return r.db.WithContext(ctx).Create(toMessageVideoModel(item)).Error

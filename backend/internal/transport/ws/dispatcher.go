@@ -25,7 +25,7 @@ func (d *Dispatcher) RegisterHandler(op string, dh DispatchHandle) {
 func (r *Dispatcher) Dispatch(ctx context.Context, session *realtimews.Session, op string, data []byte) {
 	handler, ok := r.handlers[op]
 	if !ok {
-		// 未知类型，可以打印日志或忽略
+		log.Printf("未知的消息类型 %s", op)
 		return
 	}
 

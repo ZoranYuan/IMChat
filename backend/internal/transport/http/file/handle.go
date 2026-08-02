@@ -48,10 +48,15 @@ func (h *Handle) Upload(c *gin.Context) {
 		FileName:    fileHeader.Filename,
 		ContentType: contentType,
 		Size:        fileHeader.Size,
+		FileHash:    c.PostForm("fileHash"),
 		Reader:      file,
 	})
 	if err != nil {
 		log.Println("上传文件失败：", err)
+		if errors.Is(err, fileapp.ErrFileHashMismatch) || errors.Is(err, fileapp.ErrFileSizeMismatch) {
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "上传文件失败"))
 		return
 	}
@@ -129,6 +134,7 @@ func (h *Handle) CompleteMultipartUpload(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 		return
 	}
+
 	uploadId := c.Param("uploadId")
 	if uploadId == "" {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
@@ -158,17 +164,28 @@ func (h *Handle) CompleteMultipartUpload(c *gin.Context) {
 	c.JSON(http.StatusOK, response.Success(toFileRes(appDTO)))
 }
 
-func (h *Handle) Get(c *gin.Context) {
-	fileId := c.Param("fileId")
-	if fileId == "" {
+func (h *Handle) GetAttachmentAccessURL(c *gin.Context) {
+	userId := c.GetString("userId")
+
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		return
+	}
+
+	attachmentId := c.Param("attachmentId")
+	if attachmentId == "" {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
 
-	dto, err := h.app.Get(c.Request.Context(), fileId)
+	dto, err := h.app.GetAttachmentAccessURL(c.Request.Context(), userId, attachmentId)
 	if err != nil {
 		if errors.Is(err, fileapp.ErrFileNotFound) {
 			c.JSON(http.StatusNotFound, response.Error(http.StatusNotFound, "文件不存在"))
+			return
+		}
+		if errors.Is(err, fileapp.ErrUploadUnauthorized) {
+			c.JSON(http.StatusForbidden, response.Error(http.StatusForbidden, "无权访问该附件"))
 			return
 		}
 		log.Println("获取文件失败：", err)
@@ -176,5 +193,5 @@ func (h *Handle) Get(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(toFileRes(dto)))
+	c.JSON(http.StatusOK, response.Success(toAttachmentAccessURLRes(dto)))
 }

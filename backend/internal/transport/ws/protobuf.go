@@ -27,12 +27,7 @@ func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
 		ConvType:    int(pb.GetConvType()),
 		CType:       int(pb.GetCType()),
 		Content:     pb.GetContent(),
-		MediaURL:    pb.GetMediaUrl(),
-		ThumbURL:    pb.GetThumbUrl(),
 		FileId:      pb.GetFileId(),
-		ThumbFileId: pb.GetThumbFileId(),
-		FileName:    pb.GetFileName(),
-		FileSize:    pb.GetFileSize(),
 		Width:       int(pb.GetWidth()),
 		Height:      int(pb.GetHeight()),
 		DurationMs:  durationMs,
@@ -44,11 +39,12 @@ func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
 
 func messageAckToPB(event protocol.MessageAckEvent) *wspb.MessageAck {
 	return &wspb.MessageAck{
-		ClientMsgId: event.ClientMsgId,
-		MessageId:   event.MessageId,
-		Status:      string(event.Status),
-		Extra:       event.Extra,
-		SendTime:    event.SendTime,
+		ClientMsgId:  event.ClientMsgId,
+		MessageId:    event.MessageId,
+		Status:       string(event.Status),
+		Extra:        event.Extra,
+		SendTime:     event.SendTime,
+		AttachmentId: event.AttachmentId,
 	}
 }
 
@@ -80,12 +76,6 @@ func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
 		Content:        event.Content,
 		SendTime:       event.SendTime,
 		ClientMsgId:    event.ClientMsgId,
-		MediaUrl:       event.MediaURL,
-		ThumbUrl:       event.ThumbURL,
-		FileId:         event.FileId,
-		ThumbFileId:    event.ThumbFileId,
-		FileName:       event.FileName,
-		FileSize:       event.FileSize,
 		Width:          int32(event.Width),
 		Height:         int32(event.Height),
 		DurationMs: func() int64 {
@@ -98,5 +88,6 @@ func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
 		PackId:       event.PackId,
 		HasVideoTime: event.HasVideoTime,
 		VideoTime:    videoTime,
+		AttachmentId: event.AttachmentId,
 	}
 }

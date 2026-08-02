@@ -2,6 +2,8 @@ package kafka
 
 import (
 	eventbus "IM_backend/internal/application/ports/eventbus"
+	inboxport "IM_backend/internal/application/ports/inbox"
+	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +15,8 @@ import (
 
 const defaultConsumeRetryInterval = time.Second
 
+const inboxStaleAfter = 30 * time.Second
+
 var (
 	ErrHandlerNotFound = errors.New("消息处理器不存在")
 	ErrInvalidClient   = errors.New("消息队列客户端无效")
@@ -20,10 +24,21 @@ var (
 )
 
 type ConsumerRouter struct {
-	handlers map[string]eventbus.Handler
+	handlers  map[string]eventbus.Handler
+	inbox     inboxport.InboxRepository
+	txManager txmanager.TxManager
 }
 
-func NewConsumerRouter(handlers map[string]eventbus.Handler) *ConsumerRouter {
+type RouterOption func(*ConsumerRouter)
+
+func WithInbox(repo inboxport.InboxRepository, txManager txmanager.TxManager) RouterOption {
+	return func(router *ConsumerRouter) {
+		router.inbox = repo
+		router.txManager = txManager
+	}
+}
+
+func NewConsumerRouter(handlers map[string]eventbus.Handler, options ...RouterOption) *ConsumerRouter {
 	registered := make(map[string]eventbus.Handler, len(handlers))
 	for topic, handler := range handlers {
 		if topic == "" || handler == nil {
@@ -32,7 +47,13 @@ func NewConsumerRouter(handlers map[string]eventbus.Handler) *ConsumerRouter {
 
 		registered[topic] = handler
 	}
-	return &ConsumerRouter{handlers: registered}
+	router := &ConsumerRouter{handlers: registered}
+	for _, option := range options {
+		if option != nil {
+			option(router)
+		}
+	}
+	return router
 }
 
 func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEvent) error {
@@ -44,7 +65,44 @@ func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEv
 	if !ok {
 		return ErrHandlerNotFound
 	}
-	return handler.Handle(ctx, message)
+
+	claimed := true
+	if r.inbox != nil && message.EventID != "" {
+		if r.txManager == nil {
+			return errors.New("Inbox 事务管理器未配置")
+		}
+		now := time.Now()
+		var err error
+		err = r.txManager.WithinTransaction(ctx, func(tx any) error {
+			claimed, err = r.inbox.WithTx(tx).TryClaim(ctx, message.EventID, string(message.Name), now, now.Add(-inboxStaleAfter))
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if !claimed {
+			return nil
+		}
+	}
+
+	err := handler.Handle(ctx, message)
+	if err != nil {
+		return err
+	}
+
+	if r.inbox != nil && message.EventID != "" && claimed {
+		if err := r.inbox.MarkCompleted(ctx, message.EventID, time.Now()); err != nil {
+			return fmt.Errorf("标记 Inbox 完成状态失败：%w", err)
+		}
+	}
+	return nil
+}
+
+func (r *ConsumerRouter) markDead(ctx context.Context, message eventbus.IncomingEvent, lastError string) error {
+	if r == nil || r.inbox == nil || message.EventID == "" {
+		return nil
+	}
+	return r.inbox.MarkDead(ctx, message.EventID, lastError, time.Now())
 }
 
 type saramaAdapter struct {
@@ -112,8 +170,14 @@ func (h saramaAdapter) ConsumeClaim(
 					); publishErr != nil {
 						return fmt.Errorf("发布死信消息失败：%w", publishErr)
 					}
+					if markErr := h.router.markDead(session.Context(), eventbus.IncomingEvent{
+						EventID: eventIDFromHeaders(message.Headers),
+						Name:    message.Topic,
+					}, err.Error()); markErr != nil {
+						return fmt.Errorf("标记 Inbox 死信状态失败：%w", markErr)
+					}
 					log.Printf(
-						"毒消息已转入死信队列：主题=%s 分区=%d 偏移量=%d 错误=%v",
+						"消息已转入死信队列：主题=%s 分区=%d 偏移量=%d 错误=%v",
 						message.Topic,
 						message.Partition,
 						message.Offset,

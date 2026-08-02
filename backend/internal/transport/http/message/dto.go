@@ -41,10 +41,7 @@ type Message struct {
 	SendTime       int64  `json:"sendTime"`
 	VideoId        string `json:"videoId,omitempty"`
 	VideoTime      *int64 `json:"videoTime,omitempty"`
-	MediaURL       string `json:"mediaUrl,omitempty"`
-	ThumbURL       string `json:"thumbUrl,omitempty"`
-	FileId         string `json:"fileId,omitempty"`
-	ThumbFileId    string `json:"thumbFileId,omitempty"`
+	AttachmentId   string `json:"attachmentId,omitempty"`
 	FileName       string `json:"fileName,omitempty"`
 	FileSize       int64  `json:"fileSize,omitempty"`
 	Width          int    `json:"width,omitempty"`
@@ -123,10 +120,7 @@ func toMessagesRes(messages []messageapp.MessageAppeDTO) []Message {
 			SendTime:       m.SendTime,
 			VideoId:        m.VideoId,
 			VideoTime:      m.VideoTime,
-			MediaURL:       m.MediaURL,
-			ThumbURL:       m.ThumbURL,
-			FileId:         m.FileId,
-			ThumbFileId:    m.ThumbFileId,
+			AttachmentId:   m.AttachmentId,
 			FileName:       m.FileName,
 			FileSize:       m.FileSize,
 			Width:          m.Width,

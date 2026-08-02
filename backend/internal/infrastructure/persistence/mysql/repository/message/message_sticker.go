@@ -23,13 +23,13 @@ func toMessageStickerModel(e *messageentity.MessageSticker) *model.MessageSticke
 	if e == nil {
 		return nil
 	}
-	return &model.MessageSticker{MessageId: e.MessageId, StickerId: e.StickerId, PackId: e.PackId, URL: e.URL, Width: e.Width, Height: e.Height}
+	return &model.MessageSticker{MessageId: e.MessageId, StickerId: e.StickerId, PackId: e.PackId, Width: e.Width, Height: e.Height}
 }
 func toMessageStickerDomain(m *model.MessageSticker) *messageentity.MessageSticker {
 	if m == nil {
 		return nil
 	}
-	return &messageentity.MessageSticker{MessageId: m.MessageId, StickerId: m.StickerId, PackId: m.PackId, URL: m.URL, Width: m.Width, Height: m.Height}
+	return &messageentity.MessageSticker{MessageId: m.MessageId, StickerId: m.StickerId, PackId: m.PackId, Width: m.Width, Height: m.Height}
 }
 func (r *MessageStickerRepository) Create(ctx context.Context, item *messageentity.MessageSticker) error {
 	return r.db.WithContext(ctx).Create(toMessageStickerModel(item)).Error

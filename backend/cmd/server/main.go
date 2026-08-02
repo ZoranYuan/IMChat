@@ -9,6 +9,7 @@ import (
 	eventbus "IM_backend/internal/application/ports/eventbus"
 	roomapp "IM_backend/internal/application/room"
 	userapp "IM_backend/internal/application/user"
+	filecleanup "IM_backend/internal/infrastructure/filecleanup"
 	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/infrastructure/mq/kafka"
 	outboxinfra "IM_backend/internal/infrastructure/outbox"
@@ -17,6 +18,7 @@ import (
 	conversationmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/conversation"
 	filemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/file"
 	friendmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/friend"
+	inboxmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/inbox"
 	messagemysql "IM_backend/internal/infrastructure/persistence/mysql/repository/message"
 	outboxmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/outbox"
 	roommysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room"
@@ -130,6 +132,8 @@ func main() {
 
 	// 构造依赖
 	fileRepository := filemysql.NewFileRepository(db)
+	multipartUploadRepository := filemysql.NewMultipartUploadRepository(db)
+	messageAttachmentsRepository := messagemysql.NewMessageAttachmentRepository(db)
 	fileApplication := fileapp.NewFileApplication(fileapp.Options{
 		MultipartTTL:             time.Duration(cfg.Storage.MinIO.MultipartTTL) * time.Second,
 		CacheTTL:                 time.Duration(cfg.Storage.MinIO.CacheTTLSeconds) * time.Second,
@@ -137,7 +141,23 @@ func main() {
 		PartURLTTL:               time.Duration(cfg.Storage.MinIO.PartURLTTLSeconds) * time.Second,
 		MultipartInitLockTTL:     time.Duration(cfg.Storage.MinIO.MultipartInitLockTTLSeconds) * time.Second,
 		MultipartCompleteLockTTL: time.Duration(cfg.Storage.MinIO.MultipartCompleteLockTTLSeconds) * time.Second,
-	}, fileRepository, fileCache, objectStorage, idGenerator)
+		DirectUploadLockTTL:      time.Duration(cfg.Storage.MinIO.DirectUploadLockTTLSeconds) * time.Second,
+	}, fileRepository, multipartUploadRepository, messageAttachmentsRepository, fileCache, objectStorage, idGenerator, txManager)
+	multipartCleanupWorker := filecleanup.NewWorker(
+		txManager,
+		multipartUploadRepository,
+		fileCache,
+		objectStorage,
+		filecleanup.Options{
+			Interval:         time.Duration(cfg.Storage.MinIO.MultipartCleanupIntervalSeconds) * time.Second,
+			BatchSize:        cfg.Storage.MinIO.MultipartCleanupBatchSize,
+			StaleAfter:       time.Duration(cfg.Storage.MinIO.MultipartCleanupStaleSeconds) * time.Second,
+			BaseRetryWait:    time.Duration(cfg.Storage.MinIO.MultipartCleanupRetrySeconds) * time.Second,
+			OperationTimeout: time.Duration(cfg.Storage.MinIO.MultipartCleanupOperationSeconds) * time.Second,
+			MaxRetries:       cfg.Storage.MinIO.MultipartCleanupMaxRetries,
+		},
+	)
+	go multipartCleanupWorker.Start(ctx)
 	fileHandle := filehttp.NewHandle(fileApplication)
 
 	messageRepository := messagemysql.NewMessageRepository(db)
@@ -146,6 +166,7 @@ func main() {
 	messageStickerRepository := messagemysql.NewMessageStickerRepository(db)
 	messageVideoRepository := messagemysql.NewMessageVideoRepository(db)
 	outboxRepository := outboxmysql.NewRepository(db, idGenerator)
+	inboxRepository := inboxmysql.NewRepository(db)
 	conversationRepository := conversationmysql.NewConversationRepository(db)
 	userConversationRepository := conversationmysql.NewUserConversationRepository(db)
 
@@ -216,7 +237,7 @@ func main() {
 		protocol.EventReadMessageCommitted: readNotifyHandler, // 当读水位提交后，将已读用户通知给消息发送方
 		protocol.EventFriendRequestCreated: friendRequestHandler,
 		protocol.EventRoomMemberChanged:    roomMemberChangedHandler,
-	})
+	}, kafka.WithInbox(inboxRepository, txManager))
 
 	messageConsumerGroup, err := kafka.NewConsumerGroup(kafkaClient, []string{
 		string(protocol.EventReadMessageCommitted),
@@ -255,6 +276,7 @@ func main() {
 		outboxRepository,
 		friendRepository,
 		fileRepository,
+		objectStorage,
 		messageImageRepository,
 		messageFileRepository,
 		messageStickerRepository,
@@ -265,6 +287,7 @@ func main() {
 		roomRepository,
 		idGenerator,
 		cfg,
+		messageAttachmentsRepository,
 	)
 	messageHandle := messagehttp.NewMessageHandle(messageApplication)
 

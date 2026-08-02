@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"IM_backend/internal/shared/protocol"
 	wspb "IM_backend/internal/transport/ws/pb"
 	"errors"
 	"fmt"
@@ -115,6 +116,14 @@ const (
 	AppendPolicyBatch AppendPolicy = iota
 	AppendPolicyFlush
 )
+
+func AppendPolicyForEvent(eventType string) AppendPolicy {
+	// 服务端接收到消息后，需要给前端发送 ack 应答，这个需要立即发送
+	if eventType == string(protocol.EventTypeMsgAck) {
+		return AppendPolicyFlush
+	}
+	return AppendPolicyBatch
+}
 
 func DefaultBatchConfig() MessageBatchConfig {
 	return MessageBatchConfig{

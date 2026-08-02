@@ -117,21 +117,23 @@ func (g *Gateway) Unregister(session *Session) {
 }
 
 func (g *Gateway) DeliverToUser(eventType, userID string, payload []byte) error {
-	encoded, err := EncodePayload(eventType, payload)
-	if err != nil {
-		return err
-	}
 	for _, session := range g.sessionsForUser(userID) {
-		if err := session.Enqueue(
-			Message{Op: eventType, Data: encoded},
-			AppendPolicyBatch,
-		); err != nil {
+		if err := session.PushEvent(eventType, payload); err != nil {
 			if errors.Is(err, ErrOutboundQueueFull) {
-				log.Printf("断开处理缓慢的实时通道会话：用户=%s 会话=%s", session.UserID(), session.SessionID())
 				session.Close()
 			}
+
+			log.Printf(
+				"WS 用户推送失败：user=%s session=%s event=%s error=%v",
+				userID,
+				session.SessionID(),
+				eventType,
+				err,
+			)
 		}
 	}
+
+	// 在线推送失败由消息同步、会话列表或状态接口补偿
 	return nil
 }
 
@@ -214,19 +216,26 @@ func (g *Gateway) UnbindUserFromRoom(userID, roomID string) {
 }
 
 func (g *Gateway) DeliverToOnlineRoomMembers(eventType, roomID string, payload []byte, excludeUserID string) error {
-	encoded, err := EncodePayload(eventType, payload)
-	if err != nil {
-		return err
-	}
 	for _, session := range g.sessionsForRoom(roomID) {
+		// 排除发送者自身
 		if excludeUserID != "" && session.UserID() == excludeUserID {
 			continue
 		}
-		if err := session.Enqueue(Message{Op: eventType, Data: encoded}, AppendPolicyBatch); err != nil {
+
+		if err := session.PushEvent(eventType, payload); err != nil {
 			if errors.Is(err, ErrOutboundQueueFull) {
 				log.Printf("断开处理缓慢的实时通道会话：用户=%s 会话=%s", session.UserID(), session.SessionID())
 				session.Close()
 			}
+
+			log.Printf(
+				"WS 房间推送失败：room=%s user=%s session=%s event=%s error=%v",
+				roomID,
+				session.UserID(),
+				session.SessionID(),
+				eventType,
+				err,
+			)
 		}
 	}
 	return nil

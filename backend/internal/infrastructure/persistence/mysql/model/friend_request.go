@@ -14,5 +14,5 @@ type FriendRequest struct {
 }
 
 func (FriendRequest) TableName() string {
-	return "friend_request"
+	return "friend_requests"
 }

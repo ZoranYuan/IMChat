@@ -107,12 +107,15 @@ func (c *ConversationCache) MarkConversationNotFound(
 	ctx context.Context,
 	conversationID string,
 ) error {
-	_, err := c.store.Client().SetNX(
+	err := c.store.Client().SetArgs(
 		ctx,
 		ConversationSeqKey(conversationID),
 		conversationNotFoundSeq,
-		conversationNotFoundTTL,
-	).Result()
+		redis.SetArgs{
+			Mode: "NX",
+			TTL:  conversationNotFoundTTL,
+		},
+	).Err()
 	return err
 }
 

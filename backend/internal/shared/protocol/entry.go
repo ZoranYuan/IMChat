@@ -34,6 +34,7 @@ const (
 	EventRoomMessageNotice    = "room_msg_notice"        // 大群轻量新消息提醒，客户端按 seq 拉取详情
 	EventRoomMemberChanged    = "room_member_changed"
 	EventMessageBatch         = "msg_batch" // 服务端一次性发送多个数据
+	EventTypeWSError          = "ws_error"
 )
 
 type MessageReadAckEvent struct {
@@ -68,6 +69,7 @@ type MessageAckEvent struct {
 	MessageId      string    `json:"messageId"`
 	ConversationId string    `json:"conversationId,omitempty"`
 	Seq            int64     `json:"seq,omitempty"`
+	AttachmentId   string    `json:"attachmentId,omitempty"`
 	Status         AckStatus `json:"status"`
 	Extra          string    `json:"extra"`
 	SendTime       int64     `json:"sendTime"`
@@ -100,12 +102,7 @@ type MessageEvent struct {
 	Content        string   `json:"content"`
 	SendTime       int64    `json:"sendTime"`
 	ClientMsgId    string   `json:"clientMsgId"`
-	MediaURL       string   `json:"mediaUrl,omitempty"`
-	ThumbURL       string   `json:"thumbUrl,omitempty"`
-	FileId         string   `json:"fileId,omitempty"`
-	ThumbFileId    string   `json:"thumbFileId,omitempty"`
-	FileName       string   `json:"fileName,omitempty"`
-	FileSize       int64    `json:"fileSize,omitempty"`
+	AttachmentId   string   `json:"attachmentId,omitempty"`
 	Width          int      `json:"width,omitempty"`
 	Height         int      `json:"height,omitempty"`
 	DurationMs     *int64   `json:"durationMs,omitempty"`
@@ -113,4 +110,10 @@ type MessageEvent struct {
 	PackId         string   `json:"packId,omitempty"`
 	HasVideoTime   bool     `json:"hasVideoTime,omitempty"`
 	VideoTime      *int64   `json:"videoTime,omitempty"`
+}
+
+type WSErrorEvent struct {
+	RequestOp string `json:"requestOp"`
+	Code      string `json:"code"`
+	Message   string `json:"message"`
 }

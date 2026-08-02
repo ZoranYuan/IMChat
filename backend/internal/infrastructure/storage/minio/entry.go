@@ -87,6 +87,10 @@ func (s *ObjectStorage) PutObject(ctx context.Context, objectKey string, reader 
 	return nil
 }
 
+func (s *ObjectStorage) DeleteObject(ctx context.Context, objectKey string) error {
+	return s.client.RemoveObject(ctx, s.bucket, objectKey, minio.RemoveObjectOptions{})
+}
+
 func (s *ObjectStorage) CreateMultipartUpload(ctx context.Context, objectKey string, contentType string) (string, error) {
 	return s.core.NewMultipartUpload(ctx, s.bucket, objectKey, minio.PutObjectOptions{
 		ContentType: contentType,

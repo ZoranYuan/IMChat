@@ -26,13 +26,8 @@ message MessageReq {
   string content        = 5;
   int64  video_time     = 6;
   bool   has_video_time = 7;
-  string media_url      = 8;
-  string thumb_url      = 9;
-  string file_id        = 10;
-  string thumb_file_id  = 11;
-  string file_name      = 12;
-  int64  file_size      = 13;
-  int32  width          = 14;
+	string file_id        = 10;
+	int32  width          = 14;
   int32  height         = 15;
   int64  duration_ms    = 16;
   string sticker_id     = 17;
@@ -47,6 +42,7 @@ message MessageAck {
   int64  send_time     = 5;
   string conversation_id = 6;
   int64  seq               = 7;
+  string attachment_id    = 8;
 }
 
 message RoomMessageNotice {
@@ -76,17 +72,12 @@ message MessageEvent {
   int64  send_time       = 9;
   string sender_username = 10;
   string client_msg_id   = 11;
-  string media_url       = 12;
-  string thumb_url       = 13;
-  string file_id         = 14;
-  string thumb_file_id   = 15;
-  string file_name       = 16;
-  int64  file_size       = 17;
-  int32  width           = 18;
+	int32  width           = 18;
   int32  height          = 19;
   int64  duration_ms     = 20;
   string sticker_id      = 21;
   string pack_id         = 22;
   bool   has_video_time  = 23;
   int64  video_time      = 24;
+  string attachment_id   = 25;
 }

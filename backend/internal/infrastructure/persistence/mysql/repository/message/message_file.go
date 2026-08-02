@@ -27,13 +27,13 @@ func toMessageFileModel(e *messageentity.MessageFile) *model.MessageFile {
 	if e == nil {
 		return nil
 	}
-	return &model.MessageFile{MessageId: e.MessageId, FileId: e.FileId, FileName: e.FileName, DownloadName: e.DownloadName, MimeType: e.MimeType, Size: e.Size, URL: e.URL}
+	return &model.MessageFile{MessageId: e.MessageId, DownloadName: e.DownloadName}
 }
 func toMessageFileDomain(m *model.MessageFile) *messageentity.MessageFile {
 	if m == nil {
 		return nil
 	}
-	return &messageentity.MessageFile{MessageId: m.MessageId, FileId: m.FileId, FileName: m.FileName, DownloadName: m.DownloadName, MimeType: m.MimeType, Size: m.Size, URL: m.URL}
+	return &messageentity.MessageFile{MessageId: m.MessageId, DownloadName: m.DownloadName}
 }
 
 func (r *MessageFileRepository) Create(ctx context.Context, item *messageentity.MessageFile) error {

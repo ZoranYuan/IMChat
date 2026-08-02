@@ -10,12 +10,16 @@ func MultipartMetaKey(uploadId string) string {
 	return "im:file:multipart:" + uploadId + ":meta"
 }
 
-func FileHashKey(fileHash string) string {
-	return "im:file:hash:" + fileHash
+func FileHashKey(uploaderId string, fileHash string) string {
+	return "im:file:hash:" + uploaderId + ":" + fileHash
 }
 
 func MultipartInitLockKey(uploaderId string, fileHash string) string {
 	return "im:file:multipart:init-lock:" + uploaderId + ":" + fileHash
+}
+
+func FileDedupInitLockKey(uploaderId string, fileHash string) string {
+	return "im:file:dedup:init-lock:" + uploaderId + ":" + fileHash
 }
 
 func MultipartCompleteLockKey(uploadId string) string {

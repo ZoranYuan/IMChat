@@ -16,8 +16,10 @@ import (
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
+	objectstorage "IM_backend/internal/application/ports/storage/object"
 	conversationentity "IM_backend/internal/domain/conversation/entity"
 	conversationvo "IM_backend/internal/domain/conversation/value_object"
+	fileentity "IM_backend/internal/domain/file/entity"
 	friendvo "IM_backend/internal/domain/friend/value_object"
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
@@ -40,28 +42,30 @@ import (
 )
 
 type MessageApplication struct {
-	conversationCache          convcache.ConversationCache
-	friendCache                friendcache.FriendCache
-	messageCache               messagecache.MessageCache
-	roomMemberCache            roomcache.RoomMemberCache
-	messageRepository          messagerepo.MessageRepository
-	txManager                  txmanager.TxManager
-	userCache                  usercach.UserCache
-	userConversationRepository conversationrepo.UserConversationRepository
-	conversationRepository     conversationrepo.ConversationRepository
-	friendRepository           friendrepo.FriendRepository
-	fileRepository             filerepo.FileRepository
-	messageImageRepository     messagerepo.MessageImageRepository
-	messageFileRepository      messagerepo.MessageFileRepository
-	messageStickerRepository   messagerepo.MessageStickerRepository
-	messageVideoRepository     messagerepo.MessageVideoRepository
-	messageOutboxRepository    outboxport.Repository
-	userRepository             userrepo.UserRepository
-	roomUserRepository         roomrepo.RoomUserRepository
-	roomRepository             roomrepo.RoomRepository
-	sf                         singleflight.Group
-	idGenerator                idport.Generator
-	config                     configs.Config
+	conversationCache            convcache.ConversationCache
+	friendCache                  friendcache.FriendCache
+	messageCache                 messagecache.MessageCache
+	roomMemberCache              roomcache.RoomMemberCache
+	messageRepository            messagerepo.MessageRepository
+	txManager                    txmanager.TxManager
+	userCache                    usercach.UserCache
+	userConversationRepository   conversationrepo.UserConversationRepository
+	conversationRepository       conversationrepo.ConversationRepository
+	friendRepository             friendrepo.FriendRepository
+	fileRepository               filerepo.FileRepository
+	objectStorage                objectstorage.ObjectStorage
+	messageImageRepository       messagerepo.MessageImageRepository
+	messageFileRepository        messagerepo.MessageFileRepository
+	messageStickerRepository     messagerepo.MessageStickerRepository
+	messageVideoRepository       messagerepo.MessageVideoRepository
+	messageAttachmentsRepository messagerepo.MessageAttachmentsRepository
+	messageOutboxRepository      outboxport.Repository
+	userRepository               userrepo.UserRepository
+	roomUserRepository           roomrepo.RoomUserRepository
+	roomRepository               roomrepo.RoomRepository
+	sf                           singleflight.Group
+	idGenerator                  idport.Generator
+	config                       configs.Config
 }
 
 func NewMessageApplication(
@@ -76,6 +80,7 @@ func NewMessageApplication(
 	messageOutboxRepository outboxport.Repository,
 	friendRepository friendrepo.FriendRepository,
 	fileRepository filerepo.FileRepository,
+	objectStorage objectstorage.ObjectStorage,
 	messageImageRepository messagerepo.MessageImageRepository,
 	messageFileRepository messagerepo.MessageFileRepository,
 	messageStickerRepository messagerepo.MessageStickerRepository,
@@ -86,9 +91,10 @@ func NewMessageApplication(
 	roomRepository roomrepo.RoomRepository,
 	idGenerator idport.Generator,
 	config configs.Config,
+	messageAttachmentsRepositories ...messagerepo.MessageAttachmentsRepository,
 
 ) *MessageApplication {
-	return &MessageApplication{
+	app := &MessageApplication{
 		conversationCache:          conversationCache,
 		friendCache:                friendCache,
 		messageCache:               messageCache,
@@ -104,6 +110,7 @@ func NewMessageApplication(
 		roomUserRepository:         roomUserRepository,
 		friendRepository:           friendRepository,
 		fileRepository:             fileRepository,
+		objectStorage:              objectStorage,
 		messageImageRepository:     messageImageRepository,
 		messageFileRepository:      messageFileRepository,
 		messageStickerRepository:   messageStickerRepository,
@@ -111,6 +118,10 @@ func NewMessageApplication(
 		idGenerator:                idGenerator,
 		config:                     config,
 	}
+	if len(messageAttachmentsRepositories) > 0 {
+		app.messageAttachmentsRepository = messageAttachmentsRepositories[0]
+	}
+	return app
 }
 
 func (ma *MessageApplication) HandleReadMessage(
@@ -282,6 +293,59 @@ func (ma *MessageApplication) HandleReadMessage(
 	})
 }
 
+func (ma *MessageApplication) normalizeMediaDTO(ctx context.Context, dto *MessageAppeDTO) error {
+	if dto == nil {
+		return nil
+	}
+	switch messagevo.CType(dto.CType) {
+	case messagevo.Image, messagevo.Video, messagevo.File:
+		if dto.FileId == "" || ma.fileRepository == nil {
+			return fmt.Errorf("文件引用不能为空")
+		}
+		file, err := ma.fileRepository.GetByID(ctx, dto.FileId)
+		if err != nil {
+			return err
+		}
+		if file == nil {
+			return fmt.Errorf("文件不存在：%s", dto.FileId)
+		}
+		if file.UploaderId != dto.SendId {
+			return ErrForbidden
+		}
+
+		// 不再相信前端传递过来的媒体文件元信息
+		dto.FileName = file.FileName
+		dto.FileSize = file.Size
+		dto.MimeType = file.ContentType
+		dto.Content = file.FileName
+	case messagevo.Sticker:
+		if dto.StickerId == "" {
+			return fmt.Errorf("表情内容不能为空")
+		}
+	}
+	return nil
+}
+
+func (ma *MessageApplication) buildAttachment(dto *MessageAppeDTO, messageId string) (*messageentity.MessageAttachment, error) {
+	if ma.messageAttachmentsRepository == nil {
+		return nil, fmt.Errorf("消息附件仓储未配置")
+	}
+	attachmentId, err := ma.idGenerator.Generate()
+	if err != nil {
+		return nil, err
+	}
+	dto.AttachmentId = attachmentId
+	return messageentity.NewMessageAttachment(
+		attachmentId,
+		messageId,
+		dto.ConversationID,
+		dto.FileId,
+		int8(dto.CType),
+		time.Now().Add(14*24*time.Hour).UnixMilli(),
+		time.Now().UnixMilli(),
+	), nil
+}
+
 func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId string) (func(context.Context, any) error, error) {
 	if dto == nil {
 		return nil, nil
@@ -292,53 +356,57 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 		if ma.messageImageRepository == nil {
 			return nil, fmt.Errorf("消息图片仓储未配置")
 		}
-		if dto.FileId == "" && dto.MediaURL == "" {
+		if dto.FileId == "" {
 			return nil, fmt.Errorf("图片内容不能为空")
+		}
+		attachment, err := ma.buildAttachment(dto, messageId)
+		if err != nil {
+			return nil, err
 		}
 		item := messageentity.NewMessageImage(
 			messageId,
-			dto.FileId,
-			dto.ThumbFileId,
-			"",
-			dto.MediaURL,
+			dto.MimeType,
 			dto.Width,
 			dto.Height,
-			dto.FileSize,
 		)
 		return func(ctx context.Context, tx any) error {
-			return ma.messageImageRepository.WithTx(tx).Create(ctx, item)
+			if err := ma.messageImageRepository.WithTx(tx).Create(ctx, item); err != nil {
+				return err
+			}
+			return ma.messageAttachmentsRepository.WithTx(tx).Create(ctx, attachment)
 		}, nil
 	case messagevo.File:
 		if ma.messageFileRepository == nil {
 			return nil, fmt.Errorf("消息文件仓储未配置")
 		}
-		if dto.FileId == "" && dto.MediaURL == "" {
+		if dto.FileId == "" {
 			return nil, fmt.Errorf("文件内容不能为空")
+		}
+		attachment, err := ma.buildAttachment(dto, messageId)
+		if err != nil {
+			return nil, err
 		}
 		item := messageentity.NewMessageFile(
 			messageId,
-			dto.FileId,
 			dto.FileName,
-			dto.FileName,
-			"",
-			dto.MediaURL,
-			dto.FileSize,
 		)
 		return func(ctx context.Context, tx any) error {
-			return ma.messageFileRepository.WithTx(tx).Create(ctx, item)
+			if err := ma.messageFileRepository.WithTx(tx).Create(ctx, item); err != nil {
+				return err
+			}
+			return ma.messageAttachmentsRepository.WithTx(tx).Create(ctx, attachment)
 		}, nil
 	case messagevo.Sticker:
 		if ma.messageStickerRepository == nil {
 			return nil, fmt.Errorf("消息表情仓储未配置")
 		}
-		if dto.StickerId == "" && dto.MediaURL == "" {
+		if dto.StickerId == "" {
 			return nil, fmt.Errorf("表情内容不能为空")
 		}
 		item := messageentity.NewMessageSticker(
 			messageId,
 			dto.StickerId,
 			dto.PackId,
-			dto.MediaURL,
 			dto.Width,
 			dto.Height,
 		)
@@ -349,8 +417,12 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 		if ma.messageVideoRepository == nil {
 			return nil, fmt.Errorf("消息视频仓储未配置")
 		}
-		if dto.FileId == "" && dto.MediaURL == "" {
+		if dto.FileId == "" {
 			return nil, fmt.Errorf("视频内容不能为空")
+		}
+		attachment, err := ma.buildAttachment(dto, messageId)
+		if err != nil {
+			return nil, err
 		}
 		duration := int64(0)
 		if dto.DurationMs != nil {
@@ -358,15 +430,15 @@ func (ma *MessageApplication) buildMediaWriter(dto *MessageAppeDTO, messageId st
 		}
 		item := messageentity.NewMessageVideo(
 			messageId,
-			dto.FileId,
-			dto.ThumbFileId,
-			dto.MediaURL,
 			duration,
 			dto.Width,
 			dto.Height,
 		)
 		return func(ctx context.Context, tx any) error {
-			return ma.messageVideoRepository.WithTx(tx).Create(ctx, item)
+			if err := ma.messageVideoRepository.WithTx(tx).Create(ctx, item); err != nil {
+				return err
+			}
+			return ma.messageAttachmentsRepository.WithTx(tx).Create(ctx, attachment)
 		}, nil
 	default:
 		return nil, nil
@@ -513,6 +585,7 @@ func (ma *MessageApplication) checkConvMember(ctx context.Context, dto MessageAp
 
 func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto MessageAppeDTO) (*MessageAppeDTO, error) {
 	conversationId := conversationentity.GetConversationID(dto.SendId, dto.RecvId, dto.ConvType)
+	dto.ConversationID = conversationId
 	messageId, err := ma.idGenerator.Generate()
 	if err != nil {
 		return &MessageAppeDTO{
@@ -569,6 +642,14 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 	seq, err := ma.nextConversationSeq(ctx, conversationId)
 
 	if err != nil {
+		return &MessageAppeDTO{
+			ClientMsgId: dto.ClientMsgId,
+			MessageId:   messageId,
+			Status:      string(protocol.AckStatusFailed),
+		}, err
+	}
+
+	if err := ma.normalizeMediaDTO(ctx, &dto); err != nil {
 		return &MessageAppeDTO{
 			ClientMsgId: dto.ClientMsgId,
 			MessageId:   messageId,
@@ -643,12 +724,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		Content:        dto.Content,
 		SendTime:       message.SendTime,
 		ClientMsgId:    dto.ClientMsgId,
-		MediaURL:       dto.MediaURL,
-		ThumbURL:       dto.ThumbURL,
-		FileId:         dto.FileId,
-		ThumbFileId:    dto.ThumbFileId,
-		FileName:       dto.FileName,
-		FileSize:       dto.FileSize,
+		AttachmentId:   dto.AttachmentId,
 		Width:          dto.Width,
 		Height:         dto.Height,
 		DurationMs:     dto.DurationMs,
@@ -682,7 +758,6 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 			if errors.Is(err, messageentity.ErrDuplicateClientMessage) {
 				return err
 			}
-			// write failure is fatal; outbox only covers the downstream MQ dispatch
 			return ErrMessageSave
 		}
 
@@ -718,6 +793,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 	})
 
 	if errors.Is(err, messageentity.ErrDuplicateClientMessage) && dto.ClientMsgId != "" {
+		// 消息重复写入，尝试从数据库中找到这条消息
 		existing, findErr := ma.messageRepository.FindByClientMsgID(ctx, dto.SendId, dto.ClientMsgId)
 		if findErr == nil && existing != nil {
 			if !sameClientMessage(dto, existing) {
@@ -755,6 +831,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 		ClientMsgId:    dto.ClientMsgId,
 		ConversationID: conversationId,
 		MessageId:      messageId,
+		AttachmentId:   dto.AttachmentId,
 		SenderUsername: senderUsername,
 		Seq:            seq,
 		Status:         string(protocol.AckStatusSent),
@@ -892,7 +969,9 @@ func (ma *MessageApplication) GetHistoryMessages(
 
 	msgsApp := toMessagesAppDTO(msgs)
 	ma.fillSenderUsernames(ctx, msgsApp)
-	ma.fillMediaFields(ctx, msgsApp)
+	if err := ma.fillMediaFields(ctx, msgsApp); err != nil {
+		return nil, -1, false, err
+	}
 
 	sort.Slice(msgsApp, func(i, j int) bool {
 		return msgsApp[i].Seq < msgsApp[j].Seq
@@ -948,7 +1027,9 @@ func (ma *MessageApplication) SyncMessages(
 		return msgsApp[i].Seq < msgsApp[j].Seq
 	})
 	ma.fillSenderUsernames(ctx, msgsApp)
-	ma.fillMediaFields(ctx, msgsApp)
+	if err := ma.fillMediaFields(ctx, msgsApp); err != nil {
+		return nil, afterSeq, false, err
+	}
 
 	nextSeq := afterSeq
 	if len(msgsApp) > 0 {
@@ -1208,15 +1289,15 @@ func userProfileFromEntity(user userentity.User) *usercach.UserProfile {
 	}
 }
 
-func (ma *MessageApplication) fillMediaFields(ctx context.Context, messages []MessageAppeDTO) {
+func (ma *MessageApplication) fillMediaFields(ctx context.Context, messages []MessageAppeDTO) error {
 	if len(messages) == 0 {
-		return
+		return nil
 	}
 
 	// Collect message IDs grouped by type
 	imageIDs := make([]string, 0)
 	videoIDs := make([]string, 0)
-	fileIDs := make([]string, 0)
+	messageFileIDs := make([]string, 0)
 	stickerIDs := make([]string, 0)
 
 	for _, m := range messages {
@@ -1226,7 +1307,7 @@ func (ma *MessageApplication) fillMediaFields(ctx context.Context, messages []Me
 		case messagevo.Video:
 			videoIDs = append(videoIDs, m.MessageId)
 		case messagevo.File:
-			fileIDs = append(fileIDs, m.MessageId)
+			messageFileIDs = append(messageFileIDs, m.MessageId)
 		case messagevo.Sticker:
 			stickerIDs = append(stickerIDs, m.MessageId)
 		}
@@ -1234,52 +1315,99 @@ func (ma *MessageApplication) fillMediaFields(ctx context.Context, messages []Me
 
 	// Batch-fetch from sub-repositories
 	var (
-		images   map[string]*messageentity.MessageImage
-		videos   map[string]*messageentity.MessageVideo
-		files    map[string]*messageentity.MessageFile
-		stickers map[string]*messageentity.MessageSticker
+		images      map[string]*messageentity.MessageImage
+		videos      map[string]*messageentity.MessageVideo
+		files       map[string]*messageentity.MessageFile
+		stickers    map[string]*messageentity.MessageSticker
+		attachments map[string]*messageentity.MessageAttachment
 	)
+	var err error
 
 	if len(imageIDs) > 0 && ma.messageImageRepository != nil {
-		images, _ = ma.messageImageRepository.BatchGetByMessageIDs(ctx, imageIDs)
+		images, err = ma.messageImageRepository.BatchGetByMessageIDs(ctx, imageIDs)
+		if err != nil {
+			return err
+		}
 	}
 	if len(videoIDs) > 0 && ma.messageVideoRepository != nil {
-		videos, _ = ma.messageVideoRepository.BatchGetByMessageIDs(ctx, videoIDs)
+		videos, err = ma.messageVideoRepository.BatchGetByMessageIDs(ctx, videoIDs)
+		if err != nil {
+			return err
+		}
 	}
-	if len(fileIDs) > 0 && ma.messageFileRepository != nil {
-		files, _ = ma.messageFileRepository.BatchGetByMessageIDs(ctx, fileIDs)
+	if len(messageFileIDs) > 0 && ma.messageFileRepository != nil {
+		files, err = ma.messageFileRepository.BatchGetByMessageIDs(ctx, messageFileIDs)
+		if err != nil {
+			return err
+		}
 	}
 	if len(stickerIDs) > 0 && ma.messageStickerRepository != nil {
-		stickers, _ = ma.messageStickerRepository.BatchGetByMessageIDs(ctx, stickerIDs)
+		stickers, err = ma.messageStickerRepository.BatchGetByMessageIDs(ctx, stickerIDs)
+		if err != nil {
+			return err
+		}
+	}
+	if ma.messageAttachmentsRepository != nil {
+		messageIDs := make([]string, 0, len(messages))
+		for _, message := range messages {
+			messageIDs = append(messageIDs, message.MessageId)
+		}
+		attachments, err = ma.messageAttachmentsRepository.BatchGetByMessageIDs(ctx, messageIDs)
+		if err != nil {
+			return err
+		}
 	}
 
-	// Populate DTO fields from sub-entities
+	attachmentFileIDs := make([]string, 0, len(attachments))
+	seenFileIDs := make(map[string]struct{}, len(attachments))
+	for _, attachment := range attachments {
+		if attachment == nil || attachment.FileId == "" {
+			continue
+		}
+		if _, exists := seenFileIDs[attachment.FileId]; exists {
+			continue
+		}
+		seenFileIDs[attachment.FileId] = struct{}{}
+		attachmentFileIDs = append(attachmentFileIDs, attachment.FileId)
+	}
+	fileObjects := make(map[string]*fileentity.File, len(attachmentFileIDs))
+	if len(attachmentFileIDs) > 0 {
+		if ma.fileRepository == nil {
+			return fmt.Errorf("文件仓储未配置")
+		}
+		fileObjects, err = ma.fileRepository.BatchGetByIDs(ctx, attachmentFileIDs)
+		if err != nil {
+			return err
+		}
+	}
+
 	for i := range messages {
+		if attachment, ok := attachments[messages[i].MessageId]; ok && attachment != nil {
+			messages[i].AttachmentId = attachment.AttachmentId
+			messages[i].FileId = attachment.FileId
+			if file := fileObjects[attachment.FileId]; file != nil {
+				messages[i].FileName = file.FileName
+				messages[i].FileSize = file.Size
+				messages[i].MimeType = file.ContentType
+			}
+		}
 		switch messagevo.CType(messages[i].CType) {
 		case messagevo.Image:
 			if img, ok := images[messages[i].MessageId]; ok && img != nil {
-				messages[i].FileId = img.FileId
-				messages[i].ThumbFileId = img.ThumbFileId
 				messages[i].Width = img.Width
 				messages[i].Height = img.Height
-				messages[i].FileSize = img.Size
-				messages[i].MediaURL = img.URL
 			}
 		case messagevo.Video:
 			if vid, ok := videos[messages[i].MessageId]; ok && vid != nil {
-				messages[i].FileId = vid.FileId
-				messages[i].ThumbFileId = vid.CoverFileId
 				messages[i].Width = vid.Width
 				messages[i].Height = vid.Height
 				messages[i].DurationMs = &vid.DurationMs
-				messages[i].MediaURL = vid.URL
 			}
 		case messagevo.File:
 			if f, ok := files[messages[i].MessageId]; ok && f != nil {
-				messages[i].FileId = f.FileId
-				messages[i].FileName = f.FileName
-				messages[i].FileSize = f.Size
-				messages[i].MediaURL = f.URL
+				if f.DownloadName != "" {
+					messages[i].FileName = f.DownloadName
+				}
 			}
 		case messagevo.Sticker:
 			if s, ok := stickers[messages[i].MessageId]; ok && s != nil {
@@ -1287,10 +1415,10 @@ func (ma *MessageApplication) fillMediaFields(ctx context.Context, messages []Me
 				messages[i].PackId = s.PackId
 				messages[i].Width = s.Width
 				messages[i].Height = s.Height
-				messages[i].MediaURL = s.URL
 			}
 		}
 	}
+	return nil
 }
 
 func (ma *MessageApplication) GetVideoDanmaku(

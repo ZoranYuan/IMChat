@@ -1,23 +1,17 @@
 package entity
 
 type MessageVideo struct {
-	MessageId   string
-	FileId      string
-	CoverFileId string
-	DurationMs  int64
-	Width       int
-	Height      int
-	URL         string
+	MessageId  string
+	DurationMs int64
+	Width      int
+	Height     int
 }
 
-func NewMessageVideo(messageId, fileId, coverFileId, url string, durationMs int64, width, height int) *MessageVideo {
+func NewMessageVideo(messageId string, durationMs int64, width, height int) *MessageVideo {
 	return &MessageVideo{
-		MessageId:   messageId,
-		FileId:      fileId,
-		CoverFileId: coverFileId,
-		DurationMs:  durationMs,
-		Width:       width,
-		Height:      height,
-		URL:         url,
+		MessageId:  messageId,
+		DurationMs: durationMs,
+		Width:      width,
+		Height:     height,
 	}
 }

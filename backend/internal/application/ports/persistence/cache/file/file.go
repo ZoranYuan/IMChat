@@ -7,19 +7,20 @@ import (
 )
 
 type MultipartUploadMeta struct {
-	UploadId    string `json:"uploadId"`
-	FileId      string `json:"fileId"`
-	UploaderId  string `json:"uploaderId"`
-	Bucket      string `json:"bucket"`
-	ObjectKey   string `json:"objectKey"`
-	FileName    string `json:"fileName"`
-	ContentType string `json:"contentType"`
-	Size        int64  `json:"size"`
-	FileHash    string `json:"fileHash"`
-	ChunkSize   int64  `json:"chunkSize"`
-	TotalChunks int    `json:"totalChunks"`
-	CreatedAt   int64  `json:"createdAt"`
-	Status      string `json:"status"`
+	UploadId        string `json:"uploadId"`
+	StorageUploadId string `json:"storageUploadId"`
+	FileId          string `json:"fileId"`
+	UploaderId      string `json:"uploaderId"`
+	Bucket          string `json:"bucket"`
+	ObjectKey       string `json:"objectKey"`
+	FileName        string `json:"fileName"`
+	ContentType     string `json:"contentType"`
+	Size            int64  `json:"size"`
+	FileHash        string `json:"fileHash"`
+	ChunkSize       int64  `json:"chunkSize"`
+	TotalChunks     int    `json:"totalChunks"`
+	CreatedAt       int64  `json:"createdAt"`
+	Status          string `json:"status"`
 }
 
 type FileCache interface {
@@ -30,11 +31,15 @@ type FileCache interface {
 	DeleteMultipartUpload(ctx context.Context, uploadId string) error
 	AcquireMultipartInitLock(ctx context.Context, uploaderId string, fileHash string, ttl time.Duration) (string, bool, error)
 	ReleaseMultipartInitLock(ctx context.Context, uploaderId string, fileHash string, token string) error
+	AcquireFileDedupInitLock(ctx context.Context, uploaderId string, fileHash string, ttl time.Duration) (string, bool, error)
+	ReleaseFileDedupInitLock(ctx context.Context, uploaderId string, fileHash string, token string) error
 	AcquireMultipartCompleteLock(ctx context.Context, uploadId string, ttl time.Duration) (string, bool, error)
 	ReleaseMultipartCompleteLock(ctx context.Context, uploadId string, token string) error
 	SetActiveUpload(ctx context.Context, uploaderId string, fileHash string, uploadId string, ttl time.Duration) error
 	GetActiveUploadId(ctx context.Context, uploaderId string, fileHash string) (string, error)
 	DeleteActiveUpload(ctx context.Context, uploaderId string, fileHash string) error
-	SetFileHash(ctx context.Context, fileHash string, fileId string, ttl time.Duration) error
-	GetFileIdByHash(ctx context.Context, fileHash string) (string, error)
+	DeleteActiveUploadIfMatches(ctx context.Context, uploaderId string, fileHash string, uploadId string) error
+	SetFileIDByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string, fileId string, ttl time.Duration) error
+	GetFileIDByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (string, error)
+	RenewMultipartCompleteLock(ctx context.Context, uploadId string, token string, ttl time.Duration) (bool, error)
 }

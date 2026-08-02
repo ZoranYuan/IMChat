@@ -6,6 +6,10 @@ import (
 )
 
 func toFileModel(f *fileentity.File) *model.File {
+	var fileHash *string
+	if f.FileHash != "" {
+		fileHash = &f.FileHash
+	}
 	return &model.File{
 		FileId:      f.FileId,
 		UploaderId:  f.UploaderId,
@@ -13,8 +17,8 @@ func toFileModel(f *fileentity.File) *model.File {
 		ObjectKey:   f.ObjectKey,
 		FileName:    f.FileName,
 		ContentType: f.ContentType,
+		FileHash:    fileHash,
 		Size:        f.Size,
-		URL:         f.URL,
 		CreatedAt:   f.CreatedAt,
 	}
 }
@@ -27,8 +31,15 @@ func toFileDomain(m *model.File) *fileentity.File {
 		ObjectKey:   m.ObjectKey,
 		FileName:    m.FileName,
 		ContentType: m.ContentType,
+		FileHash:    stringValue(m.FileHash),
 		Size:        m.Size,
-		URL:         m.URL,
 		CreatedAt:   m.CreatedAt,
 	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

@@ -72,6 +72,9 @@ func (s *Store) SetNXString(ctx context.Context, key string, value string, ttl t
 		Mode: "NX",
 		TTL:  ttl,
 	}).Result()
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
@@ -79,9 +82,15 @@ func (s *Store) SetNXString(ctx context.Context, key string, value string, ttl t
 }
 
 func (s *Store) SetNXInt64(ctx context.Context, key string, value int64) error {
-	return s.client.SetArgs(ctx, key, value, redis.SetArgs{
+	err := s.client.SetArgs(ctx, key, value, redis.SetArgs{
 		Mode: "NX",
 	}).Err()
+
+	if errors.Is(err, redis.Nil) {
+		return nil
+	}
+
+	return err
 }
 
 func (s *Store) GetInt64(ctx context.Context, key string) (int64, error) {

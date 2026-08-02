@@ -8,6 +8,7 @@ import (
 
 type ObjectStorage interface {
 	PutObject(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
+	DeleteObject(ctx context.Context, objectKey string) error
 	CreateMultipartUpload(ctx context.Context, objectKey string, contentType string) (string, error)
 	PresignMultipartPart(ctx context.Context, objectKey string, uploadId string, partNumber int, ttl time.Duration) (string, error)
 	ListMultipartParts(ctx context.Context, objectKey string, uploadId string) ([]MultipartPart, error)

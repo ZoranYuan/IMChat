@@ -16,5 +16,5 @@ type RoomUser struct {
 }
 
 func (u *RoomUser) TableName() string {
-	return "room_user"
+	return "room_members"
 }

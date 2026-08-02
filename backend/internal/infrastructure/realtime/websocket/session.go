@@ -43,7 +43,9 @@ type Session struct {
 	batchConfig  MessageBatchConfig
 	batchEnabled bool
 	outbound     chan OutboundItem
-	cancel       context.CancelFunc
+	inbound      chan Message
+
+	cancel context.CancelFunc
 
 	closeOnce      sync.Once
 	shutdownOnce   sync.Once
@@ -65,6 +67,10 @@ func NewSession(
 	batchConfig MessageBatchConfig,
 	batchEnabled bool,
 ) *Session {
+	if maxBufferSize <= 0 {
+		maxBufferSize = DefaultBatchConfig().ReadyQueueSize
+	}
+
 	return &Session{
 		conn:         conn,
 		ctx:          ctx,
@@ -75,6 +81,7 @@ func NewSession(
 		batchConfig:  batchConfig.withDefaults(),
 		batchEnabled: batchEnabled,
 		outbound:     make(chan OutboundItem, maxBufferSize),
+		inbound:      make(chan Message, maxBufferSize),
 		writeDone:    make(chan struct{}),
 		accepting:    true,
 	}
@@ -248,6 +255,37 @@ func (s *Session) read(pongWait int) (*Message, error) {
 	return &Message{Op: frame.GetOp(), Data: frame.GetData()}, nil
 }
 
+func (s *Session) PushEvent(
+	op string,
+	payload []byte,
+) error {
+	encoded, err := EncodePayload(op, payload)
+	if err != nil {
+		return err
+	}
+
+	return s.Enqueue(
+		Message{
+			Op:   op,
+			Data: encoded,
+		},
+		AppendPolicyForEvent(op),
+	)
+}
+
+func (s *Session) dispatchLoop(handler MessageHandler) {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case message := <-s.inbound:
+			if handler != nil {
+				handler(s.ctx, s, message.Op, message.Data)
+			}
+		}
+	}
+}
+
 func (s *Session) readLoop(pongWait int, handler MessageHandler, onClose func(*Session)) {
 	defer func() {
 		s.Close()
@@ -262,13 +300,23 @@ func (s *Session) readLoop(pongWait int, handler MessageHandler, onClose func(*S
 		return s.conn.SetReadDeadline(time.Now().Add(time.Duration(pongWait) * time.Second))
 	})
 
+	// 聚合读取和执行业务协程，二者通过 inbound 实现通信
+	go s.dispatchLoop(handler)
+
 	for {
 		message, err := s.read(pongWait)
 		if err != nil {
 			return
 		}
-		if handler != nil {
-			handler(s.ctx, s, message.Op, message.Data)
+
+		select {
+		case s.inbound <- *message:
+		case <-s.ctx.Done():
+			return
+		default:
+			// 客户端请求处理不过来，关闭慢连接
+			s.Close()
+			return
 		}
 	}
 }

@@ -220,7 +220,7 @@ func newSyncTestApplication(msgRepo *syncMessageRepositoryStub, memberCache room
 	return NewMessageApplication(
 		nil, nil, nil, memberCache, &syncUserCacheStub{}, nil, nil,
 		&syncConversationRepositoryStub{conv: &conversationentity.Conversation{ConversationId: "room1", Convtype: conversationvo.RoomChat, RoomId: "room1"}},
-		nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil,
 		&syncUserRepositoryStub{users: []userentity.User{{UserId: "u1", UserName: "alice"}, {UserId: "u2", UserName: "bob"}}},
 		msgRepo, &syncRoomUserRepositoryStub{}, nil, nil, configsForTest(),
 	)

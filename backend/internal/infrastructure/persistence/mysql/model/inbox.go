@@ -3,9 +3,13 @@ package model
 import "time"
 
 type InboxRecord struct {
-	EventID     string    `gorm:"primaryKey;size:64"`
-	EventType   string    `gorm:"size:64;not null"`
-	ProcessedAt time.Time `gorm:"not null"`
+	EventID     string     `gorm:"primaryKey;size:64"`
+	EventType   string     `gorm:"size:64;not null"`
+	Status      string     `gorm:"size:16;not null;default:'completed';index:idx_inbox_status_locked,priority:1"`
+	LockedAt    *time.Time `gorm:"index:idx_inbox_status_locked,priority:2"`
+	RetryCount  int        `gorm:"not null;default:0"`
+	LastError   string     `gorm:"type:text"`
+	ProcessedAt time.Time  `gorm:"not null"`
 }
 
 func (InboxRecord) TableName() string {

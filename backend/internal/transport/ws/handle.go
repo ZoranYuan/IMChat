@@ -11,7 +11,6 @@ import (
 	wspb "IM_backend/internal/transport/ws/pb"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -120,6 +119,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 		sendBurst = 20
 	}
 
+	// 用户发消息频率限制
 	allowed := wh.allowEvent(
 		ctx,
 		protocol.EventTypeSendMessage,
@@ -158,12 +158,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 		ConvType:    req.ConvType,
 		CType:       req.CType,
 		Content:     req.Content,
-		MediaURL:    req.MediaURL,
-		ThumbURL:    req.ThumbURL,
 		FileId:      req.FileId,
-		ThumbFileId: req.ThumbFileId,
-		FileName:    req.FileName,
-		FileSize:    req.FileSize,
 		Width:       req.Width,
 		Height:      req.Height,
 		DurationMs:  req.DurationMs,
@@ -184,6 +179,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 		MessageId:      messageApp.MessageId,
 		ConversationId: messageApp.ConversationID,
 		Seq:            messageApp.Seq,
+		AttachmentId:   messageApp.AttachmentId,
 		Status:         protocol.AckStatus(messageApp.Status),
 	}
 
@@ -203,20 +199,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 }
 
 func (wh *WSHandler) replyToClient(session *realtimews.Session, op string, payload []byte) error {
-	encodedPayload, err := realtimews.EncodePayload(op, payload)
-	if err != nil {
-		return err
-	}
-	if err := session.Enqueue(
-		realtimews.Message{Op: op, Data: encodedPayload},
-		realtimews.AppendPolicyFlush,
-	); err != nil {
-		if errors.Is(err, realtimews.ErrOutboundQueueFull) {
-			session.Close()
-		}
-		return err
-	}
-	return nil
+	return session.PushEvent(op, payload)
 }
 
 func (wh *WSHandler) handleClientClosed(session *realtimews.Session) {

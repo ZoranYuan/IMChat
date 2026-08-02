@@ -9,12 +9,9 @@ func toDTO(file *fileentity.File) *FileDTO {
 	return &FileDTO{
 		FileId:      file.FileId,
 		UploaderId:  file.UploaderId,
-		Bucket:      file.Bucket,
-		ObjectKey:   file.ObjectKey,
 		FileName:    file.FileName,
 		ContentType: file.ContentType,
 		Size:        file.Size,
-		URL:         file.URL,
 		CreatedAt:   file.CreatedAt,
 	}
 }
@@ -24,6 +21,7 @@ type UploadDTO struct {
 	FileName    string
 	ContentType string
 	Size        int64
+	FileHash    string
 	Reader      io.Reader
 }
 
@@ -38,12 +36,10 @@ type MultipartInitDTO struct {
 }
 
 type MultipartInitResDTO struct {
-	UploadId      string   `json:"uploadId"`
-	FileId        string   `json:"fileId"`
-	ObjectKey     string   `json:"objectKey"`
-	UploadedParts []int    `json:"uploadedParts"`
-	Completed     bool     `json:"completed"`
-	File          *FileDTO `json:"file,omitempty"`
+	UploadId      string `json:"uploadId"`
+	FileId        string `json:"fileId"`
+	Status        string `json:"status"`
+	UploadedParts []int  `json:"uploadedParts"`
 }
 
 type MultipartPartURLDTO struct {
@@ -52,14 +48,20 @@ type MultipartPartURLDTO struct {
 	URL        string `json:"url"`
 }
 
+type AttachmentAccessURLDTO struct {
+	AttachmentId string `json:"attachmentId"`
+	FileName     string `json:"fileName"`
+	ContentType  string `json:"contentType"`
+	Size         int64  `json:"size"`
+	URL          string `json:"url"`
+	ExpiresAt    int64  `json:"expiresAt"`
+}
+
 type FileDTO struct {
 	FileId      string `json:"fileId"`
 	UploaderId  string `json:"uploaderId"`
-	Bucket      string `json:"bucket"`
-	ObjectKey   string `json:"objectKey"`
 	FileName    string `json:"fileName"`
 	ContentType string `json:"contentType"`
 	Size        int64  `json:"size"`
-	URL         string `json:"url"`
 	CreatedAt   int64  `json:"createdAt"`
 }

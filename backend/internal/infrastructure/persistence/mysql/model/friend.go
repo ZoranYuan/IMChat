@@ -12,5 +12,5 @@ type Friend struct {
 }
 
 func (u *Friend) TableName() string {
-	return "friend"
+	return "friendships"
 }

@@ -36,6 +36,31 @@ func (c *FileCache) Get(ctx context.Context, fileId string) (*fileentity.File, e
 	return &file, nil
 }
 
+func (c *FileCache) RenewMultipartCompleteLock(ctx context.Context, uploadId string, token string, ttl time.Duration) (bool, error) {
+	luaScript := `
+		local token = ARGV[1]
+		local ttl = ARGV[2]
+
+		if redis.call("GET", KEYS[1]) == token then
+			return redis.call("PEXPIRE", KEYS[1], ttl)
+		end
+		return 0
+	`
+
+	result, err := c.store.Eval(
+		ctx,
+		luaScript,
+		[]string{MultipartCompleteLockKey(uploadId)},
+		token,
+		ttl.Milliseconds(),
+	)
+	if err != nil {
+		return false, err
+	}
+	renewed, ok := result.(int64)
+	return ok && renewed == 1, nil
+}
+
 func (c *FileCache) SetMultipartUpload(ctx context.Context, meta filecache.MultipartUploadMeta, ttl time.Duration) error {
 	return c.store.SetJSON(ctx, MultipartMetaKey(meta.UploadId), meta, ttl)
 }
@@ -54,7 +79,7 @@ func (c *FileCache) AcquireMultipartInitLock(ctx context.Context, uploaderId str
 	if err != nil {
 		return "", false, err
 	}
-	locked, err := c.store.Client().SetNX(ctx, MultipartInitLockKey(uploaderId, fileHash), token, ttl).Result()
+	locked, err := c.store.SetNXString(ctx, MultipartInitLockKey(uploaderId, fileHash), token, ttl)
 	return token, locked, err
 }
 
@@ -62,12 +87,25 @@ func (c *FileCache) ReleaseMultipartInitLock(ctx context.Context, uploaderId str
 	return c.releaseLock(ctx, MultipartInitLockKey(uploaderId, fileHash), token)
 }
 
+func (c *FileCache) AcquireFileDedupInitLock(ctx context.Context, uploaderId string, fileHash string, ttl time.Duration) (string, bool, error) {
+	token, err := newLockToken()
+	if err != nil {
+		return "", false, err
+	}
+	locked, err := c.store.SetNXString(ctx, FileDedupInitLockKey(uploaderId, fileHash), token, ttl)
+	return token, locked, err
+}
+
+func (c *FileCache) ReleaseFileDedupInitLock(ctx context.Context, uploaderId string, fileHash string, token string) error {
+	return c.releaseLock(ctx, FileDedupInitLockKey(uploaderId, fileHash), token)
+}
+
 func (c *FileCache) AcquireMultipartCompleteLock(ctx context.Context, uploadId string, ttl time.Duration) (string, bool, error) {
 	token, err := newLockToken()
 	if err != nil {
 		return "", false, err
 	}
-	locked, err := c.store.Client().SetNX(ctx, MultipartCompleteLockKey(uploadId), token, ttl).Result()
+	locked, err := c.store.SetNXString(ctx, MultipartCompleteLockKey(uploadId), token, ttl)
 	return token, locked, err
 }
 
@@ -77,12 +115,12 @@ func (c *FileCache) ReleaseMultipartCompleteLock(ctx context.Context, uploadId s
 
 func (c *FileCache) releaseLock(ctx context.Context, key string, token string) error {
 	const script = `
-local value = redis.call("GET", KEYS[1])
-if value == ARGV[1] then
-	return redis.call("DEL", KEYS[1])
-end
-	return 0
-`
+		local value = redis.call("GET", KEYS[1])
+		if value == ARGV[1] then
+			return redis.call("DEL", KEYS[1])
+		end
+			return 0
+	`
 	_, err := c.store.Client().Eval(ctx, script, []string{key}, token).Result()
 	return err
 }
@@ -120,16 +158,31 @@ func (c *FileCache) DeleteActiveUpload(ctx context.Context, uploaderId string, f
 	return c.store.Del(ctx, ActiveUploadKey(uploaderId, fileHash))
 }
 
-func (c *FileCache) SetFileHash(ctx context.Context, fileHash string, fileId string, ttl time.Duration) error {
-	if fileHash == "" || fileId == "" {
+func (c *FileCache) DeleteActiveUploadIfMatches(ctx context.Context, uploaderId string, fileHash string, uploadId string) error {
+	if fileHash == "" || uploadId == "" {
 		return nil
 	}
-	return c.store.SetString(ctx, FileHashKey(fileHash), fileId, ttl)
+
+	const script = `
+		if redis.call("GET", KEYS[1]) == ARGV[1] then
+			return redis.call("DEL", KEYS[1])
+		end
+		return 0
+	`
+	_, err := c.store.Eval(ctx, script, []string{ActiveUploadKey(uploaderId, fileHash)}, uploadId)
+	return err
 }
 
-func (c *FileCache) GetFileIdByHash(ctx context.Context, fileHash string) (string, error) {
-	if fileHash == "" {
+func (c *FileCache) SetFileIDByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string, fileId string, ttl time.Duration) error {
+	if fileHash == "" || fileId == "" || uploaderId == "" {
+		return nil
+	}
+	return c.store.SetString(ctx, FileHashKey(uploaderId, fileHash), fileId, ttl)
+}
+
+func (c *FileCache) GetFileIDByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (string, error) {
+	if fileHash == "" || uploaderId == "" {
 		return "", nil
 	}
-	return c.store.GetString(ctx, FileHashKey(fileHash))
+	return c.store.GetString(ctx, FileHashKey(uploaderId, fileHash))
 }

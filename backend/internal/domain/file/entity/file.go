@@ -9,12 +9,12 @@ type File struct {
 	ObjectKey   string
 	FileName    string
 	ContentType string
+	FileHash    string
 	Size        int64
-	URL         string
 	CreatedAt   int64
 }
 
-func NewFile(fileId, uploaderId, bucket, objectKey, fileName, contentType string, size int64, url string) *File {
+func NewFile(fileId, uploaderId, bucket, objectKey, fileName, contentType string, size int64) *File {
 	return &File{
 		FileId:      fileId,
 		UploaderId:  uploaderId,
@@ -23,7 +23,6 @@ func NewFile(fileId, uploaderId, bucket, objectKey, fileName, contentType string
 		FileName:    fileName,
 		ContentType: contentType,
 		Size:        size,
-		URL:         url,
 		CreatedAt:   time.Now().UnixMilli(),
 	}
 }

@@ -28,14 +28,14 @@ func toMessageImageModel(e *messageentity.MessageImage) *model.MessageImage {
 	if e == nil {
 		return nil
 	}
-	return &model.MessageImage{MessageId: e.MessageId, FileId: e.FileId, ThumbFileId: e.ThumbFileId, Width: e.Width, Height: e.Height, MimeType: e.MimeType, Size: e.Size, URL: e.URL}
+	return &model.MessageImage{MessageId: e.MessageId, Width: e.Width, Height: e.Height, MimeType: e.MimeType}
 }
 
 func toMessageImageDomain(m *model.MessageImage) *messageentity.MessageImage {
 	if m == nil {
 		return nil
 	}
-	return &messageentity.MessageImage{MessageId: m.MessageId, FileId: m.FileId, ThumbFileId: m.ThumbFileId, Width: m.Width, Height: m.Height, MimeType: m.MimeType, Size: m.Size, URL: m.URL}
+	return &messageentity.MessageImage{MessageId: m.MessageId, Width: m.Width, Height: m.Height, MimeType: m.MimeType}
 }
 
 func (r *MessageImageRepository) Create(ctx context.Context, item *messageentity.MessageImage) error {

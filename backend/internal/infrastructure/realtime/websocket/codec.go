@@ -49,6 +49,7 @@ func messageAckToPB(event protocol.MessageAckEvent) *wspb.MessageAck {
 		SendTime:       event.SendTime,
 		ConversationId: event.ConversationId,
 		Seq:            event.Seq,
+		AttachmentId:   event.AttachmentId,
 	}
 }
 
@@ -76,10 +77,9 @@ func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
 		MessageId: event.MessageId, ConversationId: event.ConversationId, SendId: event.SendId,
 		SenderUsername: event.SenderUsername, RecvId: event.RecvId, Seq: event.Seq,
 		ConvType: int32(event.ConvType), CType: int32(event.CType), Content: event.Content,
-		SendTime: event.SendTime, ClientMsgId: event.ClientMsgId, MediaUrl: event.MediaURL,
-		ThumbUrl: event.ThumbURL, FileId: event.FileId, ThumbFileId: event.ThumbFileId,
-		FileName: event.FileName, FileSize: event.FileSize, Width: int32(event.Width), Height: int32(event.Height),
+		SendTime: event.SendTime, ClientMsgId: event.ClientMsgId,
+		Width: int32(event.Width), Height: int32(event.Height),
 		DurationMs: duration, StickerId: event.StickerId, PackId: event.PackId,
-		HasVideoTime: event.HasVideoTime, VideoTime: videoTime,
+		HasVideoTime: event.HasVideoTime, VideoTime: videoTime, AttachmentId: event.AttachmentId,
 	}
 }
