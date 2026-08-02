@@ -31,9 +31,9 @@ func TestGatewayDeliversToOnlineRoomMembersWithoutConversationSubscription(t *te
 	onlineMember := newGatewayTestSession(t, "u2", "s2")
 	openedMember := newGatewayTestSession(t, "u3", "s3")
 	for _, session := range []*Session{sender, onlineMember, openedMember} {
-		if err := gateway.Register(session); err != nil {
-			t.Fatalf("register session: %v", err)
-		}
+		gateway.mu.Lock()
+		gateway.registerLocked(session)
+		gateway.mu.Unlock()
 	}
 	gateway.BindOnlineRooms(sender, []string{"room1"})
 	gateway.BindOnlineRooms(onlineMember, []string{"room1"})
@@ -53,9 +53,9 @@ func TestGatewayDeliversToOnlineRoomMembersWithoutConversationSubscription(t *te
 func TestGatewayUnregisterRemovesOnlineRoomMembership(t *testing.T) {
 	gateway := NewGateway()
 	session := newGatewayTestSession(t, "u1", "s1")
-	if err := gateway.Register(session); err != nil {
-		t.Fatalf("register session: %v", err)
-	}
+	gateway.mu.Lock()
+	gateway.registerLocked(session)
+	gateway.mu.Unlock()
 	gateway.BindOnlineRooms(session, []string{"room1"})
 	gateway.Unregister(session)
 

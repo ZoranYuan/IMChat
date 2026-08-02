@@ -13,7 +13,7 @@ var ErrGatewayClosed = errors.New("实时通道网关已关闭")
 type Gateway struct {
 	mu           sync.RWMutex
 	sessions     map[string]*Session
-	userSessions map[string]map[string]struct{} //  个用户当前有哪些在线连接
+	userSessions map[string]map[string]struct{} //  用户当前有哪些在线连接
 	roomSessions map[string]map[string]struct{} //  房间当前有哪些在线成员连接
 	sessionRooms map[string]map[string]struct{} //  连接所属哪些在线房间，断线时反向清理
 	closing      bool
@@ -79,13 +79,28 @@ func (g *Gateway) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (g *Gateway) Register(session *Session) error {
+// RegisterAndStart 将 Session 注册和启动绑定为一个生命周期操作，避免
+// Gateway 记录了尚未启动、无法关闭 writeDone 的 Session。
+func (g *Gateway) RegisterAndStart(
+	session *Session,
+	pongWait int,
+	pingPeriod int,
+	writeWait int,
+	handler MessageHandler,
+	onClose func(*Session),
+) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.closing {
 		return ErrGatewayClosed
 	}
 
+	g.registerLocked(session)
+	session.Start(pongWait, pingPeriod, writeWait, handler, onClose)
+	return nil
+}
+
+func (g *Gateway) registerLocked(session *Session) {
 	g.sessions[session.SessionID()] = session
 	ids := g.userSessions[session.UserID()]
 	if ids == nil {
@@ -93,7 +108,6 @@ func (g *Gateway) Register(session *Session) error {
 		g.userSessions[session.UserID()] = ids
 	}
 	ids[session.SessionID()] = struct{}{}
-	return nil
 }
 
 func (g *Gateway) Unregister(session *Session) {

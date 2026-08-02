@@ -259,7 +259,14 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 		true,
 	)
 
-	if err := wh.gateway.Register(session); err != nil {
+	if err := wh.gateway.RegisterAndStart(
+		session,
+		wh.config.WebSocket.PongWaitSeconds,
+		wh.config.WebSocket.PingPeriodSeconds,
+		wh.config.WebSocket.WriteWaitSeconds,
+		wh.dispatcher.Dispatch,
+		wh.handleClientClosed,
+	); err != nil {
 		session.ForceClose()
 		return
 	}
@@ -267,13 +274,7 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 	if err != nil {
 		log.Printf("加载用户在线房间索引失败：用户=%s 错误=%v", userId, err)
 	} else {
+		// 绑定当前会话，所有活跃的房间
 		wh.gateway.BindOnlineRooms(session, roomIDs)
 	}
-	session.Start(
-		wh.config.WebSocket.PongWaitSeconds,
-		wh.config.WebSocket.PingPeriodSeconds,
-		wh.config.WebSocket.WriteWaitSeconds,
-		wh.dispatcher.Dispatch,
-		wh.handleClientClosed,
-	)
 }
