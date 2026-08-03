@@ -43,7 +43,7 @@ func (r *FileRepository) FindByUploaderAndHash(ctx context.Context, uploaderId s
 	}
 	var m model.File
 	if err := r.db.WithContext(ctx).
-		Where("uploader_id = ? AND file_hash = ? AND status = ?", uploaderId, fileHash, "uploaded").
+		Where("uploader_id = ? AND file_hash = ? AND status = ?", uploaderId, fileHash, fileentity.FileStatusUploaded).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -74,7 +74,10 @@ func (r *FileRepository) ListOrphanCandidates(ctx context.Context, before int64,
 	}
 	var models []model.File
 	err := r.db.WithContext(ctx).Table("files AS f").
-		Where("f.created_at < ? AND f.status IN ?", before, []string{"uploaded", "deleting"}).
+		Where("f.created_at < ? AND f.status IN ?", before, []string{
+			fileentity.FileStatusUploaded,
+			fileentity.FileStatusDeleting,
+		}).
 		Where("NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.file_id = f.file_id)").
 		Order("f.created_at ASC").Limit(limit).Find(&models).Error
 	if err != nil {
@@ -89,13 +92,13 @@ func (r *FileRepository) ListOrphanCandidates(ctx context.Context, before int64,
 
 func (r *FileRepository) MarkDeleting(ctx context.Context, fileId string, before int64) (bool, error) {
 	result := r.db.WithContext(ctx).Model(&model.File{}).
-		Where("file_id = ? AND status = ? AND created_at < ?", fileId, "uploaded", before).
+		Where("file_id = ? AND status = ? AND created_at < ?", fileId, fileentity.FileStatusUploaded, before).
 		Where("NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.file_id = ?)", fileId).
-		Update("status", "deleting")
+		Update("status", fileentity.FileStatusDeleting)
 	return result.RowsAffected == 1, result.Error
 }
 
 func (r *FileRepository) DeleteDeleting(ctx context.Context, fileId string) (bool, error) {
-	result := r.db.WithContext(ctx).Where("file_id = ? AND status = ?", fileId, "deleting").Delete(&model.File{})
+	result := r.db.WithContext(ctx).Where("file_id = ? AND status = ?", fileId, fileentity.FileStatusDeleting).Delete(&model.File{})
 	return result.RowsAffected == 1, result.Error
 }

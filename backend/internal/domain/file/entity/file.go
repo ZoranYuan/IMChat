@@ -2,6 +2,11 @@ package entity
 
 import "time"
 
+const (
+	FileStatusUploaded = "uploaded"
+	FileStatusDeleting = "deleting"
+)
+
 type File struct {
 	FileId      string
 	UploaderId  string
@@ -25,6 +30,6 @@ func NewFile(fileId, uploaderId, bucket, objectKey, fileName, contentType string
 		ContentType: contentType,
 		Size:        size,
 		CreatedAt:   time.Now().UnixMilli(),
-		Status:      "uploaded",
+		Status:      FileStatusUploaded,
 	}
 }

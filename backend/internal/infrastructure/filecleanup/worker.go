@@ -5,6 +5,7 @@ import (
 	filerepo "IM_backend/internal/application/ports/persistence/repository/file"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
 	objectstorage "IM_backend/internal/application/ports/storage/object"
+	fileentity "IM_backend/internal/domain/file/entity"
 	"context"
 	"errors"
 	"log"
@@ -148,7 +149,7 @@ func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64) error {
 		if file == nil {
 			continue
 		}
-		if file.Status == "uploaded" {
+		if file.Status == fileentity.FileStatusUploaded {
 			marked, err := w.fileRepo.MarkDeleting(ctx, file.FileId, before)
 			if err != nil || !marked {
 				continue

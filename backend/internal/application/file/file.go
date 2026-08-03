@@ -220,7 +220,7 @@ func (a *FileApplication) findFileByUploaderAndHash(ctx context.Context, uploade
 	fileId, err := a.fileCache.GetFileIDByUploaderAndHash(ctx, uploaderId, fileHash)
 	if err == nil && fileId != "" {
 		file, cacheErr := a.fileCache.Get(ctx, fileId)
-		if cacheErr == nil && file != nil && file.UploaderId == uploaderId && (file.Status == "" || file.Status == "uploaded") {
+		if cacheErr == nil && file != nil && file.UploaderId == uploaderId && (file.Status == "" || file.Status == fileentity.FileStatusUploaded) {
 			return file, nil
 		}
 		if cacheErr != nil {
@@ -234,7 +234,7 @@ func (a *FileApplication) findFileByUploaderAndHash(ctx context.Context, uploade
 	if err != nil || file == nil {
 		return file, err
 	}
-	if file.Status != "" && file.Status != "uploaded" {
+	if file.Status != "" && file.Status != fileentity.FileStatusUploaded {
 		return nil, nil
 	}
 
@@ -849,7 +849,7 @@ func (a *FileApplication) GetAttachmentAccessURL(ctx context.Context, userId str
 			return nil, ctx.Err()
 		}
 	}
-	if file.Status != "" && file.Status != "uploaded" {
+	if file.Status != "" && file.Status != fileentity.FileStatusUploaded {
 		return nil, ErrFileNotFound
 	}
 
@@ -888,7 +888,7 @@ func (a *FileApplication) GetFileForUser(ctx context.Context, fileId, userId str
 			return nil, ErrFileNotFound
 		}
 	}
-	if file.Status != "" && file.Status != "uploaded" {
+	if file.Status != "" && file.Status != fileentity.FileStatusUploaded {
 		return nil, fmt.Errorf("文件当前不可引用")
 	}
 
