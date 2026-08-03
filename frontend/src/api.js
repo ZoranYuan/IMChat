@@ -16,9 +16,8 @@ const http = axios.create({
 });
 
 http.interceptors.request.use((config) => {
-  const token = config.token || localStorage.getItem("im_token") || sessionStorage.getItem("im_token");
+  const token = localStorage.getItem("im_token") || sessionStorage.getItem("im_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  delete config.token;
   return config;
 });
 
@@ -38,6 +37,18 @@ http.interceptors.response.use(
     return payload;
   },
   (error) => {
+    const status = error.response?.status || 0;
+    const requestURL = error.config?.url || "";
+    // 排查登录和注册时返回的 401
+    const isAuthRequest = /\/users\/(login|register)$/.test(requestURL);
+    if (status === 401 && !isAuthRequest && typeof window !== "undefined") {
+      // 通过 window 派发事件，后由 store 去进行执行，一次实现解耦
+      window.dispatchEvent(new CustomEvent("auth:expired"));
+      if (window.location.pathname !== "/login") {
+        const redirect = `${window.location.pathname}${window.location.search}`;
+        window.location.replace(`/login?redirect=${encodeURIComponent(redirect)}`);
+      }
+    }
     if (error instanceof ApiError) throw error;
     const payload = error.response?.data;
     throw new ApiError(payload?.message || error.message || "网络连接失败", {
@@ -64,57 +75,56 @@ export const registerUser = ({ phone, password, reconfirmPassword }) =>
     reconfirmPassword,
   });
 
-export const logoutUser = (token) => http.post("/users/logout", {}, { token });
+export const logoutUser = () => http.post("/users/logout");
 
-export const getUser = (token, userId) => http.get(`/users/${userId}`, { token });
+export const getUser = (userId) => http.get(`/users/${userId}`);
 
-export const getFriends = (token) => http.get("/friends", { token });
+export const getFriends = () => http.get("/friends");
 
-export const getFriendRequests = (token) => http.get("/friend-requests", { token });
+export const getFriendRequests = () => http.get("/friend-requests");
 
-export const createFriendRequest = (token, { toUserId, message }) =>
-  http.post("/friend-requests", { toUserId, message }, { token });
+export const createFriendRequest = ({ toUserId, message }) =>
+  http.post("/friend-requests", { toUserId, message });
 
-export const operateFriendRequest = (token, { requestId, action }) =>
-  http.post("/friend-requests/actions", { requestId, action }, { token });
+export const operateFriendRequest = ({ requestId, action }) =>
+  http.post("/friend-requests/actions", { requestId, action });
 
-export const createRoom = (token, { roomName, description = "", avatar = "" }) =>
-  http.post("/rooms", { roomName, description, avatar }, { token });
+export const createRoom = ({ roomName, description = "", avatar = "" }) =>
+  http.post("/rooms", { roomName, description, avatar });
 
-export const joinRoom = (token, inviteCode) =>
-  http.post("/rooms/join", { inviteCode }, { token });
+export const joinRoom = (inviteCode) => http.post("/rooms/join", { inviteCode });
 
-export const getRoomInviteCode = (token, roomId) =>
-  http.get(`/rooms/${roomId}/invite-code`, { token });
+export const getRoomInviteCode = (roomId) => http.get(`/rooms/${roomId}/invite-code`);
 
-export const getConversations = (token) => http.get("/conversations", { token });
+export const getConversations = () => http.get("/conversations");
 
-export const getMessageHistory = (token, conversationId, cursor = 0, limit = 30) =>
+export const getMessageHistory = (conversationId, cursor = 0, limit = 30) =>
   http.get("/messages/history", {
-    token,
     params: { conversationId, cursor, limit },
   });
 
-export const uploadFile = (token, file) => {
+export const uploadFile = (file, fileHash = "") => {
   const form = new FormData();
   form.append("file", file);
-  return http.post("/files", form, { token });
+  if (fileHash) form.append("fileHash", fileHash);
+  return http.post("/files", form);
 };
 
-export const initMultipartUpload = (token, payload) =>
-  http.post("/files/multipart/init", payload, { token });
+export const initMultipartUpload = (payload) =>
+  http.post("/files/multipart/init", payload);
 
-export const presignMultipartParts = (token, uploadId, partNumbers) =>
-  http.post(`/files/multipart/${uploadId}/parts/presign`, { partNumbers }, { token });
+export const presignMultipartParts = (uploadId, partNumbers) =>
+  http.post(`/files/multipart/${uploadId}/parts/presign`, { partNumbers });
 
 export const uploadMultipartPartToStorage = (url, chunk) =>
   axios.put(url, chunk, {
     headers: { "Content-Type": "application/octet-stream" },
   });
 
-export const completeMultipartUpload = (token, uploadId) =>
-  http.post(`/files/multipart/${uploadId}/complete`, {}, { token });
+export const completeMultipartUpload = (uploadId) =>
+  http.post(`/files/multipart/${uploadId}/complete`);
 
-export const getFile = (token, fileId) => http.get(`/files/${fileId}`, { token });
+export const getAttachmentAccessURL = (attachmentId) =>
+  http.get(`/files/attachments/${attachmentId}/access-url`);
 
 export default http;

@@ -1,8 +1,9 @@
-import { computed, reactive } from "vue";
 import { defineStore } from "pinia";
+import { computed, reactive } from "vue";
 import {
   createFriendRequest,
   createRoom,
+  getAttachmentAccessURL,
   getConversations,
   getFriendRequests,
   getFriends,
@@ -13,6 +14,8 @@ import {
   operateFriendRequest,
   registerUser,
 } from "../api.js";
+import { useChunkUpload } from "../composables/useChunkUpload.js";
+import { MessageType, UploadableMessageTypes, messageTypeLabel, messageViewType } from "../constants/message.js";
 import {
   mockContacts,
   mockConversations,
@@ -20,10 +23,8 @@ import {
   mockFriendRequests,
   mockMessages,
 } from "../mocks/chat.js";
+import { clearMessages, deleteMessages, readMessages, writeMessages } from "../services/messageDb.js";
 import { createWsClient } from "../services/wsClient.js";
-import { deleteMessages, readMessages, writeMessages } from "../services/messageDb.js";
-import { useChunkUpload } from "../composables/useChunkUpload.js";
-import { MessageType, UploadableMessageTypes, messageTypeLabel, messageViewType } from "../constants/message.js";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const readJson = (key) => {
@@ -108,6 +109,7 @@ const normalizeMessage = (item) => ({
   fileSize: item.fileSize || "",
   mediaUrl: item.mediaUrl || "",
   thumbUrl: item.thumbUrl || "",
+  attachmentId: item.attachmentId || "",
   fileId: item.fileId || "",
   width: Number(item.width) || 0,
   height: Number(item.height) || 0,
@@ -120,8 +122,31 @@ const normalizeMessage = (item) => ({
 });
 
 const currentUserId = () => (state.currentUser && (state.currentUser.userId || state.currentUser.id)) || "";
+
+// 文件临时 url 缓存
+const attachmentURLCache = new Map();
+const resolveAttachmentURLs = async (messages) => {
+  const pending = (messages || []).filter((message) => message.attachmentId && !message.mediaUrl);
+  await Promise.all(pending.map(async (message) => {
+    const cached = attachmentURLCache.get(message.attachmentId);
+    if (cached) {
+      message.mediaUrl = cached;
+      message.thumbUrl = cached;
+      return;
+    }
+    try {
+      const result = await getAttachmentAccessURL(message.attachmentId);
+      if (!result?.url) return;
+      attachmentURLCache.set(message.attachmentId, result.url);
+      message.mediaUrl = result.url;
+      message.thumbUrl = result.url;
+    } catch {
+      // 资源过期或无权限时，保留消息元数据，不阻断消息列表。
+    }
+  }));
+};
 const persistMessages = (conversationId) => {
-  writeMessages(currentUserId(), conversationId, state.messages[conversationId] || []).catch(() => {});
+  writeMessages(currentUserId(), conversationId, state.messages[conversationId] || []).catch(() => { });
 };
 
 const persistSession = (auth, remember) => {
@@ -172,6 +197,7 @@ const upsertIncomingMessage = (payload) => {
   const list = state.messages[payload.conversationId] || [];
   if (!list.some((item) => item.id === message.id)) list.push(message);
   state.messages[payload.conversationId] = list;
+  resolveAttachmentURLs([message]).catch(() => { });
   persistMessages(payload.conversationId);
   let conversation = state.conversations.find((item) => item.id === payload.conversationId);
   if (!conversation) {
@@ -207,12 +233,14 @@ const handleMessageAck = (ack) => {
     const pending = messages.find((item) => item.clientMsgId === ack.clientMsgId);
     if (!pending) return;
     pending.id = ack.messageId || pending.id;
+    pending.attachmentId = ack.attachmentId || pending.attachmentId || "";
     pending.status = ack.status === "failed" ? "failed" : "sent";
     pending.error = ack.extra || "";
     if (ack.sendTime) {
       pending.sendTime = ack.sendTime;
       pending.time = formatTime(ack.sendTime);
     }
+    resolveAttachmentURLs([pending]).catch(() => { });
     persistMessages(conversationId);
   });
 };
@@ -228,7 +256,7 @@ const handleReadNotify = (receipt) => {
 };
 
 const refreshConversationSnapshot = async () => {
-  const items = await getConversations(state.token);
+  const items = await getConversations();
   const snapshot = (items || []).map(normalizeConversation);
   const localPinned = new Map(state.conversations.map((item) => [item.id, item.pinned]));
   snapshot.forEach((item) => {
@@ -250,6 +278,36 @@ const wsClient = createWsClient({
   onAck: handleMessageAck,
   onReadNotify: handleReadNotify,
 });
+
+// 退出登录前清楚缓存中的数据
+const clearAuthState = () => {
+  wsClient.disconnect();
+  state.token = "";
+  state.currentUser = null;
+  state.dataSource = "preview";
+  state.connection = "disconnected";
+  state.loading = false;
+  state.historyLoading = false;
+  state.conversations = [];
+  state.messages = {};
+  state.contacts = [];
+  state.friendRequests = [];
+  state.activeConversationId = "";
+  state.historyHasMore = {};
+  state.historyCursor = {};
+  state.readReceipts = {};
+  attachmentURLCache.clear();
+
+  for (const storage of [localStorage, sessionStorage]) {
+    storage.removeItem("im_token");
+    storage.removeItem("im_user");
+  }
+  clearMessages().catch(() => { });
+};
+
+if (typeof window !== "undefined") {
+  window.addEventListener("auth:expired", clearAuthState);
+}
 
 const connectSocket = () => wsClient.connect(state.token);
 
@@ -277,9 +335,9 @@ export const useChatStore = defineStore("chat", () => {
     state.loading = true;
     try {
       const [conversations, friends, requests] = await Promise.all([
-        getConversations(state.token),
-        getFriends(state.token),
-        getFriendRequests(state.token),
+        getConversations(),
+        getFriends(),
+        getFriendRequests(),
       ]);
       state.conversations = (conversations || []).map(normalizeConversation);
       state.contacts = (friends || []).map((item) => ({
@@ -313,13 +371,14 @@ export const useChatStore = defineStore("chat", () => {
     if (!conversationId || !state.token) return;
     state.historyLoading = true;
     try {
-      const data = await getMessageHistory(state.token, conversationId, cursor, 30);
+      const data = await getMessageHistory(conversationId, cursor, 30);
       const incoming = (data?.messages || []).map(normalizeMessage);
       const existing = state.messages[conversationId] || [];
       const incomingIds = new Set(incoming.map((item) => item.id));
       state.messages[conversationId] = cursor
         ? [...incoming, ...existing.filter((item) => !incomingIds.has(item.id))]
         : [...incoming, ...existing.filter((item) => !incomingIds.has(item.id))].sort((a, b) => (a.seq || a.sendTime) - (b.seq || b.sendTime));
+      resolveAttachmentURLs(state.messages[conversationId]).catch(() => { });
       persistMessages(conversationId);
       state.historyCursor[conversationId] = data?.nextCursor || 0;
       state.historyHasMore[conversationId] = Boolean(data?.hasMore);
@@ -379,7 +438,7 @@ export const useChatStore = defineStore("chat", () => {
     const text = content.trim();
     const conversation = activeConversation.value;
     if (!text || !conversation) return null;
-    if (!wsClient.isConnected()) throw new Error("实时连接尚未建立，请稍后重试。" );
+    if (!wsClient.isConnected()) throw new Error("实时连接尚未建立，请稍后重试。");
     const clientMsgId = crypto.randomUUID?.() || `message-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = {
       clientMsgId,
@@ -388,14 +447,14 @@ export const useChatStore = defineStore("chat", () => {
       cType: MessageType.TEXT,
       content: text,
     };
-    if (!wsClient.sendMessage(payload)) throw new Error("消息发送失败，请重新连接后重试。" );
+    if (!wsClient.sendMessage(payload)) throw new Error("消息发送失败，请重新连接后重试。");
     return appendOutgoingMessage(conversation, payload);
   };
 
   const sendAttachment = async (file, cType) => {
     if (!file) return null;
     const type = Number(cType);
-    if (!UploadableMessageTypes.includes(type)) throw new Error("不支持的附件类型。" );
+    if (!UploadableMessageTypes.includes(type)) throw new Error("不支持的附件类型。");
     const conversation = activeConversation.value;
     if (!conversation) return null;
     if (!state.token) throw new Error("登录状态已失效，请重新登录。");
@@ -406,22 +465,18 @@ export const useChatStore = defineStore("chat", () => {
       : type === MessageType.VIDEO
         ? await getVideoMetadata(file)
         : {};
-    const uploaded = await attachmentUpload.upload(state.token, file);
+    const uploaded = await attachmentUpload.upload(file);
     const clientMsgId = crypto.randomUUID?.() || `message-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = {
       clientMsgId,
       recvId: conversation.targetId,
       convType: conversation.convType || (conversation.type === "group" ? 2 : 1),
       cType: type,
-      content: file.name,
-      mediaUrl: uploaded?.url || "",
       fileId: uploaded?.fileId || "",
-      fileName: file.name,
-      fileSize: file.size,
       ...metadata,
     };
     if (type === MessageType.VIDEO && metadata.durationMs) payload.durationMs = metadata.durationMs;
-    if (!payload.mediaUrl && !payload.fileId) throw new Error("上传成功但未返回文件地址。");
+    if (!payload.fileId) throw new Error("上传成功但未返回文件标识。");
     if (!wsClient.sendMessage(payload)) throw new Error("消息发送失败，请重新连接后重试。");
     return appendOutgoingMessage(conversation, payload);
   };
@@ -452,11 +507,11 @@ export const useChatStore = defineStore("chat", () => {
 
   const clearConversation = (id) => {
     state.messages[id] = [];
-    deleteMessages(currentUserId(), id).catch(() => {});
+    deleteMessages(currentUserId(), id).catch(() => { });
   };
 
   const handleFriendRequest = async (request, accepted) => {
-    await operateFriendRequest(state.token, {
+    await operateFriendRequest({
       requestId: request.id,
       action: accepted ? 1 : 2,
     });
@@ -464,13 +519,13 @@ export const useChatStore = defineStore("chat", () => {
     if (accepted) await loadWorkspace();
   };
 
-  const addFriendRequest = (form) => createFriendRequest(state.token, form);
+  const addFriendRequest = (form) => createFriendRequest(form);
 
   const startConversation = async (contact) => {
     let conversation = state.conversations.find((item) => item.targetId === contact.id || item.id === contact.conversationId);
     if (!conversation) {
       const currentUserId = state.currentUser.userId;
-      if (!currentUserId) throw new Error("当前用户信息不完整，请重新登录。" );
+      if (!currentUserId) throw new Error("当前用户信息不完整，请重新登录。");
       const conversationId = [currentUserId, contact.id].sort().reverse().join("_");
       conversation = {
         id: conversationId,
@@ -500,13 +555,13 @@ export const useChatStore = defineStore("chat", () => {
   };
 
   const createChatRoom = async (form) => {
-    const room = await createRoom(state.token, form);
+    const room = await createRoom(form);
     await loadWorkspace();
     return room;
   };
 
   const joinChatRoom = async (inviteCode) => {
-    const room = await joinRoom(state.token, inviteCode);
+    const room = await joinRoom(inviteCode);
     await loadWorkspace();
     return room;
   };
@@ -514,15 +569,10 @@ export const useChatStore = defineStore("chat", () => {
   const retryConnection = () => connectSocket();
 
   const logout = async () => {
-    wsClient.disconnect();
     try {
-      if (state.token) await logoutUser(state.token);
+      if (state.token) await logoutUser();
     } finally {
-      state.token = "";
-      for (const storage of [localStorage, sessionStorage]) {
-        storage.removeItem("im_token");
-        storage.removeItem("im_user");
-      }
+      clearAuthState();
     }
   };
 

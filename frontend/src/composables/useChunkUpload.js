@@ -47,7 +47,7 @@ export function useChunkUpload(options = {}) {
     canceled.value = false;
   };
 
-  const uploadPartWithRetry = async (token, file, currentUploadId, partNumber, partURLs, completedParts) => {
+  const uploadPartWithRetry = async (file, currentUploadId, partNumber, partURLs, completedParts) => {
     const start = (partNumber - 1) * chunkSize;
     const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
@@ -64,7 +64,7 @@ export function useChunkUpload(options = {}) {
       } catch (uploadError) {
         if (attempt === MAX_RETRIES) throw uploadError;
         try {
-          const refreshed = await presignMultipartParts(token, currentUploadId, [partNumber]);
+          const refreshed = await presignMultipartParts(currentUploadId, [partNumber]);
           if (refreshed[0]) partURLs.set(partNumber, refreshed[0].url);
         } catch {
           // 保留原上传错误，下一次循环仍会按重试策略处理。
@@ -74,18 +74,18 @@ export function useChunkUpload(options = {}) {
     }
   };
 
-  const presignParts = async (token, currentUploadId, partNumbers) => {
+  const presignParts = async (currentUploadId, partNumbers) => {
     const partURLs = new Map();
     for (let offset = 0; offset < partNumbers.length; offset += 100) {
-      const batch = await presignMultipartParts(token, currentUploadId, partNumbers.slice(offset, offset + 100));
+      const batch = await presignMultipartParts(currentUploadId, partNumbers.slice(offset, offset + 100));
       batch.forEach((part) => partURLs.set(part.partNumber, part.url));
     }
     return partURLs;
   };
 
-  const repairIncompleteParts = async (token, file, currentUploadId, partNumbers, completedParts) => {
+  const repairIncompleteParts = async (file, currentUploadId, partNumbers, completedParts) => {
     if (!partNumbers.length) return;
-    const partURLs = await presignParts(token, currentUploadId, partNumbers);
+    const partURLs = await presignParts(currentUploadId, partNumbers);
     let cursor = 0;
     const worker = async () => {
       while (cursor < partNumbers.length) {
@@ -94,33 +94,33 @@ export function useChunkUpload(options = {}) {
         if (canceled.value) throw new Error("上传已取消");
         const partNumber = partNumbers[cursor];
         cursor += 1;
-        await uploadPartWithRetry(token, file, currentUploadId, partNumber, partURLs, completedParts);
+        await uploadPartWithRetry(file, currentUploadId, partNumber, partURLs, completedParts);
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, partNumbers.length) }, worker));
   };
 
-  const completeWithRepair = async (token, file, currentUploadId, completedParts) => {
+  const completeWithRepair = async (file, currentUploadId, completedParts) => {
     for (let round = 0; round <= MAX_COMPLETE_REPAIR_ROUNDS; round += 1) {
       try {
         status.value = "completing";
-        return await completeMultipartUpload(token, currentUploadId);
+        return await completeMultipartUpload(currentUploadId);
       } catch (completeError) {
         const repairParts = incompletePartNumbers(completeError);
         if (!repairParts.length || round === MAX_COMPLETE_REPAIR_ROUNDS) throw completeError;
         status.value = "uploading";
-        await repairIncompleteParts(token, file, currentUploadId, repairParts, completedParts);
+        await repairIncompleteParts(file, currentUploadId, repairParts, completedParts);
       }
     }
     throw new Error("合并文件失败");
   };
 
-  const uploadMultipart = async (token, file) => {
+  const uploadMultipart = async (file) => {
     status.value = "hashing";
     const fileHash = await createFileFingerprint(file);
     const totalChunks = Math.ceil(file.size / chunkSize);
     status.value = "initializing";
-    const initialized = await initMultipartUpload(token, {
+    const initialized = await initMultipartUpload({
       fileName: file.name,
       contentType: file.type || "application/octet-stream",
       size: file.size,
@@ -128,7 +128,7 @@ export function useChunkUpload(options = {}) {
       chunkSize,
       totalChunks,
     });
-    if (initialized.completed && initialized.file) return initialized.file;
+    if (initialized.status === "completed") return { fileId: initialized.fileId };
 
     uploadId.value = initialized.uploadId;
     const completedParts = new Set(initialized.uploadedParts || []);
@@ -140,7 +140,7 @@ export function useChunkUpload(options = {}) {
 
     const queue = Array.from({ length: totalChunks }, (_, index) => index + 1)
       .filter((partNumber) => !completedParts.has(partNumber));
-    const partURLs = await presignParts(token, initialized.uploadId, queue);
+    const partURLs = await presignParts(initialized.uploadId, queue);
     let cursor = 0;
     status.value = "uploading";
 
@@ -151,24 +151,26 @@ export function useChunkUpload(options = {}) {
         if (canceled.value) throw new Error("上传已取消");
         const partNumber = queue[cursor];
         cursor += 1;
-        await uploadPartWithRetry(token, file, initialized.uploadId, partNumber, partURLs, completedParts);
+        await uploadPartWithRetry(file, initialized.uploadId, partNumber, partURLs, completedParts);
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
-    return completeWithRepair(token, file, initialized.uploadId, completedParts);
+    return completeWithRepair(file, initialized.uploadId, completedParts);
   };
 
-  const upload = async (token, file) => {
+  const upload = async (file) => {
     reset();
     if (!file || file.size <= 0) throw new Error("文件不能为空");
     totalBytes.value = file.size;
     try {
       let result;
       if (file.size < MULTIPART_THRESHOLD) {
+        status.value = "hashing";
+        const fileHash = await createFileFingerprint(file);
         status.value = "uploading";
-        result = await uploadFile(token, file);
+        result = await uploadFile(file, fileHash);
       } else {
-        result = await uploadMultipart(token, file);
+        result = await uploadMultipart(file);
       }
       if (canceled.value) throw new Error("上传已取消");
       uploadedBytes.value = file.size;

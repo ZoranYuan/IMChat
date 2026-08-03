@@ -54,11 +54,9 @@ const toRecord = (userId, conversationId, message) => ({
   sendTime: Number(message.sendTime) || Date.now(),
   clientMsgId: message.clientMsgId || "",
   status: message.status || "sent",
+  attachmentId: message.attachmentId || "",
   fileName: message.fileName || "",
   fileSize: message.fileSize || 0,
-  mediaUrl: message.mediaUrl || "",
-  thumbUrl: message.thumbUrl || "",
-  fileId: message.fileId || "",
   width: Number(message.width) || 0,
   height: Number(message.height) || 0,
   durationMs: Number(message.durationMs) || 0,
@@ -91,4 +89,9 @@ export const deleteMessages = async (userId, conversationId) => {
   await run(writeDb, "readwrite", (store) => {
     records.forEach((record) => store.delete(record.cacheId));
   });
+};
+
+export const clearMessages = async () => {
+  const db = await openDb();
+  await run(db, "readwrite", (store) => store.clear());
 };
