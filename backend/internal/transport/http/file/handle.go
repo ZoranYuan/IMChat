@@ -18,52 +18,6 @@ func NewHandle(app *fileapp.FileApplication) *Handle {
 	return &Handle{app: app}
 }
 
-func (h *Handle) Upload(c *gin.Context) {
-	userId := c.GetString("userId")
-	if userId == "" {
-		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
-		return
-	}
-
-	fileHeader, err := c.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "文件不能为空"))
-		return
-	}
-
-	file, err := fileHeader.Open()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "读取文件失败"))
-		return
-	}
-	defer file.Close()
-
-	contentType := fileHeader.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-
-	dto, err := h.app.Upload(c.Request.Context(), fileapp.UploadDTO{
-		UploaderId:  userId,
-		FileName:    fileHeader.Filename,
-		ContentType: contentType,
-		Size:        fileHeader.Size,
-		FileHash:    c.PostForm("fileHash"),
-		Reader:      file,
-	})
-	if err != nil {
-		log.Println("上传文件失败：", err)
-		if errors.Is(err, fileapp.ErrFileHashMismatch) || errors.Is(err, fileapp.ErrFileSizeMismatch) || errors.Is(err, fileapp.ErrFileTooLarge) {
-			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
-			return
-		}
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "上传文件失败"))
-		return
-	}
-
-	c.JSON(http.StatusOK, response.Success(toFileRes(dto)))
-}
-
 func (h *Handle) InitDirectUpload(c *gin.Context) {
 	userId := c.GetString("userId")
 	if userId == "" {

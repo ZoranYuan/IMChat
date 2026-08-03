@@ -1,5 +1,5 @@
 package security
 
 type TokenIssuer interface {
-	IssueToken(userId string) (string, string, error)
+	IssueToken(userId string) (accessToken string, refreshToken string, sessionID string, err error)
 }

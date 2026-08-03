@@ -1,12 +1,24 @@
 package auth
 
 import (
+	authport "IM_backend/internal/application/ports/persistence/cache/auth"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+const rotateRefreshSessionScript = `
+	local current = redis.call("GET", KEYS[1])
+	if not current then
+		return 0
+	end
+	redis.call("DEL", KEYS[1])
+	redis.call("SET", KEYS[2], ARGV[1], "PX", ARGV[2])
+	return 1
+`
 
 type authCache struct {
 	store *shared.Store
@@ -18,76 +30,52 @@ func NewAuthCache(client *redis.Client) *authCache {
 	}
 }
 
-func (ac *authCache) set(
+func (ac *authCache) SetRefreshSession(
 	ctx context.Context,
-	key string,
-	value string,
+	token string,
+	session authport.RefreshSession,
 	expire time.Duration,
 ) error {
-	return ac.store.SetString(ctx, key, value, expire)
+	return ac.store.SetJSON(ctx, RefreshTokenKey(token), session, expire)
 }
 
-func (ac *authCache) get(
-	ctx context.Context,
-	key string,
-) (string, error) {
-	return ac.store.GetString(ctx, key)
-}
-
-func (ac *authCache) del(
-	ctx context.Context,
-	key string,
-) error {
-	return ac.store.Del(ctx, key)
-}
-
-func (ac *authCache) SetAccessToken(
+func (ac *authCache) GetRefreshSession(
 	ctx context.Context,
 	token string,
-	userId string,
+) (authport.RefreshSession, bool, error) {
+	var session authport.RefreshSession
+	found, err := ac.store.GetJSON(ctx, RefreshTokenKey(token), &session)
+	return session, found, err
+}
+
+func (ac *authCache) RotateRefreshSession(
+	ctx context.Context,
+	oldToken string,
+	newToken string,
+	session authport.RefreshSession,
 	expire time.Duration,
-) error {
-	return ac.set(ctx, AccessTokenKey(token), userId, expire)
-}
-
-func (ac *authCache) DeleteAccessToken(ctx context.Context, token string) error {
-	return ac.del(ctx, AccessTokenKey(token))
-}
-
-func (ac *authCache) GetUserIDByAccessToken(
-	ctx context.Context,
-	token string,
-) (string, error) {
-	return ac.get(ctx, AccessTokenKey(token))
-}
-
-func (ac *authCache) SetRefreshToken(
-	ctx context.Context,
-	token string,
-	userId string,
-	expire time.Duration,
-) error {
-	return ac.set(ctx, RefreshTokenKey(token), userId, expire)
-}
-
-func (ac *authCache) GetUserIDByRefreshToken(
-	ctx context.Context,
-	token string,
-) (string, error) {
-	return ac.get(ctx, RefreshTokenKey(token))
-}
-
-func (ac *authCache) ConsumeRefreshToken(ctx context.Context, token string) (string, error) {
-	value, err := ac.store.Client().GetDel(ctx, RefreshTokenKey(token)).Result()
-	if err == redis.Nil {
-		return "", nil
+) (bool, error) {
+	data, err := json.Marshal(session)
+	if err != nil {
+		return false, err
 	}
-	return value, err
+
+	result, err := ac.store.Client().Eval(
+		ctx,
+		rotateRefreshSessionScript,
+		[]string{RefreshTokenKey(oldToken), RefreshTokenKey(newToken)},
+		string(data),
+		expire.Milliseconds(),
+	).Int()
+	if err != nil {
+		return false, err
+	}
+	return result == 1, nil
 }
 
-func (ac *authCache) DeleteRefreshToken(
+func (ac *authCache) DeleteRefreshSession(
 	ctx context.Context,
 	token string,
 ) error {
-	return ac.del(ctx, RefreshTokenKey(token))
+	return ac.store.Del(ctx, RefreshTokenKey(token))
 }

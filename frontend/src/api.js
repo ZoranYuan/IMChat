@@ -13,45 +13,74 @@ export class ApiError extends Error {
 const http = axios.create({
   baseURL: "/api/v1",
   timeout: 15000,
+  withCredentials: true,
 });
 
-// 预签名对象上传不经过业务 API，不携带业务鉴权，也不做响应解包。
-const storageHttp = axios.create({
-  timeout: 0,
+const refreshHttp = axios.create({
+  baseURL: "/api/v1",
+  timeout: 10000,
+  withCredentials: true,
 });
 
-http.interceptors.request.use((config) => {
-  const token = localStorage.getItem("im_token") || sessionStorage.getItem("im_token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+let refreshPromise = null;
+
+const refreshAccessToken = () => {
+  if (!refreshPromise) {
+    refreshPromise = refreshHttp.post("/users/refresh")
+      .then((response) => {
+        const payload = response.data;
+        const data = payload && typeof payload === "object" && "code" in payload
+          ? payload.data
+          : payload;
+        if (!data) throw new ApiError("刷新令牌无效", { status: 401 });
+        return data;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+};
+
+const clearAuthAndRedirect = () => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("auth:expired"));
+  if (window.location.pathname !== "/login") {
+    const redirect = `${window.location.pathname}${window.location.search}`;
+    // 用户登录后跳转到用户希望浏览的地址
+    window.location.replace(`/login?redirect=${encodeURIComponent(redirect)}`);
+  }
+};
 
 http.interceptors.response.use(
   (response) => {
     const payload = response.data;
     if (payload && typeof payload === "object" && "code" in payload) {
       if (payload.code !== 0 && payload.code !== 200) {
-        throw new ApiError(payload.message || "请求失败", {
+        const apiError = new ApiError(payload.message || "请求失败", {
           code: payload.code,
           status: response.status,
           data: payload.data,
         });
+        apiError.requestConfig = response.config;
+        throw apiError;
       }
       return payload.data ?? null;
     }
     return payload;
   },
-  (error) => {
-    const status = error.response?.status || 0;
-    const requestURL = error.config?.url || "";
-    // 排查登录和注册时返回的 401
-    const isAuthRequest = /\/users\/(login|register)$/.test(requestURL);
-    if (status === 401 && !isAuthRequest && typeof window !== "undefined") {
-      // 通过 window 派发事件，后由 store 去进行执行，一次实现解耦
-      window.dispatchEvent(new CustomEvent("auth:expired"));
-      if (window.location.pathname !== "/login") {
-        const redirect = `${window.location.pathname}${window.location.search}`;
-        window.location.replace(`/login?redirect=${encodeURIComponent(redirect)}`);
+  async (error) => {
+    const status = error.status || error.response?.status || 0;
+    const requestConfig = error.requestConfig || error.config;
+    const requestURL = requestConfig?.url || "";
+    const isAuthRequest = /\/users\/(login|register|refresh)$/.test(requestURL);
+    if (status === 401 && !isAuthRequest && requestConfig && !requestConfig._retry) {
+      requestConfig._retry = true;
+      try {
+        await refreshAccessToken();
+        return http(requestConfig);
+      } catch {
+        clearAuthAndRedirect();
       }
     }
     if (error instanceof ApiError) throw error;
@@ -82,6 +111,8 @@ export const registerUser = ({ phone, password, reconfirmPassword }) =>
 
 export const logoutUser = () => http.post("/users/logout");
 
+export const refreshSession = () => refreshAccessToken();
+
 export const getUser = (userId) => http.get(`/users/${userId}`);
 
 export const getFriends = () => http.get("/friends");
@@ -108,24 +139,14 @@ export const getMessageHistory = (conversationId, cursor = 0, limit = 30) =>
     params: { conversationId, cursor, limit },
   });
 
-export const uploadFile = (file, fileHash = "") => {
-  const form = new FormData();
-  form.append("file", file);
-  if (fileHash) form.append("fileHash", fileHash);
-  return http.post("/files", form);
-};
-
 export const initDirectUpload = (payload) =>
   http.post("/files/direct/init", payload);
 
-const putObjectToStorage = (url, data, contentType, onUploadProgress) =>
-  storageHttp.put(url, data, {
-    headers: { "Content-Type": contentType || "application/octet-stream" },
+export const uploadDirectObjectToStorage = (url, file, onUploadProgress) =>
+  axios.put(url, file, {
+    headers: { "Content-Type": file.type || "application/octet-stream" },
     onUploadProgress,
   });
-
-export const uploadDirectObjectToStorage = (url, file, onUploadProgress) =>
-  putObjectToStorage(url, file, file.type, onUploadProgress);
 
 export const completeDirectUpload = (uploadId) =>
   http.post(`/files/direct/${uploadId}/complete`);
@@ -137,7 +158,9 @@ export const presignMultipartParts = (uploadId, partNumbers) =>
   http.post(`/files/multipart/${uploadId}/parts/presign`, { partNumbers });
 
 export const uploadMultipartPartToStorage = (url, chunk) =>
-  putObjectToStorage(url, chunk, "application/octet-stream");
+  axios.put(url, chunk, {
+    headers: { "Content-Type": "application/octet-stream" },
+  });
 
 export const completeMultipartUpload = (uploadId) =>
   http.post(`/files/multipart/${uploadId}/complete`);

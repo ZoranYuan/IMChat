@@ -8,7 +8,7 @@ const payloadTypes = {
 
 export function createWsClient(callbacks = {}) {
   let socket = null;
-  let token = "";
+  let authenticated = false;
   let reconnectTimer = 0;
   let reconnectAttempts = 0;
   let manualClose = false;
@@ -17,7 +17,7 @@ export function createWsClient(callbacks = {}) {
 
   const buildUrl = () => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${protocol}//${window.location.host}/api/v1/ws?token=${encodeURIComponent(token)}&batch=1`;
+    return `${protocol}//${window.location.host}/api/v1/ws?batch=1`;
   };
 
   const dispatchApplicationFrame = (frame) => {
@@ -48,7 +48,7 @@ export function createWsClient(callbacks = {}) {
   };
 
   const open = () => {
-    if (!token || typeof window === "undefined") return;
+    if (!authenticated || typeof window === "undefined") return;
     window.clearTimeout(reconnectTimer);
     if (socket) {
       socket.onclose = null;
@@ -69,22 +69,22 @@ export function createWsClient(callbacks = {}) {
       callbacks.onError?.(error);
     };
     socket.onclose = () => {
-      if (manualClose || !token) return;
+      if (manualClose || !authenticated) return;
       notifyState("disconnected");
       reconnectAttempts += 1;
       reconnectTimer = window.setTimeout(open, Math.min(reconnectAttempts * 1000, 5000));
     };
   };
 
-  const connect = (nextToken) => {
-    token = nextToken || "";
+  const connect = (nextAuthenticated = true) => {
+    authenticated = Boolean(nextAuthenticated);
     manualClose = false;
     open();
   };
 
   const disconnect = () => {
     manualClose = true;
-    token = "";
+    authenticated = false;
     window.clearTimeout(reconnectTimer);
     if (socket) {
       socket.onclose = null;

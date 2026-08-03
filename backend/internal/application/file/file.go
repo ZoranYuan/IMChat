@@ -42,7 +42,6 @@ type Options struct {
 	DirectUploadMaxSize      int64
 	MultipartInitLockTTL     time.Duration
 	MultipartCompleteLockTTL time.Duration
-	DirectUploadLockTTL      time.Duration
 	CacheTTL                 time.Duration
 	URLTTL                   time.Duration
 	MaxFileSize              int64
@@ -1062,13 +1061,6 @@ func (a *FileApplication) multipartCompleteLockTTL() time.Duration {
 		return 30 * time.Second
 	}
 	return a.options.MultipartCompleteLockTTL
-}
-
-func (a *FileApplication) directUploadLockTTL() time.Duration {
-	if a.options.DirectUploadLockTTL <= 0 {
-		return 10 * time.Minute
-	}
-	return a.options.DirectUploadLockTTL
 }
 
 func (a *FileApplication) directUploadURLTTL() time.Duration {

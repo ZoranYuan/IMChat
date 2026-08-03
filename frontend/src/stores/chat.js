@@ -12,6 +12,7 @@ import {
   loginUser,
   logoutUser,
   operateFriendRequest,
+  refreshSession,
   registerUser,
 } from "../api.js";
 import { useChunkUpload } from "../composables/useChunkUpload.js";
@@ -27,6 +28,15 @@ import { clearMessages, deleteMessages, readMessages, writeMessages } from "../s
 import { createWsClient } from "../services/wsClient.js";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+
+const authUserProfile = (auth) => ({
+  userId: auth?.userId || "",
+  username: auth?.username || "",
+  nickName: auth?.nickName || "",
+  phone: auth?.phone || "",
+  avatar: auth?.avatar || "",
+});
+
 const readJson = (key) => {
   try {
     return JSON.parse(localStorage.getItem(key) || sessionStorage.getItem(key) || "null");
@@ -36,9 +46,8 @@ const readJson = (key) => {
 };
 
 const storedUser = readJson("im_user");
-const storedToken = localStorage.getItem("im_token") || sessionStorage.getItem("im_token") || "";
 const state = reactive({
-  token: storedToken,
+  authenticated: false,
   currentUser: storedUser || clone(mockCurrentUser),
   conversations: clone(mockConversations),
   messages: clone(mockMessages),
@@ -51,7 +60,7 @@ const state = reactive({
   historyHasMore: {},
   historyCursor: {},
   readReceipts: {},
-  dataSource: storedToken ? "api" : "preview",
+  dataSource: "preview",
 });
 
 const attachmentUpload = useChunkUpload();
@@ -150,13 +159,12 @@ const persistMessages = (conversationId) => {
 };
 
 const persistSession = (auth, remember) => {
+  const profile = authUserProfile(auth);
   for (const storage of [localStorage, sessionStorage]) {
-    storage.removeItem("im_token");
     storage.removeItem("im_user");
   }
   const storage = remember ? localStorage : sessionStorage;
-  storage.setItem("im_token", auth.token);
-  storage.setItem("im_user", JSON.stringify(auth));
+  storage.setItem("im_user", JSON.stringify(profile));
 };
 
 const getImageDimensions = (file) => new Promise((resolve, reject) => {
@@ -282,7 +290,7 @@ const wsClient = createWsClient({
 // 退出登录前清楚缓存中的数据
 const clearAuthState = () => {
   wsClient.disconnect();
-  state.token = "";
+  state.authenticated = false;
   state.currentUser = null;
   state.dataSource = "preview";
   state.connection = "disconnected";
@@ -299,7 +307,6 @@ const clearAuthState = () => {
   attachmentURLCache.clear();
 
   for (const storage of [localStorage, sessionStorage]) {
-    storage.removeItem("im_token");
     storage.removeItem("im_user");
   }
   clearMessages().catch(() => { });
@@ -309,9 +316,33 @@ if (typeof window !== "undefined") {
   window.addEventListener("auth:expired", clearAuthState);
 }
 
-const connectSocket = () => wsClient.connect(state.token);
+const connectSocket = () => wsClient.connect(state.authenticated);
 
-export const hasChatAuth = () => Boolean(localStorage.getItem("im_token") || sessionStorage.getItem("im_token"));
+let authBootstrapPromise = null;
+
+export const hasChatAuth = () => state.authenticated;
+
+export const ensureChatAuth = async () => {
+  if (state.authenticated) return true;
+  if (!authBootstrapPromise) {
+    authBootstrapPromise = refreshSession()
+      .then((auth) => {
+        state.authenticated = true;
+        state.currentUser = authUserProfile(auth);
+        state.dataSource = "api";
+        persistSession(auth, Boolean(localStorage.getItem("im_user")));
+        return true;
+      })
+      .catch(() => {
+        clearAuthState();
+        return false;
+      })
+      .finally(() => {
+        authBootstrapPromise = null;
+      });
+  }
+  return authBootstrapPromise;
+};
 
 export const useChatStore = defineStore("chat", () => {
   const activeConversation = computed(() =>
@@ -323,15 +354,15 @@ export const useChatStore = defineStore("chat", () => {
     const auth = mode === "register"
       ? await registerUser({ phone: account, password, reconfirmPassword })
       : await loginUser({ account, password });
-    state.token = auth.token;
-    state.currentUser = auth;
+    state.authenticated = true;
+    state.currentUser = authUserProfile(auth);
     state.dataSource = "api";
     persistSession(auth, remember);
     return auth;
   };
 
   const loadWorkspace = async () => {
-    if (!state.token) return;
+    if (!state.authenticated) return;
     state.loading = true;
     try {
       const [conversations, friends, requests] = await Promise.all([
@@ -368,7 +399,7 @@ export const useChatStore = defineStore("chat", () => {
   };
 
   const loadHistory = async (conversationId, cursor = 0) => {
-    if (!conversationId || !state.token) return;
+    if (!conversationId || !state.authenticated) return;
     state.historyLoading = true;
     try {
       const data = await getMessageHistory(conversationId, cursor, 30);
@@ -391,7 +422,7 @@ export const useChatStore = defineStore("chat", () => {
     state.activeConversationId = id;
     const conversation = state.conversations.find((item) => item.id === id);
     if (conversation) conversation.unread = 0;
-    if (state.token) {
+    if (state.authenticated) {
       const cached = await readMessages(currentUserId(), id).catch(() => []);
       if (state.activeConversationId === id) state.messages[id] = cached.map(normalizeMessage);
       await loadHistory(id, 0);
@@ -457,7 +488,7 @@ export const useChatStore = defineStore("chat", () => {
     if (!UploadableMessageTypes.includes(type)) throw new Error("不支持的附件类型。");
     const conversation = activeConversation.value;
     if (!conversation) return null;
-    if (!state.token) throw new Error("登录状态已失效，请重新登录。");
+    if (!state.authenticated) throw new Error("登录状态已失效，请重新登录。");
     if (!wsClient.isConnected()) throw new Error("实时连接尚未建立，请稍后重试。");
 
     const metadata = type === MessageType.IMAGE
@@ -570,7 +601,7 @@ export const useChatStore = defineStore("chat", () => {
 
   const logout = async () => {
     try {
-      if (state.token) await logoutUser();
+      if (state.authenticated) await logoutUser();
     } finally {
       clearAuthState();
     }

@@ -85,7 +85,6 @@ type MinIOConfig struct {
 	DirectUploadMaxSizeBytes         int64   `yaml:"direct_upload_max_size_bytes"`
 	MultipartInitLockTTLSeconds      int     `yaml:"multipart_init_lock_ttl_seconds"`
 	MultipartCompleteLockTTLSeconds  int     `yaml:"multipart_complete_lock_ttl_seconds"`
-	DirectUploadLockTTLSeconds       int     `yaml:"direct_upload_lock_ttl_seconds"`
 	MultipartCleanupIntervalSeconds  int     `yaml:"multipart_cleanup_interval_seconds"`
 	MultipartCleanupBatchSize        int     `yaml:"multipart_cleanup_batch_size"`
 	MultipartCleanupStaleSeconds     int     `yaml:"multipart_cleanup_stale_seconds"`

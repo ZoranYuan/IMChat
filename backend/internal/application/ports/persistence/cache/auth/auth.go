@@ -6,11 +6,19 @@ import (
 )
 
 type AuthCache interface {
-	SetAccessToken(ctx context.Context, token, userID string, expire time.Duration) error
-	DeleteAccessToken(ctx context.Context, token string) error
-	SetRefreshToken(ctx context.Context, token, userID string, expire time.Duration) error
-	DeleteRefreshToken(ctx context.Context, token string) error
-	GetUserIDByAccessToken(ctx context.Context, token string) (string, error)
-	GetUserIDByRefreshToken(ctx context.Context, token string) (string, error)
-	ConsumeRefreshToken(ctx context.Context, token string) (string, error)
+	SetRefreshSession(ctx context.Context, token string, session RefreshSession, expire time.Duration) error
+	GetRefreshSession(ctx context.Context, token string) (RefreshSession, bool, error)
+	RotateRefreshSession(
+		ctx context.Context,
+		oldToken string,
+		newToken string,
+		session RefreshSession,
+		expire time.Duration,
+	) (bool, error)
+	DeleteRefreshSession(ctx context.Context, token string) error
+}
+
+type RefreshSession struct {
+	UserID    string `json:"userId"`
+	SessionID string `json:"sessionId"`
 }

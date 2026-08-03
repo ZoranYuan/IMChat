@@ -1,9 +1,6 @@
 package file
 
-import (
-	fileentity "IM_backend/internal/domain/file/entity"
-	"io"
-)
+import fileentity "IM_backend/internal/domain/file/entity"
 
 func toDTO(file *fileentity.File) *FileDTO {
 	return &FileDTO{
@@ -14,15 +11,6 @@ func toDTO(file *fileentity.File) *FileDTO {
 		Size:        file.Size,
 		CreatedAt:   file.CreatedAt,
 	}
-}
-
-type UploadDTO struct {
-	UploaderId  string
-	FileName    string
-	ContentType string
-	Size        int64
-	FileHash    string
-	Reader      io.Reader
 }
 
 type DirectUploadInitDTO struct {

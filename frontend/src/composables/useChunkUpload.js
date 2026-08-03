@@ -3,12 +3,11 @@ import {
   completeDirectUpload,
   completeMultipartUpload,
   initDirectUpload,
-  presignMultipartParts,
   initMultipartUpload,
+  presignMultipartParts,
   uploadDirectObjectToStorage,
   uploadMultipartPartToStorage,
 } from "../api.js";
-import { ActiveUploadStatuses, UploadStatus } from "../constants/upload.js";
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 const DEFAULT_CONCURRENCY = 3;
@@ -20,7 +19,7 @@ const FINGERPRINT_SAMPLE_SIZE = 2 * 1024 * 1024;
 export function useChunkUpload(options = {}) {
   const chunkSize = options.chunkSize || DEFAULT_CHUNK_SIZE;
   const concurrency = options.concurrency || DEFAULT_CONCURRENCY;
-  const status = ref(UploadStatus.IDLE);
+  const status = ref("idle");
   const progress = ref(0);
   const uploadedBytes = ref(0);
   const totalBytes = ref(0);
@@ -30,7 +29,7 @@ export function useChunkUpload(options = {}) {
   const canceled = ref(false);
 
   const isUploading = computed(() =>
-    ActiveUploadStatuses.includes(status.value),
+    ["hashing", "initializing", "uploading", "completing"].includes(status.value),
   );
 
   const updateProgress = () => {
@@ -40,7 +39,7 @@ export function useChunkUpload(options = {}) {
   };
 
   const reset = () => {
-    status.value = UploadStatus.IDLE;
+    status.value = "idle";
     progress.value = 0;
     uploadedBytes.value = 0;
     totalBytes.value = 0;
@@ -106,12 +105,12 @@ export function useChunkUpload(options = {}) {
   const completeWithRepair = async (file, currentUploadId, completedParts) => {
     for (let round = 0; round <= MAX_COMPLETE_REPAIR_ROUNDS; round += 1) {
       try {
-        status.value = UploadStatus.COMPLETING;
+        status.value = "completing";
         return await completeMultipartUpload(currentUploadId);
       } catch (completeError) {
         const repairParts = incompletePartNumbers(completeError);
         if (!repairParts.length || round === MAX_COMPLETE_REPAIR_ROUNDS) throw completeError;
-        status.value = UploadStatus.UPLOADING;
+        status.value = "uploading";
         await repairIncompleteParts(file, currentUploadId, repairParts, completedParts);
       }
     }
@@ -119,10 +118,10 @@ export function useChunkUpload(options = {}) {
   };
 
   const uploadMultipart = async (file) => {
-    status.value = UploadStatus.HASHING;
+    status.value = "hashing";
     const fileHash = await createFileFingerprint(file);
     const totalChunks = Math.ceil(file.size / chunkSize);
-    status.value = UploadStatus.INITIALIZING;
+    status.value = "initializing";
     const initialized = await initMultipartUpload({
       fileName: file.name,
       contentType: file.type || "application/octet-stream",
@@ -131,7 +130,7 @@ export function useChunkUpload(options = {}) {
       chunkSize,
       totalChunks,
     });
-    if (initialized.status === UploadStatus.COMPLETED) return { fileId: initialized.fileId };
+    if (initialized.status === "completed") return { fileId: initialized.fileId };
 
     uploadId.value = initialized.uploadId;
     const completedParts = new Set(initialized.uploadedParts || []);
@@ -145,7 +144,7 @@ export function useChunkUpload(options = {}) {
       .filter((partNumber) => !completedParts.has(partNumber));
     const partURLs = await presignParts(initialized.uploadId, queue);
     let cursor = 0;
-    status.value = UploadStatus.UPLOADING;
+    status.value = "uploading";
 
     const worker = async () => {
       while (cursor < queue.length) {
@@ -161,27 +160,28 @@ export function useChunkUpload(options = {}) {
     return completeWithRepair(file, initialized.uploadId, completedParts);
   };
 
+  // 小文件前端直接传递
   const uploadDirect = async (file) => {
-        status.value = UploadStatus.HASHING;
+    status.value = "hashing";
     const fileHash = await createActualSHA256(file);
-        status.value = UploadStatus.INITIALIZING;
+    status.value = "initializing";
     const initialized = await initDirectUpload({
       fileName: file.name,
       contentType: file.type || "application/octet-stream",
       size: file.size,
       fileHash,
     });
-    if (initialized.status === UploadStatus.COMPLETED) return { fileId: initialized.fileId };
+    if (initialized.status === "completed") return { fileId: initialized.fileId };
 
     uploadId.value = initialized.uploadId;
-    status.value = UploadStatus.UPLOADING;
+    status.value = "uploading";
     await uploadDirectObjectToStorage(initialized.url, file, (event) => {
       if (event.total) {
         uploadedBytes.value = Math.min(file.size, event.loaded);
         updateProgress();
       }
     });
-    status.value = UploadStatus.COMPLETING;
+    status.value = "completing";
     return completeDirectUpload(initialized.uploadId);
   };
 
@@ -199,31 +199,31 @@ export function useChunkUpload(options = {}) {
       if (canceled.value) throw new Error("上传已取消");
       uploadedBytes.value = file.size;
       progress.value = 100;
-      status.value = UploadStatus.COMPLETED;
+      status.value = "completed";
       return result;
     } catch (uploadError) {
       error.value = uploadError.message;
-      if (!canceled.value) status.value = UploadStatus.FAILED;
+      if (!canceled.value) status.value = "failed";
       throw uploadError;
     }
   };
 
   const pause = () => {
-    if (status.value === UploadStatus.UPLOADING) {
+    if (status.value === "uploading") {
       paused.value = true;
-      status.value = UploadStatus.PAUSED;
+      status.value = "paused";
     }
   };
   const resume = () => {
-    if (status.value === UploadStatus.PAUSED) {
+    if (status.value === "paused") {
       paused.value = false;
-      status.value = UploadStatus.UPLOADING;
+      status.value = "uploading";
     }
   };
   const cancel = () => {
     canceled.value = true;
     paused.value = false;
-    status.value = UploadStatus.CANCELED;
+    status.value = "canceled";
   };
 
   return {
@@ -247,10 +247,10 @@ async function createFileFingerprint(file) {
   const samples = file.size <= sampleSize * 3
     ? [file]
     : [
-        file.slice(0, sampleSize),
-        file.slice(Math.floor(file.size / 2 - sampleSize / 2), Math.floor(file.size / 2 + sampleSize / 2)),
-        file.slice(file.size - sampleSize, file.size),
-      ];
+      file.slice(0, sampleSize),
+      file.slice(Math.floor(file.size / 2 - sampleSize / 2), Math.floor(file.size / 2 + sampleSize / 2)),
+      file.slice(file.size - sampleSize, file.size),
+    ];
   const buffers = await Promise.all(samples.map((sample) => sample.arrayBuffer()));
   const metadata = new TextEncoder().encode([file.name, file.size, file.type, file.lastModified].join("|"));
   const size = buffers.reduce((total, buffer) => total + buffer.byteLength, metadata.byteLength);

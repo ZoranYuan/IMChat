@@ -12,9 +12,6 @@ func TestBuildTrimsEmptyAndColonParts(t *testing.T) {
 
 func TestRedisKeyNaming(t *testing.T) {
 	tests := map[string]string{
-		AuthAccessToken("token-1"):    "im:auth:token:access:token-1",
-		AuthAccessUser("u1"):          "im:auth:user:u1:access",
-		AuthRefreshUser("u1"):         "im:auth:user:u1:refresh",
 		AuthRefreshToken("refresh-1"): "im:auth:token:refresh:refresh-1",
 		ConversationSeq("conv-1"):     "im:conversation:conv-1:seq",
 		FriendRelation("u1", "u2"):    "im:friend:relation:u1:u2",

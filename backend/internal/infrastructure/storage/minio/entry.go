@@ -89,15 +89,6 @@ func (s *ObjectStorage) Bucket() string {
 	return s.bucket
 }
 
-func (s *ObjectStorage) PutObject(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error {
-	if _, err := s.client.PutObject(ctx, s.bucket, objectKey, reader, size, minio.PutObjectOptions{
-		ContentType: contentType,
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (s *ObjectStorage) PresignedPutURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error) {
 	u, err := s.publicClient.PresignedPutObject(ctx, s.bucket, objectKey, ttl)
 	if err != nil {

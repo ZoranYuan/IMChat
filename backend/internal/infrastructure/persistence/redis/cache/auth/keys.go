@@ -1,19 +1,12 @@
 package auth
 
-import cachekey "IM_backend/internal/infrastructure/persistence/redis/cache/key"
-
-func AccessTokenKey(token string) string {
-	return cachekey.AuthAccessToken(token)
-}
-
-func AccessUserKey(userId string) string {
-	return cachekey.AuthAccessUser(userId)
-}
-
-func RefreshUserKey(userId string) string {
-	return cachekey.AuthRefreshUser(userId)
-}
+import (
+	cachekey "IM_backend/internal/infrastructure/persistence/redis/cache/key"
+	"crypto/sha256"
+	"encoding/hex"
+)
 
 func RefreshTokenKey(token string) string {
-	return cachekey.AuthRefreshToken(token)
+	sum := sha256.Sum256([]byte(token))
+	return cachekey.AuthRefreshToken(hex.EncodeToString(sum[:]))
 }

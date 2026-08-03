@@ -8,7 +8,6 @@ import (
 
 type ObjectStorage interface {
 	Health(ctx context.Context) error
-	PutObject(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
 	PresignedPutURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error)
 	StatObject(ctx context.Context, objectKey string) (*ObjectInfo, error)
 	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)

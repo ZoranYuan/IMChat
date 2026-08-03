@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"IM_backend/configs"
-	authport "IM_backend/internal/application/ports/persistence/cache/auth"
 	"IM_backend/internal/infrastructure/security/jwt"
 	"IM_backend/internal/transport/http/response"
 	"net/http"
@@ -12,14 +11,12 @@ import (
 )
 
 type AuthMiddleware struct {
-	authCache authport.AuthCache
-	config    configs.Config
+	config configs.Config
 }
 
-func NewAuthMiddleware(cfg configs.Config, authCache authport.AuthCache) *AuthMiddleware {
+func NewAuthMiddleware(cfg configs.Config) *AuthMiddleware {
 	return &AuthMiddleware{
-		config:    cfg,
-		authCache: authCache,
+		config: cfg,
 	}
 }
 
@@ -27,14 +24,17 @@ func (a *AuthMiddleware) JWTAuthMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		token := ctx.GetHeader("Authorization")
 
-		if token == "" && strings.EqualFold(ctx.GetHeader("Upgrade"), "websocket") {
-			token = ctx.Query("token")
-		} else if token != "" {
+		if token != "" {
 			if !strings.HasPrefix(token, "Bearer ") {
 				ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 				return
 			}
 			token = strings.TrimSpace(strings.TrimPrefix(token, "Bearer "))
+		} else if cookieToken, err := ctx.Cookie("access_token"); err == nil {
+			token = cookieToken
+		} else if strings.EqualFold(ctx.GetHeader("Upgrade"), "websocket") {
+			// 兼容旧客户端；浏览器客户端优先使用 HttpOnly Cookie。
+			token = ctx.Query("token")
 		}
 
 		token = strings.TrimSpace(token)
@@ -44,23 +44,13 @@ func (a *AuthMiddleware) JWTAuthMiddleware() gin.HandlerFunc {
 		}
 
 		claim, err := jwt.ValidateToken(token, a.config.JWT.Secret)
-		if err != nil {
+		if err != nil || claim.TokenType != "access" {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 			return
 		}
 
-		userId, err := a.authCache.GetUserIDByAccessToken(ctx, token)
-		if err != nil {
-			ctx.AbortWithStatusJSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "服务异常"))
-			return
-		}
-
-		if userId != claim.UserID {
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "未知令牌"))
-			return
-		}
-
-		ctx.Set("userId", userId)
+		ctx.Set("userId", claim.UserID)
+		ctx.Set("sessionId", claim.SessionID)
 		ctx.Next()
 	}
 }

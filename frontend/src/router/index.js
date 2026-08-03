@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import { hasChatAuth } from "../stores/chat.js";
+import { ensureChatAuth, hasChatAuth } from "../stores/chat.js";
 import ChatView from "../views/ChatView.vue";
 import LoginView from "../views/LoginView.vue";
 
@@ -13,9 +13,10 @@ const router = createRouter({
   ],
 });
 
-router.beforeEach((to) => {
-  if (to.meta.requiresAuth && !hasChatAuth()) return { name: "login", query: { redirect: to.fullPath } };
-  if (to.meta.guestOnly && hasChatAuth()) return "/chat";
+router.beforeEach(async (to) => {
+  const authenticated = hasChatAuth() || await ensureChatAuth();
+  if (to.meta.requiresAuth && !authenticated) return { name: "login", query: { redirect: to.fullPath } };
+  if (to.meta.guestOnly && authenticated) return "/chat";
   return true;
 });
 

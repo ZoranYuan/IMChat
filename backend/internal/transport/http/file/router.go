@@ -13,7 +13,6 @@ func RegisterRoutes(r gin.IRoutes, h *Handle, limiter *middleware.LimitMiddlewar
 	if policy.Burst <= 0 {
 		policy.Burst = 5
 	}
-	r.POST("", limiter.ByIP("file_upload", policy), h.Upload)
 	r.POST("/direct/init", limiter.ByIP("file_upload_direct_init", policy), h.InitDirectUpload)
 	r.POST("/direct/:uploadId/complete", limiter.ByIP("file_upload_direct_complete", policy), h.CompleteDirectUpload)
 	r.POST("/multipart/init", limiter.ByIP("file_upload_init", policy), h.InitMultipartUpload)

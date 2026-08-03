@@ -174,7 +174,6 @@ func main() {
 		DirectUploadMaxSize:      cfg.Storage.MinIO.DirectUploadMaxSizeBytes,
 		MultipartInitLockTTL:     time.Duration(cfg.Storage.MinIO.MultipartInitLockTTLSeconds) * time.Second,
 		MultipartCompleteLockTTL: time.Duration(cfg.Storage.MinIO.MultipartCompleteLockTTLSeconds) * time.Second,
-		DirectUploadLockTTL:      time.Duration(cfg.Storage.MinIO.DirectUploadLockTTLSeconds) * time.Second,
 		MaxFileSize:              cfg.Storage.MinIO.MaxFileSizeBytes,
 		MaxMultipartParts:        cfg.Storage.MinIO.MaxMultipartParts,
 	}, fileRepository, fileUploadRepository, messageAttachmentsRepository, fileCache, objectStorage, idGenerator, txManager)
@@ -216,7 +215,11 @@ func main() {
 		AccessTokenTTL:  time.Duration(cfg.JWT.AccessExpireMinutes) * time.Minute,
 		RefreshTokenTTL: time.Duration(cfg.JWT.RefreshExpireHours) * time.Hour,
 	}, authCache, tokenIssuer, idGenerator, passwordHasher)
-	userHandle := userhttp.NewUserHandle(userApp)
+	userHandle := userhttp.NewUserHandle(
+		userApp,
+		time.Duration(cfg.JWT.AccessExpireMinutes)*time.Minute,
+		time.Duration(cfg.JWT.RefreshExpireHours)*time.Hour,
+	)
 
 	friendRepository := friendmysql.NewFriendRepository(db)
 	friendRequestRepository := friendmysql.NewFriendRequestRepository(db)
@@ -373,7 +376,7 @@ func main() {
 	// testdataHandle := testdatahttp.NewHandle(testdataApplication)
 
 	// 注册中间件
-	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
+	authMiddle := middleware.NewAuthMiddleware(cfg)
 
 	limiter := ratelimit.NewRedisLimit(redisClient, "rate:limit")
 	limiterMiddleware := middleware.NewLimitMiddleware(limiter, false)

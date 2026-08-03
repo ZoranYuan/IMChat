@@ -17,18 +17,6 @@ func Build(parts ...string) string {
 	return strings.Join(items, ":")
 }
 
-func AuthAccessToken(token string) string {
-	return Build("auth", "token", "access", token)
-}
-
-func AuthAccessUser(userId string) string {
-	return Build("auth", "user", userId, "access")
-}
-
-func AuthRefreshUser(userId string) string {
-	return Build("auth", "user", userId, "refresh")
-}
-
 func AuthRefreshToken(token string) string {
 	return Build("auth", "token", "refresh", token)
 }
