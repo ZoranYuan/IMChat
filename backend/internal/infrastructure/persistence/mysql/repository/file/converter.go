@@ -20,6 +20,7 @@ func toFileModel(f *fileentity.File) *model.File {
 		FileHash:    fileHash,
 		Size:        f.Size,
 		CreatedAt:   f.CreatedAt,
+		Status:      f.Status,
 	}
 }
 
@@ -34,6 +35,7 @@ func toFileDomain(m *model.File) *fileentity.File {
 		FileHash:    stringValue(m.FileHash),
 		Size:        m.Size,
 		CreatedAt:   m.CreatedAt,
+		Status:      m.Status,
 	}
 }
 

@@ -91,12 +91,12 @@ func (w *OutboxWorker) dispatchOne(ctx context.Context, item *outboxport.Entry) 
 	}); err != nil {
 		return w.markRetry(ctx, item, err.Error())
 	}
-	return w.outboxRepo.MarkSent(ctx, item.ID, time.Now())
+	return w.outboxRepo.MarkSent(ctx, item.ID, item.LockToken, time.Now())
 }
 
 func (w *OutboxWorker) markRetry(ctx context.Context, item *outboxport.Entry, lastError string) error {
 	if item.RetryCount >= w.maxRetries {
-		return w.outboxRepo.MarkDead(ctx, item.ID, lastError)
+		return w.outboxRepo.MarkDead(ctx, item.ID, item.LockToken, lastError)
 	}
 	retryDelay := w.baseRetryWait * time.Duration(int(math.Pow(2, float64(item.RetryCount))))
 	if retryDelay > 5*time.Minute {
@@ -105,5 +105,5 @@ func (w *OutboxWorker) markRetry(ctx context.Context, item *outboxport.Entry, la
 	if retryDelay <= 0 {
 		retryDelay = w.baseRetryWait
 	}
-	return w.outboxRepo.MarkRetry(ctx, item.ID, time.Now().Add(retryDelay), lastError)
+	return w.outboxRepo.MarkRetry(ctx, item.ID, item.LockToken, time.Now().Add(retryDelay), lastError)
 }

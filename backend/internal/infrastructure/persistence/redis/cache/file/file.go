@@ -36,6 +36,10 @@ func (c *FileCache) Get(ctx context.Context, fileId string) (*fileentity.File, e
 	return &file, nil
 }
 
+func (c *FileCache) Delete(ctx context.Context, fileId string) error {
+	return c.store.Del(ctx, FileKey(fileId))
+}
+
 func (c *FileCache) RenewMultipartCompleteLock(ctx context.Context, uploadId string, token string, ttl time.Duration) (bool, error) {
 	luaScript := `
 		local token = ARGV[1]

@@ -1,6 +1,9 @@
 package outbox
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 const (
 	StatusPending    = "pending"
@@ -8,6 +11,8 @@ const (
 	StatusSent       = "sent"
 	StatusDead       = "dead"
 )
+
+var ErrLeaseLost = errors.New("outbox lease lost")
 
 type Entry struct {
 	ID          string
@@ -18,6 +23,7 @@ type Entry struct {
 	RetryCount  int
 	NextRetryAt time.Time
 	LockedAt    *time.Time
+	LockToken   string
 	LastError   string
 	SentAt      *time.Time
 	CreatedAt   time.Time

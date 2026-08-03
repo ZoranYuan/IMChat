@@ -433,11 +433,12 @@ func (fa *RequestApplication) acceptFriendRequest(
 			return ErrCreateUserConvFailed
 		}
 
-		// 插入初始数据
-		err := fa.messageRepository.CreateNewMessages(ctx, messages)
-
-		if err != nil {
-			log.Println("初始化好友消息失败：", err)
+		// 初始消息必须和好友关系、会话处于同一事务，并进入 Outbox。
+		if err := fa.messageRepository.WithTx(tx).CreateNewMessages(ctx, messages); err != nil {
+			return err
+		}
+		if err := fa.createInitialMessageOutboxes(ctx, tx, record, conv, messages); err != nil {
+			return err
 		}
 
 		return nil
@@ -459,6 +460,58 @@ func (fa *RequestApplication) acceptFriendRequest(
 	}
 	if err := fa.friendCache.SetRelation(ctx, record.ToUserId, record.FromUserId, state); err != nil {
 		log.Println("预热反向好友关系缓存失败：", err)
+	}
+	return nil
+}
+
+func (fa *RequestApplication) createInitialMessageOutboxes(
+	ctx context.Context,
+	tx any,
+	record *friendrequestentity.FriendRequest,
+	conversation *conversationentity.Conversation,
+	messages []*messageentity.Message,
+) error {
+	if fa.outboxRepository == nil || record == nil || conversation == nil {
+		return fmt.Errorf("好友消息出箱组件未配置")
+	}
+	repository := fa.outboxRepository.WithTx(tx)
+	for _, message := range messages {
+		if message == nil {
+			continue
+		}
+		receiverID := record.FromUserId
+		if message.SendId == record.FromUserId {
+			receiverID = record.ToUserId
+		}
+		eventPayload, err := json.Marshal(protocol.MessageEvent{
+			MessageId:      message.MessageId,
+			ConversationId: conversation.ConversationId,
+			SendId:         message.SendId,
+			RecvId:         receiverID,
+			Seq:            message.Seq,
+			ConvType:       protocol.PrivateChat,
+			CType:          int(message.Type),
+			Content:        message.Content,
+			SendTime:       message.SendTime,
+		})
+		if err != nil {
+			return err
+		}
+		envelope, err := json.Marshal(protocol.Envelope{
+			From:    message.SendId,
+			To:      receiverID,
+			Payload: eventPayload,
+		})
+		if err != nil {
+			return err
+		}
+		if err := repository.Create(ctx, &outboxport.Entry{
+			EventType:  protocol.EventTypeSendMessage,
+			MessageKey: conversation.ConversationId,
+			Payload:    envelope,
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

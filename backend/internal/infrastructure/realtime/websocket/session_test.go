@@ -249,8 +249,8 @@ func TestGatewayPartialSessionFailureDoesNotFailDelivery(t *testing.T) {
 		}
 	}
 
-	if err := gateway.DeliverToUser("room_msg_notice", "user-1", []byte(`{"seq":1}`)); err != nil {
-		t.Fatalf("partial delivery should not fail: %v", err)
+	if err := gateway.DeliverToUser("room_msg_notice", "user-1", []byte(`{"seq":1}`)); err == nil {
+		t.Fatal("partial delivery should report the failed session")
 	}
 	if len(healthy.outbound) != 1 {
 		t.Fatalf("healthy session should receive message, outbound=%d", len(healthy.outbound))

@@ -43,7 +43,7 @@ func (r *FileRepository) FindByUploaderAndHash(ctx context.Context, uploaderId s
 	}
 	var m model.File
 	if err := r.db.WithContext(ctx).
-		Where("uploader_id = ? AND file_hash = ?", uploaderId, fileHash).
+		Where("uploader_id = ? AND file_hash = ? AND status = ?", uploaderId, fileHash, "uploaded").
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -66,4 +66,36 @@ func (r *FileRepository) BatchGetByIDs(ctx context.Context, fileIds []string) (m
 		result[models[i].FileId] = toFileDomain(&models[i])
 	}
 	return result, nil
+}
+
+func (r *FileRepository) ListOrphanCandidates(ctx context.Context, before int64, limit int) ([]*fileentity.File, error) {
+	if limit <= 0 {
+		return []*fileentity.File{}, nil
+	}
+	var models []model.File
+	err := r.db.WithContext(ctx).Table("files AS f").
+		Where("f.created_at < ? AND f.status IN ?", before, []string{"uploaded", "deleting"}).
+		Where("NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.file_id = f.file_id)").
+		Order("f.created_at ASC").Limit(limit).Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*fileentity.File, 0, len(models))
+	for i := range models {
+		result = append(result, toFileDomain(&models[i]))
+	}
+	return result, nil
+}
+
+func (r *FileRepository) MarkDeleting(ctx context.Context, fileId string, before int64) (bool, error) {
+	result := r.db.WithContext(ctx).Model(&model.File{}).
+		Where("file_id = ? AND status = ? AND created_at < ?", fileId, "uploaded", before).
+		Where("NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.file_id = ?)", fileId).
+		Update("status", "deleting")
+	return result.RowsAffected == 1, result.Error
+}
+
+func (r *FileRepository) DeleteDeleting(ctx context.Context, fileId string) (bool, error) {
+	result := r.db.WithContext(ctx).Where("file_id = ? AND status = ?", fileId, "deleting").Delete(&model.File{})
+	return result.RowsAffected == 1, result.Error
 }

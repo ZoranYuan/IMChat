@@ -42,6 +42,7 @@ type Session struct {
 	idGenerator  *snow.Generator
 	batchConfig  MessageBatchConfig
 	batchEnabled bool
+	maxReadSize  int64
 	outbound     chan OutboundItem
 	inbound      chan Message
 
@@ -229,6 +230,12 @@ func (s *Session) Identity() SessionIdentity {
 	return s.identity
 }
 
+func (s *Session) SetReadLimit(size int64) {
+	if size > 0 {
+		s.maxReadSize = size
+	}
+}
+
 func (s *Session) LastActive() time.Time {
 	s.activityMu.RLock()
 	idle := s.idle
@@ -295,6 +302,9 @@ func (s *Session) readLoop(pongWait int, handler MessageHandler, onClose func(*S
 	}()
 
 	_ = s.conn.SetReadDeadline(time.Now().Add(time.Duration(pongWait) * time.Second))
+	if s.maxReadSize > 0 {
+		s.conn.SetReadLimit(s.maxReadSize)
+	}
 	s.conn.SetPongHandler(func(string) error {
 		s.touch()
 		return s.conn.SetReadDeadline(time.Now().Add(time.Duration(pongWait) * time.Second))

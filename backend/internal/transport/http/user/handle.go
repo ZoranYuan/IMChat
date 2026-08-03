@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -80,17 +81,17 @@ func (uh *UserHandle) Login(c *gin.Context) {
 		Token:    userApp.AccessToken,
 	}
 
-	c.JSON(http.StatusOK, response.Success(res))
-
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(
 		"refresh_token",
 		userApp.RefreshToken,
 		7*24*3600,
 		"/",
 		"",
-		false,
+		uh.cookieSecure(c),
 		true,
 	)
+	c.JSON(http.StatusOK, response.Success(res))
 }
 
 func (uh *UserHandle) Logout(c *gin.Context) {
@@ -101,14 +102,35 @@ func (uh *UserHandle) Logout(c *gin.Context) {
 		return
 	}
 
-	if err := uh.app.Logout(userId); err != nil {
+	accessToken := c.GetHeader("Authorization")
+	accessToken = strings.TrimSpace(strings.TrimPrefix(accessToken, "Bearer "))
+	refreshToken, _ := c.Cookie("refresh_token")
+	if err := uh.app.Logout(userId, accessToken, refreshToken); err != nil {
 		log.Println("退出登录失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "退出登录失败"))
 		return
 	}
 
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("refresh_token", "", -1, "/", "", uh.cookieSecure(c), true)
 	c.JSON(http.StatusOK, response.Success(nil))
 
+}
+
+func (uh *UserHandle) Refresh(c *gin.Context) {
+	refreshToken, err := c.Cookie("refresh_token")
+	if err != nil || refreshToken == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "刷新令牌无效"))
+		return
+	}
+	userApp, err := uh.app.Refresh(refreshToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "刷新令牌无效"))
+		return
+	}
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("refresh_token", userApp.RefreshToken, 7*24*3600, "/", "", uh.cookieSecure(c), true)
+	c.JSON(http.StatusOK, response.Success(UserRegisterRes{UserId: userApp.UserId, UserName: userApp.UserName, NickName: userApp.NickName, Phone: userApp.Phone, Avatar: userApp.Avatar, Token: userApp.AccessToken}))
 }
 
 func (uh *UserHandle) Register(c *gin.Context) {
@@ -140,7 +162,14 @@ func (uh *UserHandle) Register(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(201, err.Error()))
+		switch {
+		case errors.Is(err, userapp.ErrUserAlreadyExists):
+			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
+		case errors.Is(err, userapp.ErrInvalidPhoneNumber), errors.Is(err, userapp.ErrPasswordMismatch):
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+		default:
+			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "注册失败"))
+		}
 		return
 	}
 
@@ -153,18 +182,21 @@ func (uh *UserHandle) Register(c *gin.Context) {
 		Token:    userApp.AccessToken,
 	}
 
-	// TODO 更新 Redis
-	c.JSON(http.StatusOK, response.Success(res))
-
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(
 		"refresh_token",
 		userApp.RefreshToken,
 		7*24*3600,
 		"/",
 		"",
-		false,
+		uh.cookieSecure(c),
 		true,
 	)
+	c.JSON(http.StatusOK, response.Success(res))
+}
+
+func (uh *UserHandle) cookieSecure(c *gin.Context) bool {
+	return c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 }
 
 func (uh *UserHandle) GetUserByID(c *gin.Context) {

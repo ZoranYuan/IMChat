@@ -14,6 +14,9 @@ func main() {
 	}
 
 	cfg := configs.LoadConfig(configPath)
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("配置校验失败：%v", err)
+	}
 	db := mysql.InitMysql(cfg.Database.MySQL.DSN)
 	sqlDB, err := db.DB()
 	if err != nil {

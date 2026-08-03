@@ -6,6 +6,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 var ErrGatewayClosed = errors.New("实时通道网关已关闭")
@@ -17,6 +19,19 @@ type Gateway struct {
 	roomSessions map[string]map[string]struct{} //  房间当前有哪些在线成员连接
 	sessionRooms map[string]map[string]struct{} //  连接所属哪些在线房间，断线时反向清理
 	closing      bool
+	redisClient  *redis.Client
+	nodeID       string
+	redisCtx     context.Context
+	redisCancel  context.CancelFunc
+	redisDone    chan struct{}
+	redisReady   chan struct{}
+	redisErr     error
+}
+
+func NewGatewayWithRedis(ctx context.Context, client *redis.Client) *Gateway {
+	gateway := NewGateway()
+	gateway.startRedisDelivery(ctx, client)
+	return gateway
 }
 
 func NewGateway() *Gateway {
@@ -131,8 +146,22 @@ func (g *Gateway) Unregister(session *Session) {
 }
 
 func (g *Gateway) DeliverToUser(eventType, userID string, payload []byte) error {
+	if g.redisClient != nil {
+		publishCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return g.publishRedisDelivery(publishCtx, redisRealtimeEvent{
+			Kind: "user", EventType: eventType, UserID: userID, Payload: payload,
+		})
+	}
+	err := g.deliverLocalToUser(eventType, userID, payload)
+	return err
+}
+
+func (g *Gateway) deliverLocalToUser(eventType, userID string, payload []byte) error {
+	var deliveryErr error
 	for _, session := range g.sessionsForUser(userID) {
 		if err := session.PushEvent(eventType, payload); err != nil {
+			deliveryErr = errors.Join(deliveryErr, err)
 			if errors.Is(err, ErrOutboundQueueFull) {
 				session.Close()
 			}
@@ -146,9 +175,7 @@ func (g *Gateway) DeliverToUser(eventType, userID string, payload []byte) error 
 			)
 		}
 	}
-
-	// 在线推送失败由消息同步、会话列表或状态接口补偿
-	return nil
+	return deliveryErr
 }
 
 func (g *Gateway) BindOnlineRooms(session *Session, roomIDs []string) {
@@ -230,6 +257,19 @@ func (g *Gateway) UnbindUserFromRoom(userID, roomID string) {
 }
 
 func (g *Gateway) DeliverToOnlineRoomMembers(eventType, roomID string, payload []byte, excludeUserID string) error {
+	if g.redisClient != nil {
+		publishCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return g.publishRedisDelivery(publishCtx, redisRealtimeEvent{
+			Kind: "room", EventType: eventType, RoomID: roomID, ExcludeUserID: excludeUserID, Payload: payload,
+		})
+	}
+	err := g.deliverLocalToRoom(eventType, roomID, payload, excludeUserID)
+	return err
+}
+
+func (g *Gateway) deliverLocalToRoom(eventType, roomID string, payload []byte, excludeUserID string) error {
+	var deliveryErr error
 	for _, session := range g.sessionsForRoom(roomID) {
 		// 排除发送者自身
 		if excludeUserID != "" && session.UserID() == excludeUserID {
@@ -237,6 +277,7 @@ func (g *Gateway) DeliverToOnlineRoomMembers(eventType, roomID string, payload [
 		}
 
 		if err := session.PushEvent(eventType, payload); err != nil {
+			deliveryErr = errors.Join(deliveryErr, err)
 			if errors.Is(err, ErrOutboundQueueFull) {
 				log.Printf("断开处理缓慢的实时通道会话：用户=%s 会话=%s", session.UserID(), session.SessionID())
 				session.Close()
@@ -252,7 +293,7 @@ func (g *Gateway) DeliverToOnlineRoomMembers(eventType, roomID string, payload [
 			)
 		}
 	}
-	return nil
+	return deliveryErr
 }
 
 func (g *Gateway) sessionsForUser(userID string) []*Session {

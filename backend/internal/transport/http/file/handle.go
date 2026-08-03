@@ -53,7 +53,7 @@ func (h *Handle) Upload(c *gin.Context) {
 	})
 	if err != nil {
 		log.Println("上传文件失败：", err)
-		if errors.Is(err, fileapp.ErrFileHashMismatch) || errors.Is(err, fileapp.ErrFileSizeMismatch) {
+		if errors.Is(err, fileapp.ErrFileHashMismatch) || errors.Is(err, fileapp.ErrFileSizeMismatch) || errors.Is(err, fileapp.ErrFileTooLarge) {
 			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
 			return
 		}
@@ -87,6 +87,14 @@ func (h *Handle) InitMultipartUpload(c *gin.Context) {
 		TotalChunks: req.TotalChunks,
 	})
 	if err != nil {
+		if errors.Is(err, fileapp.ErrInvalidPart) {
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+			return
+		}
+		if errors.Is(err, fileapp.ErrFileTooLarge) || errors.Is(err, fileapp.ErrTooManyParts) {
+			c.JSON(http.StatusRequestEntityTooLarge, response.Error(http.StatusRequestEntityTooLarge, err.Error()))
+			return
+		}
 		if errors.Is(err, fileapp.ErrUploadBusy) {
 			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
 			return
@@ -117,6 +125,10 @@ func (h *Handle) PresignMultipartParts(c *gin.Context) {
 	}
 	dtos, err := h.app.PresignMultipartParts(c.Request.Context(), uploadId, userId, req.PartNumbers)
 	if err != nil {
+		if errors.Is(err, fileapp.ErrUploadUnauthorized) {
+			c.JSON(http.StatusForbidden, response.Error(http.StatusForbidden, "无权操作该上传任务"))
+			return
+		}
 		log.Println("批量生成分片上传地址失败：", err)
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "分片上传任务无效"))
 		return

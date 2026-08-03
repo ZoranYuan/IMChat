@@ -27,9 +27,9 @@ func (a *AuthMiddleware) JWTAuthMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		token := ctx.GetHeader("Authorization")
 
-		if token == "" {
+		if token == "" && strings.EqualFold(ctx.GetHeader("Upgrade"), "websocket") {
 			token = ctx.Query("token")
-		} else {
+		} else if token != "" {
 			if !strings.HasPrefix(token, "Bearer ") {
 				ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 				return

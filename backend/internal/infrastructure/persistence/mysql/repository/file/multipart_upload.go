@@ -5,6 +5,7 @@ import (
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 	"context"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -51,6 +52,7 @@ func (r *MultipartUploadRepository) Create(ctx context.Context, upload filerepo.
 		RetryCount:      upload.RetryCount,
 		NextRetryAt:     upload.NextRetryAt,
 		LockedAt:        upload.LockedAt,
+		LockToken:       upload.LockToken,
 		LastError:       upload.LastError,
 		CreatedAt:       upload.CreatedAt,
 		UpdatedAt:       upload.UpdatedAt,
@@ -81,11 +83,13 @@ func (r *MultipartUploadRepository) ClaimExpired(ctx context.Context, now int64,
 	for i := range rows {
 		ids = append(ids, rows[i].UploadId)
 	}
+	lockToken := uuid.NewString()
 	if err := r.db.WithContext(ctx).
 		Model(&model.FileUpload{}).
 		Where("upload_id IN ?", ids).
 		Updates(map[string]any{
 			"locked_at":  now,
+			"lock_token": lockToken,
 			"updated_at": now,
 		}).Error; err != nil {
 		return nil, err
@@ -95,44 +99,48 @@ func (r *MultipartUploadRepository) ClaimExpired(ctx context.Context, now int64,
 	for i := range rows {
 		row := rows[i]
 		row.LockedAt = &now
+		row.LockToken = lockToken
 		uploads = append(uploads, toMultipartUploadRecord(row))
 	}
 	return uploads, nil
 }
 
-func (r *MultipartUploadRepository) MarkExpired(ctx context.Context, uploadId string, lockedAt int64, updatedAt int64) (bool, error) {
+func (r *MultipartUploadRepository) MarkExpired(ctx context.Context, uploadId, lockToken string, updatedAt int64) (bool, error) {
 	result := r.db.WithContext(ctx).
 		Model(&model.FileUpload{}).
-		Where("upload_id = ? AND status = ? AND locked_at = ?", uploadId, "uploading", lockedAt).
+		Where("upload_id = ? AND status = ? AND lock_token = ?", uploadId, "uploading", lockToken).
 		Updates(map[string]any{
 			"status":     "expired",
 			"locked_at":  nil,
+			"lock_token": "",
 			"updated_at": updatedAt,
 		})
 	return result.RowsAffected > 0, result.Error
 }
 
-func (r *MultipartUploadRepository) MarkCleanupRetry(ctx context.Context, uploadId string, lockedAt int64, nextRetryAt int64, lastError string, updatedAt int64) (bool, error) {
+func (r *MultipartUploadRepository) MarkCleanupRetry(ctx context.Context, uploadId, lockToken string, nextRetryAt int64, lastError string, updatedAt int64) (bool, error) {
 	result := r.db.WithContext(ctx).
 		Model(&model.FileUpload{}).
-		Where("upload_id = ? AND status = ? AND locked_at = ?", uploadId, "uploading", lockedAt).
+		Where("upload_id = ? AND status = ? AND lock_token = ?", uploadId, "uploading", lockToken).
 		Updates(map[string]any{
 			"retry_count":   gorm.Expr("retry_count + 1"),
 			"next_retry_at": nextRetryAt,
 			"locked_at":     nil,
+			"lock_token":    "",
 			"last_error":    lastError,
 			"updated_at":    updatedAt,
 		})
 	return result.RowsAffected > 0, result.Error
 }
 
-func (r *MultipartUploadRepository) MarkCleanupFailed(ctx context.Context, uploadId string, lockedAt int64, lastError string, updatedAt int64) (bool, error) {
+func (r *MultipartUploadRepository) MarkCleanupFailed(ctx context.Context, uploadId, lockToken string, lastError string, updatedAt int64) (bool, error) {
 	result := r.db.WithContext(ctx).
 		Model(&model.FileUpload{}).
-		Where("upload_id = ? AND status = ? AND locked_at = ?", uploadId, "uploading", lockedAt).
+		Where("upload_id = ? AND status = ? AND lock_token = ?", uploadId, "uploading", lockToken).
 		Updates(map[string]any{
 			"status":     "cleanup_failed",
 			"locked_at":  nil,
+			"lock_token": "",
 			"last_error": lastError,
 			"updated_at": updatedAt,
 		})
@@ -148,7 +156,21 @@ func (r *MultipartUploadRepository) MarkCompleted(ctx context.Context, uploadId 
 			"completed_at": completedAt,
 			"updated_at":   completedAt,
 		})
-	return result.RowsAffected > 0, result.Error
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected > 0 {
+		return true, nil
+	}
+	var status string
+	if err := r.db.WithContext(ctx).
+		Model(&model.FileUpload{}).
+		Select("status").
+		Where("upload_id = ?", uploadId).
+		Scan(&status).Error; err != nil {
+		return false, err
+	}
+	return status == "completed", nil
 }
 
 func (r *MultipartUploadRepository) Delete(ctx context.Context, uploadId string) error {
@@ -186,6 +208,7 @@ func toMultipartUploadRecord(row model.FileUpload) filerepo.MultipartUploadRecor
 		RetryCount:      row.RetryCount,
 		NextRetryAt:     row.NextRetryAt,
 		LockedAt:        row.LockedAt,
+		LockToken:       row.LockToken,
 		LastError:       row.LastError,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,

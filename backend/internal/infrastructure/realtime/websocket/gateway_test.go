@@ -3,6 +3,10 @@ package websocket
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 func newGatewayTestSession(t *testing.T, userID, sessionID string) *Session {
@@ -61,5 +65,35 @@ func TestGatewayUnregisterRemovesOnlineRoomMembership(t *testing.T) {
 
 	if got := len(gateway.sessionsForRoom("room1")); got != 0 {
 		t.Fatalf("unregistered session should be removed from online room index, got=%d", got)
+	}
+}
+
+func TestGatewayRedisDeliveryWaitsForSubscription(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	gateway := NewGatewayWithRedis(context.Background(), client)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = gateway.Close(ctx)
+	})
+
+	session := newGatewayTestSession(t, "u1", "s1")
+	gateway.mu.Lock()
+	gateway.registerLocked(session)
+	gateway.mu.Unlock()
+
+	if err := gateway.DeliverToUser("msg", "u1", []byte(`{"message":"payload"}`)); err != nil {
+		t.Fatalf("redis delivery failed: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for len(session.outbound) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(session.outbound) != 1 {
+		t.Fatalf("redis delivery was not received locally, outbound=%d", len(session.outbound))
 	}
 }

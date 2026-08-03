@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -43,6 +44,8 @@ type Options struct {
 	DirectUploadLockTTL      time.Duration
 	CacheTTL                 time.Duration
 	URLTTL                   time.Duration
+	MaxFileSize              int64
+	MaxMultipartParts        int
 }
 
 const (
@@ -76,6 +79,9 @@ func NewFileApplication(
 func (a *FileApplication) Upload(ctx context.Context, dto UploadDTO) (*FileDTO, error) {
 	if dto.Reader == nil || dto.Size <= 0 {
 		return nil, ErrFileRequired
+	}
+	if a.options.MaxFileSize > 0 && dto.Size > a.options.MaxFileSize {
+		return nil, ErrFileTooLarge
 	}
 	fileHash := strings.TrimSpace(dto.FileHash)
 	reader := dto.Reader
@@ -173,16 +179,18 @@ func (a *FileApplication) Upload(ctx context.Context, dto UploadDTO) (*FileDTO, 
 
 	// 依靠数据库唯一键兜底，实现无锁入库
 	if err := a.fileRepository.Save(ctx, file); err != nil {
-		// 即使请求取消，也需要去删除 minio 中的孤儿文件，因为数据库保存失败了
-		cleanupCtx := context.WithoutCancel(ctx)
-		if cleanupErr := a.storage.DeleteObject(cleanupCtx, objectKey); cleanupErr != nil {
-			log.Printf("清理直传孤儿文件失败：对象=%s 错误=%v", objectKey, cleanupErr)
+		// 数据库返回错误可能发生在提交边界，先回查，避免误删已落库对象。
+		existing, findErr := a.findFileByUploaderAndHash(ctx, dto.UploaderId, fileHash)
+		if findErr != nil {
+			return nil, err
 		}
-
-		// 数据库入库失败，尝试直接查询是否有值
-		if existing, findErr := a.findFileByUploaderAndHash(ctx, dto.UploaderId, fileHash); findErr == nil && existing != nil {
+		if existing != nil {
+			if existing.ObjectKey != objectKey {
+				a.cleanupObject(objectKey)
+			}
 			return toDTO(existing), nil
 		}
+		a.cleanupObject(objectKey)
 		return nil, err
 	}
 
@@ -196,6 +204,14 @@ func (a *FileApplication) Upload(ctx context.Context, dto UploadDTO) (*FileDTO, 
 	return toDTO(file), nil
 }
 
+func (a *FileApplication) cleanupObject(objectKey string) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := a.storage.DeleteObject(cleanupCtx, objectKey); err != nil {
+		log.Printf("清理直传孤儿文件失败：对象=%s 错误=%v", objectKey, err)
+	}
+}
+
 func (a *FileApplication) findFileByUploaderAndHash(ctx context.Context, uploaderId, fileHash string) (*fileentity.File, error) {
 	if uploaderId == "" || fileHash == "" {
 		return nil, nil
@@ -204,7 +220,7 @@ func (a *FileApplication) findFileByUploaderAndHash(ctx context.Context, uploade
 	fileId, err := a.fileCache.GetFileIDByUploaderAndHash(ctx, uploaderId, fileHash)
 	if err == nil && fileId != "" {
 		file, cacheErr := a.fileCache.Get(ctx, fileId)
-		if cacheErr == nil && file != nil && file.UploaderId == uploaderId {
+		if cacheErr == nil && file != nil && file.UploaderId == uploaderId && (file.Status == "" || file.Status == "uploaded") {
 			return file, nil
 		}
 		if cacheErr != nil {
@@ -217,6 +233,9 @@ func (a *FileApplication) findFileByUploaderAndHash(ctx context.Context, uploade
 	file, err := a.fileRepository.FindByUploaderAndHash(ctx, uploaderId, fileHash)
 	if err != nil || file == nil {
 		return file, err
+	}
+	if file.Status != "" && file.Status != "uploaded" {
+		return nil, nil
 	}
 
 	if cacheErr := a.fileCache.Set(ctx, file, a.cacheTTL()); cacheErr != nil {
@@ -233,9 +252,18 @@ func (a *FileApplication) InitMultipartUpload(ctx context.Context, dto Multipart
 		dto.FileHash == "" || dto.ChunkSize <= 0 || dto.TotalChunks <= 0 {
 		return nil, ErrInvalidPart
 	}
-	expectedChunks := int((dto.Size + dto.ChunkSize - 1) / dto.ChunkSize)
-	if dto.TotalChunks != expectedChunks {
+	if a.options.MaxFileSize > 0 && dto.Size > a.options.MaxFileSize {
+		return nil, ErrFileTooLarge
+	}
+	expectedChunks := dto.Size / dto.ChunkSize
+	if dto.Size%dto.ChunkSize != 0 {
+		expectedChunks++
+	}
+	if int64(dto.TotalChunks) != expectedChunks {
 		return nil, ErrInvalidPart
+	}
+	if a.options.MaxMultipartParts > 0 && dto.TotalChunks > a.options.MaxMultipartParts {
+		return nil, ErrTooManyParts
 	}
 
 	// 已完成文件和已有上传任务都是只读查询，不需要加锁。
@@ -396,6 +424,9 @@ func (a *FileApplication) PresignMultipartParts(ctx context.Context, uploadId st
 	}
 	if meta.UploaderId != uploaderId {
 		return nil, ErrUploadUnauthorized
+	}
+	if meta.Status != multipartStatusUploading {
+		return nil, ErrInvalidUpload
 	}
 	if len(partNumbers) == 0 || len(partNumbers) > 1000 {
 		return nil, ErrInvalidPart
@@ -614,6 +645,9 @@ func (a *FileApplication) CompleteMultipartUpload(ctx context.Context, uploadId 
 	if meta.Status == multipartStatusCompleted {
 		return a.GetFileForUser(ctx, meta.FileId, uploaderId)
 	}
+	if meta.Status != multipartStatusUploading {
+		return nil, ErrInvalidUpload
+	}
 
 	// 加锁开始上传
 	unlock, lockLost, err := a.lockMultipartComplete(ctx, uploadId)
@@ -690,17 +724,32 @@ func (a *FileApplication) CompleteMultipartUpload(ctx context.Context, uploadId 
 			return saveErr
 		}
 
-		if _, err := a.multipartUploadRepository.WithTx(tx).MarkCompleted(ctx, meta.UploadId, time.Now().UnixMilli()); err != nil {
+		marked, err := a.multipartUploadRepository.WithTx(tx).MarkCompleted(ctx, meta.UploadId, time.Now().UnixMilli())
+		if err != nil {
 			return err
+		}
+		if !marked {
+			return ErrInvalidUpload
 		}
 
 		return nil
 	})
 
 	if err != nil {
+		reconcileCtx, reconcileCancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		existing, findErr := a.fileRepository.GetByID(reconcileCtx, entity.FileId)
+		reconcileCancel()
+		if findErr != nil {
+			log.Printf("合并后数据库状态回查失败，跳过对象删除：文件=%s 错误=%v", entity.FileId, findErr)
+			return nil, err
+		}
+		if existing != nil {
+			return toDTO(existing), nil
+		}
+
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		if cleanupErr := a.storage.DeleteObject(cleanupCtx, entity.ObjectKey); cleanupErr != nil {
-			log.Printf("清理直传孤儿文件失败：对象=%s 错误=%v", entity.ObjectKey, cleanupErr)
+			log.Printf("清理分片合并孤儿文件失败：对象=%s 错误=%v", entity.ObjectKey, cleanupErr)
 		}
 		cancel()
 		return nil, err
@@ -800,6 +849,9 @@ func (a *FileApplication) GetAttachmentAccessURL(ctx context.Context, userId str
 			return nil, ctx.Err()
 		}
 	}
+	if file.Status != "" && file.Status != "uploaded" {
+		return nil, ErrFileNotFound
+	}
 
 	ttl := a.urlTTL()
 	url, err := a.storage.PresignedGetURL(ctx, file.ObjectKey, ttl)
@@ -835,6 +887,9 @@ func (a *FileApplication) GetFileForUser(ctx context.Context, fileId, userId str
 		if file == nil {
 			return nil, ErrFileNotFound
 		}
+	}
+	if file.Status != "" && file.Status != "uploaded" {
+		return nil, fmt.Errorf("文件当前不可引用")
 	}
 
 	if file.UploaderId != userId {

@@ -12,6 +12,7 @@ type File struct {
 	FileHash    string
 	Size        int64
 	CreatedAt   int64
+	Status      string
 }
 
 func NewFile(fileId, uploaderId, bucket, objectKey, fileName, contentType string, size int64) *File {
@@ -24,5 +25,6 @@ func NewFile(fileId, uploaderId, bucket, objectKey, fileName, contentType string
 		ContentType: contentType,
 		Size:        size,
 		CreatedAt:   time.Now().UnixMilli(),
+		Status:      "uploaded",
 	}
 }

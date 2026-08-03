@@ -10,15 +10,18 @@ type FileRepository interface {
 	GetByID(ctx context.Context, fileId string) (*fileentity.File, error)
 	FindByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (*fileentity.File, error)
 	BatchGetByIDs(ctx context.Context, fileIds []string) (map[string]*fileentity.File, error)
+	ListOrphanCandidates(ctx context.Context, before int64, limit int) ([]*fileentity.File, error)
+	MarkDeleting(ctx context.Context, fileId string, before int64) (bool, error)
+	DeleteDeleting(ctx context.Context, fileId string) (bool, error)
 	WithTx(tx any) FileRepository
 }
 
 type MultipartUploadRepository interface {
 	Create(ctx context.Context, upload MultipartUploadRecord) error
 	ClaimExpired(ctx context.Context, now int64, staleBefore int64, limit int) ([]MultipartUploadRecord, error)
-	MarkExpired(ctx context.Context, uploadId string, lockedAt int64, updatedAt int64) (bool, error)
-	MarkCleanupRetry(ctx context.Context, uploadId string, lockedAt int64, nextRetryAt int64, lastError string, updatedAt int64) (bool, error)
-	MarkCleanupFailed(ctx context.Context, uploadId string, lockedAt int64, lastError string, updatedAt int64) (bool, error)
+	MarkExpired(ctx context.Context, uploadId, lockToken string, updatedAt int64) (bool, error)
+	MarkCleanupRetry(ctx context.Context, uploadId, lockToken string, nextRetryAt int64, lastError string, updatedAt int64) (bool, error)
+	MarkCleanupFailed(ctx context.Context, uploadId, lockToken string, lastError string, updatedAt int64) (bool, error)
 	MarkCompleted(ctx context.Context, uploadId string, completedAt int64) (bool, error)
 	Delete(ctx context.Context, uploadId string) error
 	WithTx(tx any) MultipartUploadRepository
@@ -41,6 +44,7 @@ type MultipartUploadRecord struct {
 	RetryCount      int
 	NextRetryAt     int64
 	LockedAt        *int64
+	LockToken       string
 	LastError       string
 	CreatedAt       int64
 	UpdatedAt       int64

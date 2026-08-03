@@ -12,8 +12,8 @@ local now_ms = tonumber(redis_time[1]) * 1000 + math.floor(tonumber(redis_time[2
 local bucket = redis.call(
     'HMGET',
     KEYS[1],
-    tokens,
-    update_at_ms
+    "tokens",
+    "update_at_ms"
 )
 
 local tokens = tonumber(bucket[1])
@@ -22,13 +22,13 @@ local update_at_ms = tonumber(bucket[2])
 -- 更新 tokens 和 update_at_ms
 if tokens == nil or update_at_ms == nil then
     tokens = burst
-else 
+else
     local elapse_ms = math.max(
         0,
         now_ms-update_at_ms
     )
 
-    tokens = math.max(
+    tokens = math.min(
         burst,
         tokens + (elapse_ms / 1000) * rate
     )
@@ -39,10 +39,10 @@ local allowed = 0
 local retry_after_ms = 0
 
 if tokens >= 1 then
-    allow = 1
+    allowed = 1
     tokens = tokens - 1
 else 
-    allow = 0
+    allowed = 0
     retry_after_ms = math.ceil((1 - tokens) * 1000 / rate)
 end
 

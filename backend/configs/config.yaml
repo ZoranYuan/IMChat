@@ -28,7 +28,7 @@ ws:
   batch_max_bytes: 8192
   batch_linger_milliseconds: 20
   batch_ready_queue_size: 16
-  message_event_worker_count: 100
+  allowed_origins: ""
 message:
   room_realtime_fanout_limit: 500
   large_room_notice_linger_milliseconds: 200
@@ -82,6 +82,11 @@ storage:
     multipart_cleanup_retry_seconds: 30
     multipart_cleanup_operation_seconds: 30
     multipart_cleanup_max_retries: 10
+    max_file_size_bytes: 1073741824
+    max_multipart_parts: 10000
+    upload_rate: 1
+    upload_burst: 5
+    orphan_retention_seconds: 86400
 
 cache:
   user_profile:

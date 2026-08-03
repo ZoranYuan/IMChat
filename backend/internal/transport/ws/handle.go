@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -47,7 +48,16 @@ func NewWSHandler(
 		idGenerator: idGenerator,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				return true
+				origin := r.Header.Get("Origin")
+				if origin == "" || config.App.Env == "development" {
+					return true
+				}
+				for _, allowed := range strings.Split(config.WebSocket.AllowedOrigins, ",") {
+					if strings.TrimSpace(allowed) == origin {
+						return true
+					}
+				}
+				return false
 			},
 		},
 	}
@@ -62,9 +72,9 @@ func (wh *WSHandler) SetLimiter(limiter shared_ratelimit.Limit) {
 	wh.limiter = limiter
 }
 
-func (wh *WSHandler) allowEvent(ctx context.Context, op string, userId string, policy shared_ratelimit.Policy) bool {
+func (wh *WSHandler) allowEvent(ctx context.Context, op string, userId string, policy shared_ratelimit.Policy) (bool, error) {
 	if wh.limiter == nil {
-		return true
+		return true, nil
 	}
 
 	key := fmt.Sprintf(
@@ -85,10 +95,10 @@ func (wh *WSHandler) allowEvent(ctx context.Context, op string, userId string, p
 			"WebSocket 限流器执行失败：%v",
 			err,
 		)
-		return true
+		return false, err
 	}
 
-	return decision.Allowed
+	return decision.Allowed, nil
 }
 
 func (wh *WSHandler) handleReadMessageAck(ctx context.Context, session *realtimews.Session, data []byte) error {
@@ -120,7 +130,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 	}
 
 	// 用户发消息频率限制
-	allowed := wh.allowEvent(
+	allowed, limitErr := wh.allowEvent(
 		ctx,
 		protocol.EventTypeSendMessage,
 		session.UserID(),
@@ -129,6 +139,14 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 			Burst: sendBurst,
 		},
 	)
+	if limitErr != nil {
+		ack := protocol.MessageAckEvent{ClientMsgId: pb.GetClientMsgId(), Status: protocol.AckStatusFailed, Extra: "限流服务暂不可用"}
+		payload, err := json.Marshal(ack)
+		if err != nil {
+			return err
+		}
+		return wh.replyToClient(session, protocol.EventTypeMsgAck, payload)
+	}
 
 	if !allowed {
 		ack := protocol.MessageAckEvent{
@@ -258,6 +276,7 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 		batchConfig,
 		true,
 	)
+	session.SetReadLimit(int64(wh.config.WebSocket.MaxMessageSize))
 
 	if err := wh.gateway.RegisterAndStart(
 		session,

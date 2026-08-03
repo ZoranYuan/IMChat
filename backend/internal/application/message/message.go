@@ -309,6 +309,9 @@ func (ma *MessageApplication) normalizeMediaDTO(ctx context.Context, dto *Messag
 		if file == nil {
 			return fmt.Errorf("文件不存在：%s", dto.FileId)
 		}
+		if file.Status != "" && file.Status != "uploaded" {
+			return ErrForbidden
+		}
 		if file.UploaderId != dto.SendId {
 			return ErrForbidden
 		}
@@ -516,8 +519,10 @@ func (ma *MessageApplication) isRoomConvMember(ctx context.Context, userID, room
 			return ErrNotRoomMember
 		}
 
-		// TODO: 需要额外查看用户是否被禁言
 		if state.Status == roomvo.BeKicked {
+			return ErrForbidden
+		}
+		if state.Status == roomvo.BeMuted && (state.MuteUntil == nil || *state.MuteUntil > time.Now().UnixMilli()) {
 			return ErrForbidden
 		}
 	}
@@ -770,7 +775,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto Message
 
 		if !isDanmaku {
 			if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
-				log.Printf("警告：更新发送者用户会话失败：%v", err)
+				return err
 			}
 		}
 

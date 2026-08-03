@@ -26,6 +26,17 @@ type ObjectStorage struct {
 	useSSL         bool
 }
 
+func (s *ObjectStorage) Health(ctx context.Context) error {
+	exists, err := s.client.BucketExists(ctx, s.bucket)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("存储桶不存在：%s", s.bucket)
+	}
+	return nil
+}
+
 func NewObjectStorage(ctx context.Context, cfg configs.MinIOConfig) (objectport.ObjectStorage, error) {
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),

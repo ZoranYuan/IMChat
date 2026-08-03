@@ -29,10 +29,10 @@ type MultipartInitReq struct {
 }
 
 type MultipartInitRes struct {
-	UploadId      string   `json:"uploadId"`
-	FileId        string   `json:"fileId"`
-	Status        string   `json:"status"`
-	UploadedParts []int    `json:"uploadedParts"`
+	UploadId      string `json:"uploadId"`
+	FileId        string `json:"fileId"`
+	Status        string `json:"status"`
+	UploadedParts []int  `json:"uploadedParts"`
 }
 
 type MultipartPartsPresignReq struct {

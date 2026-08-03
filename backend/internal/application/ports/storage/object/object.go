@@ -7,6 +7,7 @@ import (
 )
 
 type ObjectStorage interface {
+	Health(ctx context.Context) error
 	PutObject(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
 	DeleteObject(ctx context.Context, objectKey string) error
 	CreateMultipartUpload(ctx context.Context, objectKey string, contentType string) (string, error)

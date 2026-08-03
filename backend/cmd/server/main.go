@@ -38,6 +38,7 @@ import (
 	passwordsecurity "IM_backend/internal/infrastructure/security/password"
 	minioobj "IM_backend/internal/infrastructure/storage/minio"
 	"IM_backend/internal/shared/protocol"
+	shared_ratelimit "IM_backend/internal/shared/ratelimit"
 	httpapi "IM_backend/internal/transport/http"
 	userconversationhttp "IM_backend/internal/transport/http/conversation"
 	filehttp "IM_backend/internal/transport/http/file"
@@ -63,9 +64,6 @@ import (
 func main() {
 	r := gin.Default()
 	r.Use(middleware.ErrorLoggerMiddleware())
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -75,6 +73,9 @@ func main() {
 		configPath = "/workspace/IM/backend/configs/config.yaml"
 	}
 	cfg := configs.LoadConfig(configPath)
+	if err := cfg.Validate(); err != nil {
+		log.Fatal("配置校验失败：", err)
+	}
 
 	if cfg.App.Env == "development" {
 		gin.SetMode(gin.DebugMode)
@@ -83,10 +84,13 @@ func main() {
 	}
 
 	redisClient := redis.InitRedis(cfg.Database.Redis.DSN)
-	db := mysql.InitMysql(cfg.Database.MySQL.DSN)
-	defer func() {
-		db = nil
-	}()
+	defer redisClient.Close()
+	db := mysql.OpenMysql(cfg.Database.MySQL.DSN)
+	dbSQL, err := db.DB()
+	if err != nil {
+		log.Fatal("获取数据库连接失败：", err)
+	}
+	defer dbSQL.Close()
 
 	txManager := persistence.NewGormTxManager(db)
 	idGenerator, err := snow.NewGenerator(int(cfg.App.MachineID))
@@ -95,7 +99,8 @@ func main() {
 	}
 	passwordHasher := passwordsecurity.NewHasher()
 
-	realtimeGateway := realtimews.NewGateway()
+	realtimeGateway := realtimews.NewGatewayWithRedis(ctx, redisClient)
+	defer realtimeGateway.Close(context.Background())
 	realtimeGateway.KeepAlive(ctx, cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
 
 	authCache := authcache.NewAuthCache(redisClient)
@@ -130,6 +135,32 @@ func main() {
 		log.Fatalln("连接 MinIO 失败：", err)
 	}
 
+	r.GET("/livez", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	r.GET("/readyz", func(c *gin.Context) {
+		checkCtx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		checks := gin.H{}
+		if err := dbSQL.PingContext(checkCtx); err != nil {
+			checks["mysql"] = err.Error()
+		}
+		if err := redisClient.Ping(checkCtx).Err(); err != nil {
+			checks["redis"] = err.Error()
+		}
+		if err := objectStorage.Health(checkCtx); err != nil {
+			checks["minio"] = err.Error()
+		}
+		if len(checks) > 0 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+	})
+
 	// 构造依赖
 	fileRepository := filemysql.NewFileRepository(db)
 	multipartUploadRepository := filemysql.NewMultipartUploadRepository(db)
@@ -142,10 +173,13 @@ func main() {
 		MultipartInitLockTTL:     time.Duration(cfg.Storage.MinIO.MultipartInitLockTTLSeconds) * time.Second,
 		MultipartCompleteLockTTL: time.Duration(cfg.Storage.MinIO.MultipartCompleteLockTTLSeconds) * time.Second,
 		DirectUploadLockTTL:      time.Duration(cfg.Storage.MinIO.DirectUploadLockTTLSeconds) * time.Second,
+		MaxFileSize:              cfg.Storage.MinIO.MaxFileSizeBytes,
+		MaxMultipartParts:        cfg.Storage.MinIO.MaxMultipartParts,
 	}, fileRepository, multipartUploadRepository, messageAttachmentsRepository, fileCache, objectStorage, idGenerator, txManager)
 	multipartCleanupWorker := filecleanup.NewWorker(
 		txManager,
 		multipartUploadRepository,
+		fileRepository,
 		fileCache,
 		objectStorage,
 		filecleanup.Options{
@@ -155,9 +189,14 @@ func main() {
 			BaseRetryWait:    time.Duration(cfg.Storage.MinIO.MultipartCleanupRetrySeconds) * time.Second,
 			OperationTimeout: time.Duration(cfg.Storage.MinIO.MultipartCleanupOperationSeconds) * time.Second,
 			MaxRetries:       cfg.Storage.MinIO.MultipartCleanupMaxRetries,
+			OrphanAfter:      time.Duration(cfg.Storage.MinIO.OrphanRetentionSeconds) * time.Second,
 		},
 	)
-	go multipartCleanupWorker.Start(ctx)
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		multipartCleanupWorker.Start(ctx)
+	}()
 	fileHandle := filehttp.NewHandle(fileApplication)
 
 	messageRepository := messagemysql.NewMessageRepository(db)
@@ -253,7 +292,9 @@ func main() {
 		log.Fatal("创建消息消费组失败：", err)
 	}
 
+	consumerDone := make(chan struct{})
 	go func() {
+		defer close(consumerDone)
 		if err := messageConsumerGroup.Start(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("消息队列消费者已停止：%v", err)
 		}
@@ -262,7 +303,11 @@ func main() {
 	dispatcher := ws.NewDispatcher()
 	outboxWorker := outboxinfra.NewWorker(txManager, outboxRepository, messageProducer)
 
-	go outboxWorker.Start(ctx)
+	outboxDone := make(chan struct{})
+	go func() {
+		defer close(outboxDone)
+		outboxWorker.Start(ctx)
+	}()
 
 	messageApplication := messageapp.NewMessageApplication(
 		conversationCache,
@@ -329,7 +374,7 @@ func main() {
 	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
 
 	limiter := ratelimit.NewRedisLimit(redisClient, "rate:limit")
-	limiterMiddleware := middleware.NewLimitMiddleware(limiter, true)
+	limiterMiddleware := middleware.NewLimitMiddleware(limiter, false)
 	wsHandle.SetLimiter(limiter)
 
 	// 注册路由
@@ -340,7 +385,10 @@ func main() {
 	httpapi.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	httpapi.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
 	httpapi.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)
-	httpapi.RegisterFileRouter(apiGroup, fileHandle, authMiddle)
+	httpapi.RegisterFileRouter(apiGroup, fileHandle, authMiddle, limiterMiddleware, shared_ratelimit.Policy{
+		Rate:  cfg.Storage.MinIO.UploadRate,
+		Burst: cfg.Storage.MinIO.UploadBurst,
+	})
 	// if cfg.App.Env == "development" {
 	// 	httpapi.RegisterTestDataRouter(apiGroup.Group("/dev"), testdataHandle)
 	// }
@@ -373,15 +421,22 @@ func main() {
 	<-quit
 
 	log.Println("服务正在停止")
-	cancel()
-
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("关闭 HTTP 服务失败：%v", err)
 	}
+	messageDelivery.Close(shutdownCtx)
 	if err := realtimeGateway.Shutdown(shutdownCtx); err != nil {
 		log.Printf("关闭 WebSocket 会话失败：%v", err)
+	}
+	cancel()
+	for _, done := range []<-chan struct{}{cleanupDone, consumerDone, outboxDone} {
+		select {
+		case <-done:
+		case <-shutdownCtx.Done():
+			log.Printf("等待后台任务退出超时")
+		}
 	}
 	log.Println("服务已停止")
 }

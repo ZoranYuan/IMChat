@@ -3,14 +3,17 @@ package ratelimit
 import (
 	shared_ratelimit "IM_backend/internal/shared/ratelimit"
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+//go:embed limit.lua
+var limitScript string
 
 // 使用 redis 实现分布式限流
 type RedisLimit struct {
@@ -43,16 +46,10 @@ func (r *RedisLimit) Allow(ctx context.Context, key string, policy shared_rateli
 		return shared_ratelimit.Decision{}, errors.New("限流策略参数无效")
 	}
 
-	scriptBytes, err := os.ReadFile("./limit.lua")
-	if err != nil {
-		// lua 脚本读取失败，考虑是否需要降级
-		return shared_ratelimit.Decision{}, errors.New("未知错误")
-	}
-
 	// 执行 lua 脚本
 	result, err := r.client.Eval(
 		ctx,
-		string(scriptBytes),
+		limitScript,
 		[]string{r.perfix + key},
 		strconv.FormatFloat(
 			policy.Rate,

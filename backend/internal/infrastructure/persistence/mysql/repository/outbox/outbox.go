@@ -8,6 +8,7 @@ import (
 	outboxport "IM_backend/internal/application/ports/outbox"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -52,6 +53,7 @@ func toModel(e *outboxport.Entry) *model.OutboxRecord {
 		RetryCount:  e.RetryCount,
 		NextRetryAt: e.NextRetryAt,
 		LockedAt:    lockedAt,
+		LockToken:   e.LockToken,
 		LastError:   e.LastError,
 		SentAt:      sentAt,
 	}
@@ -83,6 +85,7 @@ func toEntry(m *model.OutboxRecord) *outboxport.Entry {
 		RetryCount:  m.RetryCount,
 		NextRetryAt: m.NextRetryAt,
 		LockedAt:    lockedAt,
+		LockToken:   m.LockToken,
 		LastError:   m.LastError,
 		SentAt:      sentAt,
 		CreatedAt:   m.CreatedAt,
@@ -144,12 +147,14 @@ func (r *Repository) ClaimPending(
 		ids = append(ids, m.ID)
 	}
 	lockAt := now
+	lockToken := uuid.NewString()
 	if err := r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
 		Where("id IN ?", ids).
 		Updates(map[string]interface{}{
 			"status":     outboxport.StatusProcessing,
 			"locked_at":  &lockAt,
+			"lock_token": lockToken,
 			"last_error": "",
 		}).Error; err != nil {
 		return nil, err
@@ -158,43 +163,68 @@ func (r *Repository) ClaimPending(
 	for _, m := range models {
 		m.Status = outboxport.StatusProcessing
 		m.LockedAt = &lockAt
+		m.LockToken = lockToken
 		m.LastError = ""
 		result = append(result, toEntry(m))
 	}
 	return result, nil
 }
 
-func (r *Repository) MarkSent(ctx context.Context, id string, sentAt time.Time) error {
-	return r.db.WithContext(ctx).
+func (r *Repository) MarkSent(ctx context.Context, id, lockToken string, sentAt time.Time) error {
+	result := r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
-		Where("id = ? AND status = ?", id, outboxport.StatusProcessing).
+		Where("id = ? AND status = ? AND lock_token = ?", id, outboxport.StatusProcessing, lockToken).
 		Updates(map[string]interface{}{
-			"status":    outboxport.StatusSent,
-			"sent_at":   sentAt,
-			"locked_at": nil,
-		}).Error
+			"status":     outboxport.StatusSent,
+			"sent_at":    sentAt,
+			"locked_at":  nil,
+			"lock_token": "",
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return outboxport.ErrLeaseLost
+	}
+	return nil
 }
 
-func (r *Repository) MarkRetry(ctx context.Context, id string, nextRetryAt time.Time, lastError string) error {
-	return r.db.WithContext(ctx).
+func (r *Repository) MarkRetry(ctx context.Context, id, lockToken string, nextRetryAt time.Time, lastError string) error {
+	result := r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
-		Where("id = ? AND status = ?", id, outboxport.StatusProcessing).
+		Where("id = ? AND status = ? AND lock_token = ?", id, outboxport.StatusProcessing, lockToken).
 		Updates(map[string]interface{}{
 			"status":        outboxport.StatusPending,
 			"next_retry_at": nextRetryAt,
 			"last_error":    lastError,
 			"locked_at":     nil,
+			"lock_token":    "",
 			"retry_count":   gorm.Expr("retry_count + 1"),
-		}).Error
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return outboxport.ErrLeaseLost
+	}
+	return nil
 }
 
-func (r *Repository) MarkDead(ctx context.Context, id string, lastError string) error {
-	return r.db.WithContext(ctx).
+func (r *Repository) MarkDead(ctx context.Context, id, lockToken string, lastError string) error {
+	result := r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
-		Where("id = ? AND status = ?", id, outboxport.StatusProcessing).
+		Where("id = ? AND status = ? AND lock_token = ?", id, outboxport.StatusProcessing, lockToken).
 		Updates(map[string]interface{}{
 			"status":     outboxport.StatusDead,
 			"last_error": lastError,
 			"locked_at":  nil,
-		}).Error
+			"lock_token": "",
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return outboxport.ErrLeaseLost
+	}
+	return nil
 }

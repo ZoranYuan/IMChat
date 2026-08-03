@@ -56,53 +56,54 @@ func NewConsumerRouter(handlers map[string]eventbus.Handler, options ...RouterOp
 	return router
 }
 
-func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEvent) error {
+func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEvent) (string, error) {
 	if r == nil {
-		return ErrHandlerNotFound
+		return "", ErrHandlerNotFound
 	}
 
 	handler, ok := r.handlers[message.Name]
 	if !ok {
-		return ErrHandlerNotFound
+		return "", ErrHandlerNotFound
 	}
 
 	claimed := true
+	lockToken := ""
 	if r.inbox != nil && message.EventID != "" {
 		if r.txManager == nil {
-			return errors.New("Inbox 事务管理器未配置")
+			return "", errors.New("Inbox 事务管理器未配置")
 		}
 		now := time.Now()
 		var err error
 		err = r.txManager.WithinTransaction(ctx, func(tx any) error {
-			claimed, err = r.inbox.WithTx(tx).TryClaim(ctx, message.EventID, string(message.Name), now, now.Add(-inboxStaleAfter))
+			claimed, lockToken, err = r.inbox.WithTx(tx).TryClaim(ctx, message.EventID, string(message.Name), now, now.Add(-inboxStaleAfter))
 			return err
 		})
 		if err != nil {
-			return err
+			return "", err
 		}
 		if !claimed {
-			return nil
+			return "", nil
 		}
 	}
 
 	err := handler.Handle(ctx, message)
 	if err != nil {
-		return err
+		return lockToken, err
 	}
 
 	if r.inbox != nil && message.EventID != "" && claimed {
-		if err := r.inbox.MarkCompleted(ctx, message.EventID, time.Now()); err != nil {
-			return fmt.Errorf("标记 Inbox 完成状态失败：%w", err)
+		if err := r.inbox.MarkCompleted(ctx, message.EventID, lockToken, time.Now()); err != nil {
+			return lockToken, fmt.Errorf("标记 Inbox 完成状态失败：%w", err)
 		}
 	}
-	return nil
+	return lockToken, nil
 }
 
-func (r *ConsumerRouter) markDead(ctx context.Context, message eventbus.IncomingEvent, lastError string) error {
+func (r *ConsumerRouter) markDead(ctx context.Context, message eventbus.IncomingEvent, lockToken, lastError string) error {
 	if r == nil || r.inbox == nil || message.EventID == "" {
 		return nil
 	}
-	return r.inbox.MarkDead(ctx, message.EventID, lastError, time.Now())
+	return r.inbox.MarkDead(ctx, message.EventID, lockToken, lastError, time.Now())
 }
 
 type saramaAdapter struct {
@@ -147,7 +148,7 @@ func (h saramaAdapter) ConsumeClaim(
 				return nil
 			}
 
-			err := h.router.handle(session.Context(),
+			lockToken, err := h.router.handle(session.Context(),
 				eventbus.IncomingEvent{
 					EventID: eventIDFromHeaders(message.Headers),
 					Name:    message.Topic,
@@ -173,7 +174,7 @@ func (h saramaAdapter) ConsumeClaim(
 					if markErr := h.router.markDead(session.Context(), eventbus.IncomingEvent{
 						EventID: eventIDFromHeaders(message.Headers),
 						Name:    message.Topic,
-					}, err.Error()); markErr != nil {
+					}, lockToken, err.Error()); markErr != nil {
 						return fmt.Errorf("标记 Inbox 死信状态失败：%w", markErr)
 					}
 					log.Printf(

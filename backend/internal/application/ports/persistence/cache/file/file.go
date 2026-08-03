@@ -26,6 +26,7 @@ type MultipartUploadMeta struct {
 type FileCache interface {
 	Set(ctx context.Context, file *fileentity.File, ttl time.Duration) error
 	Get(ctx context.Context, fileId string) (*fileentity.File, error)
+	Delete(ctx context.Context, fileId string) error
 	SetMultipartUpload(ctx context.Context, meta MultipartUploadMeta, ttl time.Duration) error
 	GetMultipartUpload(ctx context.Context, uploadId string) (*MultipartUploadMeta, error)
 	DeleteMultipartUpload(ctx context.Context, uploadId string) error

@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func InitMysql(dns string) *gorm.DB {
+func OpenMysql(dns string) *gorm.DB {
 	gormLogger := logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // 输出位置
 		logger.Config{
@@ -38,6 +38,18 @@ func InitMysql(dns string) *gorm.DB {
 	sqlDB.SetMaxIdleConns(20)                 // 空闲连接
 	sqlDB.SetConnMaxLifetime(time.Minute * 4) // 连接复用时间
 
+	return db
+}
+
+func InitMysql(dns string) *gorm.DB {
+	db := OpenMysql(dns)
+	if err := Migrate(db); err != nil {
+		log.Fatal("数据库迁移失败：", err)
+	}
+	return db
+}
+
+func Migrate(db *gorm.DB) error {
 	renameLegacyTables(db)
 	prepareFriendIndexes(db)
 	prepareFriendRequestUniquePair(db)
@@ -64,19 +76,24 @@ func InitMysql(dns string) *gorm.DB {
 		&model.File{},
 		&model.FileUpload{},
 	); err != nil {
-		log.Fatalf("数据库结构迁移失败：%v", err)
+		return err
+	}
+	if db.Migrator().HasTable("files") {
+		if err := db.Exec("UPDATE files SET status = 'uploaded' WHERE status IS NULL OR status = ''").Error; err != nil {
+			return err
+		}
 	}
 	if err := backfillMemberAndOutboxState(db); err != nil {
-		log.Fatalf("数据库历史数据迁移失败：%v", err)
+		return err
 	}
 	if err := backfillFileUploadRetryState(db); err != nil {
-		log.Fatalf("文件上传重试状态迁移失败：%v", err)
+		return err
 	}
 	if err := backfillMessageAttachments(db); err != nil {
-		log.Fatalf("消息附件历史数据迁移失败：%v", err)
+		return err
 	}
 	dropLegacyColumns(db)
-	return db
+	return nil
 }
 
 func backfillFileUploadRetryState(db *gorm.DB) error {

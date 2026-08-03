@@ -50,6 +50,10 @@ func (ac *authCache) SetAccessToken(
 	return ac.set(ctx, AccessTokenKey(token), userId, expire)
 }
 
+func (ac *authCache) DeleteAccessToken(ctx context.Context, token string) error {
+	return ac.del(ctx, AccessTokenKey(token))
+}
+
 func (ac *authCache) GetUserIDByAccessToken(
 	ctx context.Context,
 	token string,
@@ -71,6 +75,14 @@ func (ac *authCache) GetUserIDByRefreshToken(
 	token string,
 ) (string, error) {
 	return ac.get(ctx, RefreshTokenKey(token))
+}
+
+func (ac *authCache) ConsumeRefreshToken(ctx context.Context, token string) (string, error) {
+	value, err := ac.store.Client().GetDel(ctx, RefreshTokenKey(token)).Result()
+	if err == redis.Nil {
+		return "", nil
+	}
+	return value, err
 }
 
 func (ac *authCache) DeleteRefreshToken(

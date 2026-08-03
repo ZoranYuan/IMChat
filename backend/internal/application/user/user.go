@@ -50,6 +50,9 @@ func (ua *UserApplication) issueTokensAndCache(userId string) (string, string, e
 		return "", "", err
 	}
 	if err := ua.authCache.SetRefreshToken(ctx, refreshToken, userId, ua.options.RefreshTokenTTL); err != nil {
+		if cleanupErr := ua.authCache.DeleteAccessToken(ctx, accessToken); cleanupErr != nil {
+			log.Printf("回滚访问令牌缓存失败：用户=%s 错误=%v", userId, cleanupErr)
+		}
 		return "", "", err
 	}
 
@@ -61,7 +64,6 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 		return nil, ErrInvalidPhoneNumber
 	}
 
-	// TODO 检查当前用户是否存在
 	user, err := ua.userRepository.FindUserByPhone(phone)
 	if err != nil {
 		log.Println("注册用户失败：", err)
@@ -137,7 +139,6 @@ func (ua *UserApplication) LoginWithPhone(phone, password string) (*UserAppDTO, 
 		return nil, ErrUserNotFound
 	}
 
-	// TODO 删除对应的 token 缓存，这里为了防止刷机，可以加一个用户锁
 	if !ua.passwordHasher.Verify(password, string(user.Password)) {
 		return nil, ErrIncorrectPassword
 	}
@@ -244,7 +245,7 @@ func (ua *UserApplication) ResolveUser(keyword string) (*UserAppDTO, error) {
 	}, nil
 }
 
-func (ua *UserApplication) Logout(userId string) error {
+func (ua *UserApplication) Logout(userId, accessToken, refreshToken string) error {
 	user, err := ua.userRepository.FindByUserID(userId)
 	if err != nil {
 		return err
@@ -254,7 +255,44 @@ func (ua *UserApplication) Logout(userId string) error {
 		return ErrUserNotFound
 	}
 
-	now := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if accessToken != "" {
+		if err := ua.authCache.DeleteAccessToken(ctx, accessToken); err != nil {
+			return err
+		}
+	}
+	if refreshToken != "" {
+		if err := ua.authCache.DeleteRefreshToken(ctx, refreshToken); err != nil {
+			return err
+		}
+	}
+	return ua.userRepository.UpdateOfflineTime(user.UserId, string(user.Phone), time.Now())
+}
 
-	return ua.userRepository.UpdateOfflineTime(user.UserId, string(user.Phone), now)
+func (ua *UserApplication) Refresh(refreshToken string) (*UserAppDTO, error) {
+	if refreshToken == "" {
+		return nil, ErrUserNotFound
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	userID, err := ua.authCache.ConsumeRefreshToken(ctx, refreshToken)
+	if err != nil || userID == "" {
+		if err != nil {
+			return nil, err
+		}
+		return nil, ErrUserNotFound
+	}
+	user, err := ua.userRepository.FindByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, ErrUserNotFound
+	}
+	access, refresh, err := ua.issueTokensAndCache(userID)
+	if err != nil {
+		return nil, err
+	}
+	return &UserAppDTO{UserId: user.UserId, UserName: user.UserName, NickName: user.NickName, Phone: string(user.Phone), Avatar: user.Avatar, AccessToken: access, RefreshToken: refresh}, nil
 }

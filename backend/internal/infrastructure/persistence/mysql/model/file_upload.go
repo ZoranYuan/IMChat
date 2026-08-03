@@ -20,6 +20,7 @@ type FileUpload struct {
 	RetryCount  int    `gorm:"not null;default:0;index:idx_file_upload_cleanup,priority:4" json:"retryCount"`
 	NextRetryAt int64  `gorm:"not null;default:0;index:idx_file_upload_cleanup,priority:2" json:"nextRetryAt"`
 	LockedAt    *int64 `gorm:"index:idx_file_upload_locked" json:"lockedAt,omitempty"`
+	LockToken   string `gorm:"size:64;not null;default:'';index:idx_file_upload_lock_token" json:"-"`
 	LastError   string `gorm:"type:text" json:"lastError,omitempty"`
 	CreatedAt   int64  `gorm:"not null;index:idx_file_upload_created" json:"createdAt"`
 	UpdatedAt   int64  `gorm:"not null" json:"updatedAt"`

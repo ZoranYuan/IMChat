@@ -1,8 +1,11 @@
 package configs
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -68,25 +71,30 @@ type StorageConfig struct {
 }
 
 type MinIOConfig struct {
-	Endpoint                         string `yaml:"endpoint"`
-	PublicEndpoint                   string `yaml:"public_endpoint"`
-	AccessKeyID                      string `yaml:"access_key_id"`
-	SecretAccessKey                  string `yaml:"secret_access_key"`
-	Bucket                           string `yaml:"bucket"`
-	UseSSL                           bool   `yaml:"use_ssl"`
-	CacheTTLSeconds                  int    `yaml:"cache_ttl_seconds"`
-	URLTTLSeconds                    int    `yaml:"url_ttl_seconds"`
-	MultipartTTL                     int    `yaml:"multipartTTL"`
-	PartURLTTLSeconds                int    `yaml:"part_url_ttl_seconds"`
-	MultipartInitLockTTLSeconds      int    `yaml:"multipart_init_lock_ttl_seconds"`
-	MultipartCompleteLockTTLSeconds  int    `yaml:"multipart_complete_lock_ttl_seconds"`
-	DirectUploadLockTTLSeconds       int    `yaml:"direct_upload_lock_ttl_seconds"`
-	MultipartCleanupIntervalSeconds  int    `yaml:"multipart_cleanup_interval_seconds"`
-	MultipartCleanupBatchSize        int    `yaml:"multipart_cleanup_batch_size"`
-	MultipartCleanupStaleSeconds     int    `yaml:"multipart_cleanup_stale_seconds"`
-	MultipartCleanupRetrySeconds     int    `yaml:"multipart_cleanup_retry_seconds"`
-	MultipartCleanupOperationSeconds int    `yaml:"multipart_cleanup_operation_seconds"`
-	MultipartCleanupMaxRetries       int    `yaml:"multipart_cleanup_max_retries"`
+	Endpoint                         string  `yaml:"endpoint"`
+	PublicEndpoint                   string  `yaml:"public_endpoint"`
+	AccessKeyID                      string  `yaml:"access_key_id"`
+	SecretAccessKey                  string  `yaml:"secret_access_key"`
+	Bucket                           string  `yaml:"bucket"`
+	UseSSL                           bool    `yaml:"use_ssl"`
+	CacheTTLSeconds                  int     `yaml:"cache_ttl_seconds"`
+	URLTTLSeconds                    int     `yaml:"url_ttl_seconds"`
+	MultipartTTL                     int     `yaml:"multipartTTL"`
+	PartURLTTLSeconds                int     `yaml:"part_url_ttl_seconds"`
+	MultipartInitLockTTLSeconds      int     `yaml:"multipart_init_lock_ttl_seconds"`
+	MultipartCompleteLockTTLSeconds  int     `yaml:"multipart_complete_lock_ttl_seconds"`
+	DirectUploadLockTTLSeconds       int     `yaml:"direct_upload_lock_ttl_seconds"`
+	MultipartCleanupIntervalSeconds  int     `yaml:"multipart_cleanup_interval_seconds"`
+	MultipartCleanupBatchSize        int     `yaml:"multipart_cleanup_batch_size"`
+	MultipartCleanupStaleSeconds     int     `yaml:"multipart_cleanup_stale_seconds"`
+	MultipartCleanupRetrySeconds     int     `yaml:"multipart_cleanup_retry_seconds"`
+	MultipartCleanupOperationSeconds int     `yaml:"multipart_cleanup_operation_seconds"`
+	MultipartCleanupMaxRetries       int     `yaml:"multipart_cleanup_max_retries"`
+	MaxFileSizeBytes                 int64   `yaml:"max_file_size_bytes"`
+	MaxMultipartParts                int     `yaml:"max_multipart_parts"`
+	UploadRate                       float64 `yaml:"upload_rate"`
+	UploadBurst                      int64   `yaml:"upload_burst"`
+	OrphanRetentionSeconds           int     `yaml:"orphan_retention_seconds"`
 }
 
 type App struct {
@@ -97,18 +105,19 @@ type App struct {
 }
 
 type WebSocketConfig struct {
-	WriteWaitSeconds         int `yaml:"write_wait_seconds"`
-	PongWaitSeconds          int `yaml:"pong_wait_seconds"`
-	PingPeriodSeconds        int `yaml:"ping_period_seconds"`
-	TimerInterval            int `yaml:"timer_interval_seconds"`
-	MaxMessageSize           int `yaml:"max_message_size"`
-	MaxMessageSendBufferSize int `yaml:"max_message_send_buffer_size"`
-	SendMessageRate          int `yaml:"send_message_rate"`
-	SendMessageBurst         int `yaml:"send_message_burst"`
-	BatchMaxMessages         int `yaml:"batch_max_messages"`
-	BatchMaxBytes            int `yaml:"batch_max_bytes"`
-	BatchLingerMilliseconds  int `yaml:"batch_linger_milliseconds"`
-	BatchReadyQueueSize      int `yaml:"batch_ready_queue_size"`
+	WriteWaitSeconds         int    `yaml:"write_wait_seconds"`
+	PongWaitSeconds          int    `yaml:"pong_wait_seconds"`
+	PingPeriodSeconds        int    `yaml:"ping_period_seconds"`
+	TimerInterval            int    `yaml:"timer_interval_seconds"`
+	MaxMessageSize           int    `yaml:"max_message_size"`
+	MaxMessageSendBufferSize int    `yaml:"max_message_send_buffer_size"`
+	SendMessageRate          int    `yaml:"send_message_rate"`
+	SendMessageBurst         int    `yaml:"send_message_burst"`
+	BatchMaxMessages         int    `yaml:"batch_max_messages"`
+	BatchMaxBytes            int    `yaml:"batch_max_bytes"`
+	BatchLingerMilliseconds  int    `yaml:"batch_linger_milliseconds"`
+	BatchReadyQueueSize      int    `yaml:"batch_ready_queue_size"`
+	AllowedOrigins           string `yaml:"allowed_origins"`
 }
 
 type MessageConfig struct {
@@ -156,6 +165,104 @@ func LoadConfig(path string) Config {
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		log.Fatal("解析配置文件失败：", err)
 	}
+	applyEnvironmentOverrides(&config)
 
 	return config
+}
+
+func applyEnvironmentOverrides(config *Config) {
+	if value := os.Getenv("APP_ENV"); value != "" {
+		config.App.Env = value
+	}
+	if value := os.Getenv("SERVER_PORT"); value != "" {
+		config.Server.Port = value
+	}
+	if value := os.Getenv("MYSQL_DSN"); value != "" {
+		config.Database.MySQL.DSN = value
+	}
+	if value := os.Getenv("REDIS_DSN"); value != "" {
+		config.Database.Redis.DSN = value
+	}
+	if value := os.Getenv("JWT_SECRET"); value != "" {
+		config.JWT.Secret = value
+	}
+	if value := os.Getenv("KAFKA_BROKERS"); value != "" {
+		config.Kafka.Brokers = splitCSV(value)
+	}
+	if value := os.Getenv("KAFKA_GROUP_ID"); value != "" {
+		config.Kafka.Consumer.GroupID = value
+	}
+	if value := os.Getenv("MINIO_ENDPOINT"); value != "" {
+		config.Storage.MinIO.Endpoint = value
+	}
+	if value := os.Getenv("MINIO_PUBLIC_ENDPOINT"); value != "" {
+		config.Storage.MinIO.PublicEndpoint = value
+	}
+	if value := os.Getenv("MINIO_ACCESS_KEY_ID"); value != "" {
+		config.Storage.MinIO.AccessKeyID = value
+	}
+	if value := os.Getenv("MINIO_SECRET_ACCESS_KEY"); value != "" {
+		config.Storage.MinIO.SecretAccessKey = value
+	}
+	if value := os.Getenv("MINIO_BUCKET"); value != "" {
+		config.Storage.MinIO.Bucket = value
+	}
+	if value := os.Getenv("MINIO_USE_SSL"); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			config.Storage.MinIO.UseSSL = parsed
+		}
+	}
+	if value := os.Getenv("WS_ALLOWED_ORIGINS"); value != "" {
+		config.WebSocket.AllowedOrigins = value
+	}
+}
+
+func splitCSV(value string) []string {
+	items := strings.Split(value, ",")
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func (c Config) Validate() error {
+	if c.Server.Port == "" {
+		return fmt.Errorf("server.port 不能为空")
+	}
+	if c.Database.MySQL.DSN == "" || c.Database.Redis.DSN == "" {
+		return fmt.Errorf("数据库配置不完整")
+	}
+	if c.JWT.Secret == "" || c.JWT.AccessExpireMinutes <= 0 || c.JWT.RefreshExpireHours <= 0 {
+		return fmt.Errorf("JWT 配置无效")
+	}
+	if len(c.Kafka.Brokers) == 0 || c.Kafka.Consumer.GroupID == "" {
+		return fmt.Errorf("Kafka 配置不完整")
+	}
+	if c.Storage.MinIO.Endpoint == "" || c.Storage.MinIO.AccessKeyID == "" ||
+		c.Storage.MinIO.SecretAccessKey == "" || c.Storage.MinIO.Bucket == "" {
+		return fmt.Errorf("MinIO 配置不完整")
+	}
+	if c.Storage.MinIO.MaxFileSizeBytes <= 0 || c.Storage.MinIO.MaxMultipartParts <= 0 {
+		return fmt.Errorf("文件上传限制必须大于 0")
+	}
+	if c.WebSocket.MaxMessageSize <= 0 || c.WebSocket.MaxMessageSendBufferSize <= 0 ||
+		c.WebSocket.WriteWaitSeconds <= 0 || c.WebSocket.PongWaitSeconds <= 0 ||
+		c.WebSocket.PingPeriodSeconds <= 0 || c.WebSocket.PingPeriodSeconds >= c.WebSocket.PongWaitSeconds {
+		return fmt.Errorf("WebSocket 配置无效")
+	}
+	if strings.EqualFold(c.App.Env, "production") {
+		if len(c.JWT.Secret) < 32 || c.JWT.Secret == "U2FsdGVkX19anQGSRtiUwgRLpWV333jI4xjlCF32dek=" {
+			return fmt.Errorf("生产环境必须使用随机 JWT secret")
+		}
+		if c.Storage.MinIO.AccessKeyID == "minioadmin" || c.Storage.MinIO.SecretAccessKey == "minioadmin" {
+			return fmt.Errorf("生产环境禁止使用默认 MinIO 凭据")
+		}
+		if c.WebSocket.AllowedOrigins == "" {
+			return fmt.Errorf("生产环境必须配置 ws.allowed_origins")
+		}
+	}
+	return nil
 }
