@@ -73,6 +73,8 @@ storage:
     url_ttl_seconds: 3600
     multipartTTL: 86400
     part_url_ttl_seconds: 900
+    direct_upload_url_ttl_seconds: 1800
+    direct_upload_max_size_bytes: 8388608
     multipart_init_lock_ttl_seconds: 15
     multipart_complete_lock_ttl_seconds: 30
     direct_upload_lock_ttl_seconds: 600

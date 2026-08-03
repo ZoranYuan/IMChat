@@ -1,11 +1,14 @@
 import { computed, ref } from "vue";
 import {
+  completeDirectUpload,
   completeMultipartUpload,
+  initDirectUpload,
   presignMultipartParts,
   initMultipartUpload,
+  uploadDirectObjectToStorage,
   uploadMultipartPartToStorage,
-  uploadFile,
 } from "../api.js";
+import { ActiveUploadStatuses, UploadStatus } from "../constants/upload.js";
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 const DEFAULT_CONCURRENCY = 3;
@@ -17,7 +20,7 @@ const FINGERPRINT_SAMPLE_SIZE = 2 * 1024 * 1024;
 export function useChunkUpload(options = {}) {
   const chunkSize = options.chunkSize || DEFAULT_CHUNK_SIZE;
   const concurrency = options.concurrency || DEFAULT_CONCURRENCY;
-  const status = ref("idle");
+  const status = ref(UploadStatus.IDLE);
   const progress = ref(0);
   const uploadedBytes = ref(0);
   const totalBytes = ref(0);
@@ -27,7 +30,7 @@ export function useChunkUpload(options = {}) {
   const canceled = ref(false);
 
   const isUploading = computed(() =>
-    ["hashing", "initializing", "uploading", "completing"].includes(status.value),
+    ActiveUploadStatuses.includes(status.value),
   );
 
   const updateProgress = () => {
@@ -37,7 +40,7 @@ export function useChunkUpload(options = {}) {
   };
 
   const reset = () => {
-    status.value = "idle";
+    status.value = UploadStatus.IDLE;
     progress.value = 0;
     uploadedBytes.value = 0;
     totalBytes.value = 0;
@@ -103,12 +106,12 @@ export function useChunkUpload(options = {}) {
   const completeWithRepair = async (file, currentUploadId, completedParts) => {
     for (let round = 0; round <= MAX_COMPLETE_REPAIR_ROUNDS; round += 1) {
       try {
-        status.value = "completing";
+        status.value = UploadStatus.COMPLETING;
         return await completeMultipartUpload(currentUploadId);
       } catch (completeError) {
         const repairParts = incompletePartNumbers(completeError);
         if (!repairParts.length || round === MAX_COMPLETE_REPAIR_ROUNDS) throw completeError;
-        status.value = "uploading";
+        status.value = UploadStatus.UPLOADING;
         await repairIncompleteParts(file, currentUploadId, repairParts, completedParts);
       }
     }
@@ -116,10 +119,10 @@ export function useChunkUpload(options = {}) {
   };
 
   const uploadMultipart = async (file) => {
-    status.value = "hashing";
+    status.value = UploadStatus.HASHING;
     const fileHash = await createFileFingerprint(file);
     const totalChunks = Math.ceil(file.size / chunkSize);
-    status.value = "initializing";
+    status.value = UploadStatus.INITIALIZING;
     const initialized = await initMultipartUpload({
       fileName: file.name,
       contentType: file.type || "application/octet-stream",
@@ -128,7 +131,7 @@ export function useChunkUpload(options = {}) {
       chunkSize,
       totalChunks,
     });
-    if (initialized.status === "completed") return { fileId: initialized.fileId };
+    if (initialized.status === UploadStatus.COMPLETED) return { fileId: initialized.fileId };
 
     uploadId.value = initialized.uploadId;
     const completedParts = new Set(initialized.uploadedParts || []);
@@ -142,7 +145,7 @@ export function useChunkUpload(options = {}) {
       .filter((partNumber) => !completedParts.has(partNumber));
     const partURLs = await presignParts(initialized.uploadId, queue);
     let cursor = 0;
-    status.value = "uploading";
+    status.value = UploadStatus.UPLOADING;
 
     const worker = async () => {
       while (cursor < queue.length) {
@@ -158,6 +161,30 @@ export function useChunkUpload(options = {}) {
     return completeWithRepair(file, initialized.uploadId, completedParts);
   };
 
+  const uploadDirect = async (file) => {
+        status.value = UploadStatus.HASHING;
+    const fileHash = await createActualSHA256(file);
+        status.value = UploadStatus.INITIALIZING;
+    const initialized = await initDirectUpload({
+      fileName: file.name,
+      contentType: file.type || "application/octet-stream",
+      size: file.size,
+      fileHash,
+    });
+    if (initialized.status === UploadStatus.COMPLETED) return { fileId: initialized.fileId };
+
+    uploadId.value = initialized.uploadId;
+    status.value = UploadStatus.UPLOADING;
+    await uploadDirectObjectToStorage(initialized.url, file, (event) => {
+      if (event.total) {
+        uploadedBytes.value = Math.min(file.size, event.loaded);
+        updateProgress();
+      }
+    });
+    status.value = UploadStatus.COMPLETING;
+    return completeDirectUpload(initialized.uploadId);
+  };
+
   const upload = async (file) => {
     reset();
     if (!file || file.size <= 0) throw new Error("文件不能为空");
@@ -165,41 +192,38 @@ export function useChunkUpload(options = {}) {
     try {
       let result;
       if (file.size < MULTIPART_THRESHOLD) {
-        status.value = "hashing";
-        const fileHash = await createFileFingerprint(file);
-        status.value = "uploading";
-        result = await uploadFile(file, fileHash);
+        result = await uploadDirect(file);
       } else {
         result = await uploadMultipart(file);
       }
       if (canceled.value) throw new Error("上传已取消");
       uploadedBytes.value = file.size;
       progress.value = 100;
-      status.value = "completed";
+      status.value = UploadStatus.COMPLETED;
       return result;
     } catch (uploadError) {
       error.value = uploadError.message;
-      if (!canceled.value) status.value = "failed";
+      if (!canceled.value) status.value = UploadStatus.FAILED;
       throw uploadError;
     }
   };
 
   const pause = () => {
-    if (status.value === "uploading") {
+    if (status.value === UploadStatus.UPLOADING) {
       paused.value = true;
-      status.value = "paused";
+      status.value = UploadStatus.PAUSED;
     }
   };
   const resume = () => {
-    if (status.value === "paused") {
+    if (status.value === UploadStatus.PAUSED) {
       paused.value = false;
-      status.value = "uploading";
+      status.value = UploadStatus.UPLOADING;
     }
   };
   const cancel = () => {
     canceled.value = true;
     paused.value = false;
-    status.value = "canceled";
+    status.value = UploadStatus.CANCELED;
   };
 
   return {
@@ -238,6 +262,10 @@ async function createFileFingerprint(file) {
     offset += buffer.byteLength;
   });
   return digest(payload);
+}
+
+async function createActualSHA256(file) {
+  return digest(await file.arrayBuffer());
 }
 
 const digest = async (buffer) => {

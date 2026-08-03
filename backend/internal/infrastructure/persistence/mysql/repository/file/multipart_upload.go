@@ -4,25 +4,26 @@ import (
 	filerepo "IM_backend/internal/application/ports/persistence/repository/file"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
-type MultipartUploadRepository struct {
+type FileUploadRepository struct {
 	db *gorm.DB
 }
 
-func NewMultipartUploadRepository(db *gorm.DB) filerepo.MultipartUploadRepository {
-	return &MultipartUploadRepository{db: db}
+func NewFileUploadRepository(db *gorm.DB) filerepo.FileUploadRepository {
+	return &FileUploadRepository{db: db}
 }
 
-func (m *MultipartUploadRepository) WithTx(tx any) filerepo.MultipartUploadRepository {
-	return &MultipartUploadRepository{db: tx.(*gorm.DB)}
+func (r *FileUploadRepository) WithTx(tx any) filerepo.FileUploadRepository {
+	return &FileUploadRepository{db: tx.(*gorm.DB)}
 }
 
-func (r *MultipartUploadRepository) Create(ctx context.Context, upload filerepo.MultipartUploadRecord) error {
+func (r *FileUploadRepository) Create(ctx context.Context, upload filerepo.FileUploadRecord) error {
 	var storageUploadID *string
 	if upload.StorageUploadId != "" {
 		storageUploadID = &upload.StorageUploadId
@@ -43,6 +44,7 @@ func (r *MultipartUploadRepository) Create(ctx context.Context, upload filerepo.
 		StorageUploadId: storageUploadID,
 		FileHash:        upload.FileHash,
 		ObjectKey:       upload.ObjectKey,
+		FileName:        upload.FileName,
 		ContentType:     upload.ContentType,
 		ExpectedSize:    upload.ExpectedSize,
 		ChunkSize:       chunkSize,
@@ -59,9 +61,37 @@ func (r *MultipartUploadRepository) Create(ctx context.Context, upload filerepo.
 	}).Error
 }
 
-func (r *MultipartUploadRepository) ClaimExpired(ctx context.Context, now int64, staleBefore int64, limit int) ([]filerepo.MultipartUploadRecord, error) {
+func (r *FileUploadRepository) GetByID(ctx context.Context, uploadId string) (*filerepo.FileUploadRecord, error) {
+	var row model.FileUpload
+	if err := r.db.WithContext(ctx).Where("upload_id = ?", uploadId).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	record := toFileUploadRecord(row)
+	return &record, nil
+}
+
+func (r *FileUploadRepository) FindUploadingByUploaderAndHash(ctx context.Context, uploaderId, fileHash string, now int64) (*filerepo.FileUploadRecord, error) {
+	var row model.FileUpload
+	err := r.db.WithContext(ctx).
+		Where("uploader_id = ? AND file_hash = ? AND status = ? AND expires_at > ?", uploaderId, fileHash, "uploading", now).
+		Order("created_at DESC").
+		First(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	record := toFileUploadRecord(row)
+	return &record, nil
+}
+
+func (r *FileUploadRepository) ClaimExpired(ctx context.Context, now int64, staleBefore int64, limit int) ([]filerepo.FileUploadRecord, error) {
 	if limit <= 0 {
-		return []filerepo.MultipartUploadRecord{}, nil
+		return []filerepo.FileUploadRecord{}, nil
 	}
 
 	var rows []model.FileUpload
@@ -76,7 +106,7 @@ func (r *MultipartUploadRepository) ClaimExpired(ctx context.Context, now int64,
 		return nil, err
 	}
 	if len(rows) == 0 {
-		return []filerepo.MultipartUploadRecord{}, nil
+		return []filerepo.FileUploadRecord{}, nil
 	}
 
 	ids := make([]string, 0, len(rows))
@@ -95,17 +125,17 @@ func (r *MultipartUploadRepository) ClaimExpired(ctx context.Context, now int64,
 		return nil, err
 	}
 
-	uploads := make([]filerepo.MultipartUploadRecord, 0, len(rows))
+	uploads := make([]filerepo.FileUploadRecord, 0, len(rows))
 	for i := range rows {
 		row := rows[i]
 		row.LockedAt = &now
 		row.LockToken = lockToken
-		uploads = append(uploads, toMultipartUploadRecord(row))
+		uploads = append(uploads, toFileUploadRecord(row))
 	}
 	return uploads, nil
 }
 
-func (r *MultipartUploadRepository) MarkExpired(ctx context.Context, uploadId, lockToken string, updatedAt int64) (bool, error) {
+func (r *FileUploadRepository) MarkExpired(ctx context.Context, uploadId, lockToken string, updatedAt int64) (bool, error) {
 	result := r.db.WithContext(ctx).
 		Model(&model.FileUpload{}).
 		Where("upload_id = ? AND status = ? AND lock_token = ?", uploadId, "uploading", lockToken).
@@ -118,7 +148,7 @@ func (r *MultipartUploadRepository) MarkExpired(ctx context.Context, uploadId, l
 	return result.RowsAffected > 0, result.Error
 }
 
-func (r *MultipartUploadRepository) MarkCleanupRetry(ctx context.Context, uploadId, lockToken string, nextRetryAt int64, lastError string, updatedAt int64) (bool, error) {
+func (r *FileUploadRepository) MarkCleanupRetry(ctx context.Context, uploadId, lockToken string, nextRetryAt int64, lastError string, updatedAt int64) (bool, error) {
 	result := r.db.WithContext(ctx).
 		Model(&model.FileUpload{}).
 		Where("upload_id = ? AND status = ? AND lock_token = ?", uploadId, "uploading", lockToken).
@@ -133,7 +163,7 @@ func (r *MultipartUploadRepository) MarkCleanupRetry(ctx context.Context, upload
 	return result.RowsAffected > 0, result.Error
 }
 
-func (r *MultipartUploadRepository) MarkCleanupFailed(ctx context.Context, uploadId, lockToken string, lastError string, updatedAt int64) (bool, error) {
+func (r *FileUploadRepository) MarkCleanupFailed(ctx context.Context, uploadId, lockToken string, lastError string, updatedAt int64) (bool, error) {
 	result := r.db.WithContext(ctx).
 		Model(&model.FileUpload{}).
 		Where("upload_id = ? AND status = ? AND lock_token = ?", uploadId, "uploading", lockToken).
@@ -147,12 +177,13 @@ func (r *MultipartUploadRepository) MarkCleanupFailed(ctx context.Context, uploa
 	return result.RowsAffected > 0, result.Error
 }
 
-func (r *MultipartUploadRepository) MarkCompleted(ctx context.Context, uploadId string, completedAt int64) (bool, error) {
+func (r *FileUploadRepository) MarkCompleted(ctx context.Context, uploadId, fileId string, completedAt int64) (bool, error) {
 	result := r.db.WithContext(ctx).
 		Model(&model.FileUpload{}).
 		Where("upload_id = ? AND status = ?", uploadId, "uploading").
 		Updates(map[string]any{
 			"status":       "completed",
+			"file_id":      fileId,
 			"completed_at": completedAt,
 			"updated_at":   completedAt,
 		})
@@ -173,11 +204,11 @@ func (r *MultipartUploadRepository) MarkCompleted(ctx context.Context, uploadId 
 	return status == "completed", nil
 }
 
-func (r *MultipartUploadRepository) Delete(ctx context.Context, uploadId string) error {
+func (r *FileUploadRepository) Delete(ctx context.Context, uploadId string) error {
 	return r.db.WithContext(ctx).Where("upload_id = ?", uploadId).Delete(&model.FileUpload{}).Error
 }
 
-func toMultipartUploadRecord(row model.FileUpload) filerepo.MultipartUploadRecord {
+func toFileUploadRecord(row model.FileUpload) filerepo.FileUploadRecord {
 	chunkSize := int64(0)
 	if row.ChunkSize != nil {
 		chunkSize = *row.ChunkSize
@@ -191,7 +222,7 @@ func toMultipartUploadRecord(row model.FileUpload) filerepo.MultipartUploadRecor
 		storageUploadID = *row.StorageUploadId
 	}
 
-	return filerepo.MultipartUploadRecord{
+	return filerepo.FileUploadRecord{
 		UploadId:        row.UploadId,
 		FileId:          row.FileId,
 		UploaderId:      row.UploaderId,
@@ -199,6 +230,7 @@ func toMultipartUploadRecord(row model.FileUpload) filerepo.MultipartUploadRecor
 		StorageUploadId: storageUploadID,
 		FileHash:        row.FileHash,
 		ObjectKey:       row.ObjectKey,
+		FileName:        row.FileName,
 		ContentType:     row.ContentType,
 		ExpectedSize:    row.ExpectedSize,
 		ChunkSize:       chunkSize,

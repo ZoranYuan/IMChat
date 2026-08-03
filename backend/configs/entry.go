@@ -81,6 +81,8 @@ type MinIOConfig struct {
 	URLTTLSeconds                    int     `yaml:"url_ttl_seconds"`
 	MultipartTTL                     int     `yaml:"multipartTTL"`
 	PartURLTTLSeconds                int     `yaml:"part_url_ttl_seconds"`
+	DirectUploadURLTTLSeconds        int     `yaml:"direct_upload_url_ttl_seconds"`
+	DirectUploadMaxSizeBytes         int64   `yaml:"direct_upload_max_size_bytes"`
 	MultipartInitLockTTLSeconds      int     `yaml:"multipart_init_lock_ttl_seconds"`
 	MultipartCompleteLockTTLSeconds  int     `yaml:"multipart_complete_lock_ttl_seconds"`
 	DirectUploadLockTTLSeconds       int     `yaml:"direct_upload_lock_ttl_seconds"`

@@ -98,6 +98,29 @@ func (s *ObjectStorage) PutObject(ctx context.Context, objectKey string, reader 
 	return nil
 }
 
+func (s *ObjectStorage) PresignedPutURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error) {
+	u, err := s.publicClient.PresignedPutObject(ctx, s.bucket, objectKey, ttl)
+	if err != nil {
+		return "", err
+	}
+	return u.String(), nil
+}
+
+func (s *ObjectStorage) StatObject(ctx context.Context, objectKey string) (*objectport.ObjectInfo, error) {
+	info, err := s.client.StatObject(ctx, s.bucket, objectKey, minio.StatObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return &objectport.ObjectInfo{
+		Size:        info.Size,
+		ContentType: info.ContentType,
+	}, nil
+}
+
+func (s *ObjectStorage) OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error) {
+	return s.client.GetObject(ctx, s.bucket, objectKey, minio.GetObjectOptions{})
+}
+
 func (s *ObjectStorage) DeleteObject(ctx context.Context, objectKey string) error {
 	return s.client.RemoveObject(ctx, s.bucket, objectKey, minio.RemoveObjectOptions{})
 }

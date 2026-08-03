@@ -9,6 +9,9 @@ import (
 type ObjectStorage interface {
 	Health(ctx context.Context) error
 	PutObject(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
+	PresignedPutURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error)
+	StatObject(ctx context.Context, objectKey string) (*ObjectInfo, error)
+	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
 	DeleteObject(ctx context.Context, objectKey string) error
 	CreateMultipartUpload(ctx context.Context, objectKey string, contentType string) (string, error)
 	PresignMultipartPart(ctx context.Context, objectKey string, uploadId string, partNumber int, ttl time.Duration) (string, error)
@@ -17,6 +20,11 @@ type ObjectStorage interface {
 	AbortMultipartUpload(ctx context.Context, objectKey string, uploadId string) error
 	PresignedGetURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error)
 	Bucket() string
+}
+
+type ObjectInfo struct {
+	Size        int64
+	ContentType string
 }
 
 type MultipartPart struct {

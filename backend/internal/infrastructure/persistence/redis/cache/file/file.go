@@ -40,7 +40,7 @@ func (c *FileCache) Delete(ctx context.Context, fileId string) error {
 	return c.store.Del(ctx, FileKey(fileId))
 }
 
-func (c *FileCache) RenewMultipartCompleteLock(ctx context.Context, uploadId string, token string, ttl time.Duration) (bool, error) {
+func (c *FileCache) RenewFileCompleteLock(ctx context.Context, uploadId string, token string, ttl time.Duration) (bool, error) {
 	luaScript := `
 		local token = ARGV[1]
 		local ttl = ARGV[2]
@@ -54,7 +54,7 @@ func (c *FileCache) RenewMultipartCompleteLock(ctx context.Context, uploadId str
 	result, err := c.store.Eval(
 		ctx,
 		luaScript,
-		[]string{MultipartCompleteLockKey(uploadId)},
+		[]string{FileCompleteLockKey(uploadId)},
 		token,
 		ttl.Milliseconds(),
 	)
@@ -65,56 +65,43 @@ func (c *FileCache) RenewMultipartCompleteLock(ctx context.Context, uploadId str
 	return ok && renewed == 1, nil
 }
 
-func (c *FileCache) SetMultipartUpload(ctx context.Context, meta filecache.MultipartUploadMeta, ttl time.Duration) error {
-	return c.store.SetJSON(ctx, MultipartMetaKey(meta.UploadId), meta, ttl)
+func (c *FileCache) SetMultipartUploadMeta(ctx context.Context, meta filecache.MultipartUploadMeta, ttl time.Duration) error {
+	return c.store.SetJSON(ctx, MultipartUploadMetaKey(meta.UploadId), meta, ttl)
 }
 
-func (c *FileCache) GetMultipartUpload(ctx context.Context, uploadId string) (*filecache.MultipartUploadMeta, error) {
+func (c *FileCache) GetMultipartUploadMeta(ctx context.Context, uploadId string) (*filecache.MultipartUploadMeta, error) {
 	var meta filecache.MultipartUploadMeta
-	ok, err := c.store.GetJSON(ctx, MultipartMetaKey(uploadId), &meta)
+	ok, err := c.store.GetJSON(ctx, MultipartUploadMetaKey(uploadId), &meta)
 	if err != nil || !ok {
 		return nil, err
 	}
 	return &meta, nil
 }
 
-func (c *FileCache) AcquireMultipartInitLock(ctx context.Context, uploaderId string, fileHash string, ttl time.Duration) (string, bool, error) {
+func (c *FileCache) AcquireFileInitLock(ctx context.Context, uploaderId string, fileHash string, ttl time.Duration) (string, bool, error) {
 	token, err := newLockToken()
 	if err != nil {
 		return "", false, err
 	}
-	locked, err := c.store.SetNXString(ctx, MultipartInitLockKey(uploaderId, fileHash), token, ttl)
+	locked, err := c.store.SetNXString(ctx, FileInitLockKey(uploaderId, fileHash), token, ttl)
 	return token, locked, err
 }
 
-func (c *FileCache) ReleaseMultipartInitLock(ctx context.Context, uploaderId string, fileHash string, token string) error {
-	return c.releaseLock(ctx, MultipartInitLockKey(uploaderId, fileHash), token)
+func (c *FileCache) ReleaseFileInitLock(ctx context.Context, uploaderId string, fileHash string, token string) error {
+	return c.releaseLock(ctx, FileInitLockKey(uploaderId, fileHash), token)
 }
 
-func (c *FileCache) AcquireFileDedupInitLock(ctx context.Context, uploaderId string, fileHash string, ttl time.Duration) (string, bool, error) {
+func (c *FileCache) AcquireFileCompleteLock(ctx context.Context, uploadId string, ttl time.Duration) (string, bool, error) {
 	token, err := newLockToken()
 	if err != nil {
 		return "", false, err
 	}
-	locked, err := c.store.SetNXString(ctx, FileDedupInitLockKey(uploaderId, fileHash), token, ttl)
+	locked, err := c.store.SetNXString(ctx, FileCompleteLockKey(uploadId), token, ttl)
 	return token, locked, err
 }
 
-func (c *FileCache) ReleaseFileDedupInitLock(ctx context.Context, uploaderId string, fileHash string, token string) error {
-	return c.releaseLock(ctx, FileDedupInitLockKey(uploaderId, fileHash), token)
-}
-
-func (c *FileCache) AcquireMultipartCompleteLock(ctx context.Context, uploadId string, ttl time.Duration) (string, bool, error) {
-	token, err := newLockToken()
-	if err != nil {
-		return "", false, err
-	}
-	locked, err := c.store.SetNXString(ctx, MultipartCompleteLockKey(uploadId), token, ttl)
-	return token, locked, err
-}
-
-func (c *FileCache) ReleaseMultipartCompleteLock(ctx context.Context, uploadId string, token string) error {
-	return c.releaseLock(ctx, MultipartCompleteLockKey(uploadId), token)
+func (c *FileCache) ReleaseFileCompleteLock(ctx context.Context, uploadId string, token string) error {
+	return c.releaseLock(ctx, FileCompleteLockKey(uploadId), token)
 }
 
 func (c *FileCache) releaseLock(ctx context.Context, key string, token string) error {
@@ -137,8 +124,8 @@ func newLockToken() (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
-func (c *FileCache) DeleteMultipartUpload(ctx context.Context, uploadId string) error {
-	return c.store.Del(ctx, MultipartMetaKey(uploadId))
+func (c *FileCache) DeleteMultipartUploadMeta(ctx context.Context, uploadId string) error {
+	return c.store.Del(ctx, MultipartUploadMetaKey(uploadId))
 }
 
 func (c *FileCache) SetActiveUpload(ctx context.Context, uploaderId string, fileHash string, uploadId string, ttl time.Duration) error {

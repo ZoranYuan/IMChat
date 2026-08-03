@@ -163,22 +163,24 @@ func main() {
 
 	// 构造依赖
 	fileRepository := filemysql.NewFileRepository(db)
-	multipartUploadRepository := filemysql.NewMultipartUploadRepository(db)
+	fileUploadRepository := filemysql.NewFileUploadRepository(db)
 	messageAttachmentsRepository := messagemysql.NewMessageAttachmentRepository(db)
 	fileApplication := fileapp.NewFileApplication(fileapp.Options{
 		MultipartTTL:             time.Duration(cfg.Storage.MinIO.MultipartTTL) * time.Second,
 		CacheTTL:                 time.Duration(cfg.Storage.MinIO.CacheTTLSeconds) * time.Second,
 		URLTTL:                   time.Duration(cfg.Storage.MinIO.URLTTLSeconds) * time.Second,
 		PartURLTTL:               time.Duration(cfg.Storage.MinIO.PartURLTTLSeconds) * time.Second,
+		DirectUploadURLTTL:       time.Duration(cfg.Storage.MinIO.DirectUploadURLTTLSeconds) * time.Second,
+		DirectUploadMaxSize:      cfg.Storage.MinIO.DirectUploadMaxSizeBytes,
 		MultipartInitLockTTL:     time.Duration(cfg.Storage.MinIO.MultipartInitLockTTLSeconds) * time.Second,
 		MultipartCompleteLockTTL: time.Duration(cfg.Storage.MinIO.MultipartCompleteLockTTLSeconds) * time.Second,
 		DirectUploadLockTTL:      time.Duration(cfg.Storage.MinIO.DirectUploadLockTTLSeconds) * time.Second,
 		MaxFileSize:              cfg.Storage.MinIO.MaxFileSizeBytes,
 		MaxMultipartParts:        cfg.Storage.MinIO.MaxMultipartParts,
-	}, fileRepository, multipartUploadRepository, messageAttachmentsRepository, fileCache, objectStorage, idGenerator, txManager)
+	}, fileRepository, fileUploadRepository, messageAttachmentsRepository, fileCache, objectStorage, idGenerator, txManager)
 	multipartCleanupWorker := filecleanup.NewWorker(
 		txManager,
-		multipartUploadRepository,
+		fileUploadRepository,
 		fileRepository,
 		fileCache,
 		objectStorage,

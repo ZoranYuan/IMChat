@@ -9,6 +9,7 @@ type FileUpload struct {
 
 	FileHash     string `gorm:"size:128;index:idx_file_upload_hash,priority:2" json:"fileHash,omitempty"`
 	ObjectKey    string `gorm:"size:255;not null;uniqueIndex:uk_file_upload_object" json:"objectKey"`
+	FileName     string `gorm:"size:255;not null" json:"fileName"`
 	ContentType  string `gorm:"size:128" json:"contentType,omitempty"`
 	ExpectedSize int64  `gorm:"not null" json:"expectedSize"`
 

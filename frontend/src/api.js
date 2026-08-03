@@ -15,6 +15,11 @@ const http = axios.create({
   timeout: 15000,
 });
 
+// 预签名对象上传不经过业务 API，不携带业务鉴权，也不做响应解包。
+const storageHttp = axios.create({
+  timeout: 0,
+});
+
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem("im_token") || sessionStorage.getItem("im_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -110,6 +115,21 @@ export const uploadFile = (file, fileHash = "") => {
   return http.post("/files", form);
 };
 
+export const initDirectUpload = (payload) =>
+  http.post("/files/direct/init", payload);
+
+const putObjectToStorage = (url, data, contentType, onUploadProgress) =>
+  storageHttp.put(url, data, {
+    headers: { "Content-Type": contentType || "application/octet-stream" },
+    onUploadProgress,
+  });
+
+export const uploadDirectObjectToStorage = (url, file, onUploadProgress) =>
+  putObjectToStorage(url, file, file.type, onUploadProgress);
+
+export const completeDirectUpload = (uploadId) =>
+  http.post(`/files/direct/${uploadId}/complete`);
+
 export const initMultipartUpload = (payload) =>
   http.post("/files/multipart/init", payload);
 
@@ -117,9 +137,7 @@ export const presignMultipartParts = (uploadId, partNumbers) =>
   http.post(`/files/multipart/${uploadId}/parts/presign`, { partNumbers });
 
 export const uploadMultipartPartToStorage = (url, chunk) =>
-  axios.put(url, chunk, {
-    headers: { "Content-Type": "application/octet-stream" },
-  });
+  putObjectToStorage(url, chunk, "application/octet-stream");
 
 export const completeMultipartUpload = (uploadId) =>
   http.post(`/files/multipart/${uploadId}/complete`);

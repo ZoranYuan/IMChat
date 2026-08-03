@@ -34,7 +34,7 @@ type Options struct {
 
 type Worker struct {
 	txManager        txmanager.TxManager
-	uploadRepo       filerepo.MultipartUploadRepository
+	fileUploadRepo   filerepo.FileUploadRepository
 	fileRepo         filerepo.FileRepository
 	fileCache        filecache.FileCache
 	storage          objectstorage.ObjectStorage
@@ -49,7 +49,7 @@ type Worker struct {
 
 func NewWorker(
 	txManager txmanager.TxManager,
-	uploadRepo filerepo.MultipartUploadRepository,
+	fileUploadRepo filerepo.FileUploadRepository,
 	fileRepo filerepo.FileRepository,
 	fileCache filecache.FileCache,
 	storage objectstorage.ObjectStorage,
@@ -79,7 +79,7 @@ func NewWorker(
 
 	return &Worker{
 		txManager:        txManager,
-		uploadRepo:       uploadRepo,
+		fileUploadRepo:   fileUploadRepo,
 		fileRepo:         fileRepo,
 		fileCache:        fileCache,
 		storage:          storage,
@@ -111,16 +111,16 @@ func (w *Worker) Start(ctx context.Context) {
 }
 
 func (w *Worker) dispatchPendingOnce(ctx context.Context) error {
-	if w.txManager == nil || w.uploadRepo == nil || w.fileCache == nil || w.storage == nil {
+	if w.txManager == nil || w.fileUploadRepo == nil || w.fileCache == nil || w.storage == nil {
 		return errors.New("文件上传清理任务依赖未配置")
 	}
 
 	now := time.Now().UnixMilli()
 	staleBefore := now - w.staleAfter.Milliseconds()
-	var uploads []filerepo.MultipartUploadRecord
+	var uploads []filerepo.FileUploadRecord
 	if err := w.txManager.WithinTransaction(ctx, func(tx any) error {
 		var err error
-		uploads, err = w.uploadRepo.WithTx(tx).ClaimExpired(ctx, now, staleBefore, w.batchSize)
+		uploads, err = w.fileUploadRepo.WithTx(tx).ClaimExpired(ctx, now, staleBefore, w.batchSize)
 		return err
 	}); err != nil {
 		return err
@@ -174,7 +174,7 @@ func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64) error {
 	return nil
 }
 
-func (w *Worker) cleanupOne(ctx context.Context, upload filerepo.MultipartUploadRecord) error {
+func (w *Worker) cleanupOne(ctx context.Context, upload filerepo.FileUploadRecord) error {
 	cleanupCtx, cancel := context.WithTimeout(ctx, w.operationTimeout)
 	defer cancel()
 
@@ -182,15 +182,19 @@ func (w *Worker) cleanupOne(ctx context.Context, upload filerepo.MultipartUpload
 		if err := w.storage.AbortMultipartUpload(cleanupCtx, upload.ObjectKey, upload.StorageUploadId); err != nil {
 			return err
 		}
+	} else {
+		if err := w.storage.DeleteObject(cleanupCtx, upload.ObjectKey); err != nil {
+			return err
+		}
 	}
-	if err := w.fileCache.DeleteMultipartUpload(cleanupCtx, upload.UploadId); err != nil {
+	if err := w.fileCache.DeleteMultipartUploadMeta(cleanupCtx, upload.UploadId); err != nil {
 		return err
 	}
 	if err := w.fileCache.DeleteActiveUploadIfMatches(cleanupCtx, upload.UploaderId, upload.FileHash, upload.UploadId); err != nil {
 		return err
 	}
 
-	marked, err := w.uploadRepo.MarkExpired(ctx, upload.UploadId, upload.LockToken, time.Now().UnixMilli())
+	marked, err := w.fileUploadRepo.MarkExpired(ctx, upload.UploadId, upload.LockToken, time.Now().UnixMilli())
 	if err != nil {
 		return err
 	}
@@ -200,12 +204,12 @@ func (w *Worker) cleanupOne(ctx context.Context, upload filerepo.MultipartUpload
 	return nil
 }
 
-func (w *Worker) recordFailure(ctx context.Context, upload filerepo.MultipartUploadRecord, cleanupErr error) {
+func (w *Worker) recordFailure(ctx context.Context, upload filerepo.FileUploadRecord, cleanupErr error) {
 	now := time.Now()
 	lastError := cleanupErr.Error()
 
 	if upload.RetryCount+1 >= w.maxRetries {
-		marked, err := w.uploadRepo.MarkCleanupFailed(ctx, upload.UploadId, upload.LockToken, lastError, now.UnixMilli())
+		marked, err := w.fileUploadRepo.MarkCleanupFailed(ctx, upload.UploadId, upload.LockToken, lastError, now.UnixMilli())
 		if err != nil || !marked {
 			log.Printf("标记文件上传清理失败状态失败：上传=%s 错误=%v 原因=%s", upload.UploadId, err, lastError)
 			return
@@ -218,7 +222,7 @@ func (w *Worker) recordFailure(ctx context.Context, upload filerepo.MultipartUpl
 	if delay > 30*time.Minute {
 		delay = 30 * time.Minute
 	}
-	marked, err := w.uploadRepo.MarkCleanupRetry(
+	marked, err := w.fileUploadRepo.MarkCleanupRetry(
 		ctx,
 		upload.UploadId,
 		upload.LockToken,

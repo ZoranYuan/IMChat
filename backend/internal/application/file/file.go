@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"path"
 	"sort"
 	"strings"
@@ -27,7 +26,7 @@ import (
 type FileApplication struct {
 	options                     Options
 	fileRepository              filerepo.FileRepository
-	multipartUploadRepository   filerepo.MultipartUploadRepository
+	fileUploadRepository        filerepo.FileUploadRepository
 	messageAttactmentRepository messagerepo.MessageAttachmentsRepository
 	fileCache                   filecache.FileCache
 	storage                     objectstorage.ObjectStorage
@@ -39,6 +38,8 @@ type FileApplication struct {
 type Options struct {
 	MultipartTTL             time.Duration
 	PartURLTTL               time.Duration
+	DirectUploadURLTTL       time.Duration
+	DirectUploadMaxSize      int64
 	MultipartInitLockTTL     time.Duration
 	MultipartCompleteLockTTL time.Duration
 	DirectUploadLockTTL      time.Duration
@@ -52,12 +53,13 @@ const (
 	multipartStatusUploading = "uploading"
 	multipartStatusCompleted = "completed"
 	multipartUploadMode      = "multipart"
+	directUploadMode         = "direct"
 )
 
 func NewFileApplication(
 	options Options,
 	fileRepository filerepo.FileRepository,
-	multipartUploadRepository filerepo.MultipartUploadRepository,
+	fileUploadRepository filerepo.FileUploadRepository,
 	messageAttactmentRepository messagerepo.MessageAttachmentsRepository,
 	fileCache filecache.FileCache,
 	storage objectstorage.ObjectStorage,
@@ -67,7 +69,7 @@ func NewFileApplication(
 	return &FileApplication{
 		options:                     options,
 		fileRepository:              fileRepository,
-		multipartUploadRepository:   multipartUploadRepository,
+		fileUploadRepository:        fileUploadRepository,
 		messageAttactmentRepository: messageAttactmentRepository,
 		fileCache:                   fileCache,
 		storage:                     storage,
@@ -76,130 +78,236 @@ func NewFileApplication(
 	}
 }
 
-func (a *FileApplication) Upload(ctx context.Context, dto UploadDTO) (*FileDTO, error) {
-	if dto.Reader == nil || dto.Size <= 0 {
-		return nil, ErrFileRequired
+func normalizeFileHash(fileHash string) string {
+	return strings.ToLower(strings.TrimSpace(fileHash))
+}
+
+func (a *FileApplication) InitDirectUpload(ctx context.Context, dto DirectUploadInitDTO) (*DirectUploadInitResDTO, error) {
+	fileHash := normalizeFileHash(dto.FileHash)
+	if dto.UploaderId == "" || dto.FileName == "" || dto.Size <= 0 || fileHash == "" {
+		return nil, ErrInvalidUpload
+	}
+	if a.options.DirectUploadMaxSize > 0 && dto.Size > a.options.DirectUploadMaxSize {
+		return nil, ErrFileTooLarge
 	}
 	if a.options.MaxFileSize > 0 && dto.Size > a.options.MaxFileSize {
 		return nil, ErrFileTooLarge
 	}
-	fileHash := strings.TrimSpace(dto.FileHash)
-	reader := dto.Reader
-	var stagedFile *os.File
-	if fileHash != "" {
-		// 必须先验证前端 hash，才能安全执行秒传。使用临时文件避免把整个文件加载到内存。
-		var err error
-		stagedFile, err = os.CreateTemp("", "im-upload-*")
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			_ = stagedFile.Close()
-			_ = os.Remove(stagedFile.Name())
-		}()
 
-		hasher := sha256.New()
-		written, err := io.Copy(io.MultiWriter(stagedFile, hasher), dto.Reader)
-		if err != nil {
-			return nil, err
-		}
-		if written != dto.Size {
-			return nil, ErrFileSizeMismatch
-		}
-		actualHash := hex.EncodeToString(hasher.Sum(nil))
-		if !strings.EqualFold(actualHash, fileHash) {
-			return nil, ErrFileHashMismatch
-		}
-		fileHash = actualHash
-		if _, err := stagedFile.Seek(0, io.SeekStart); err != nil {
-			return nil, err
-		}
-		reader = stagedFile
+	if file, err := a.findFileByUploaderAndHash(ctx, dto.UploaderId, fileHash); err != nil {
+		return nil, err
+	} else if file != nil {
+		return &DirectUploadInitResDTO{FileId: file.FileId, Status: multipartStatusCompleted}, nil
 	}
 
-	if fileHash != "" {
-		// 秒传查询是只读操作，不需要加锁。
-		existing, err := a.findFileByUploaderAndHash(ctx, dto.UploaderId, fileHash)
-		if err != nil {
-			return nil, err
-		}
-		if existing != nil {
-			return toDTO(existing), nil
-		}
+	lockToken, locked, err := a.fileCache.AcquireFileInitLock(ctx, dto.UploaderId, fileHash, a.multipartInitLockTTL())
+	if err != nil {
+		return nil, err
+	}
+	if !locked {
+		return nil, ErrUploadBusy
+	}
+	defer func() {
+		_ = a.fileCache.ReleaseFileInitLock(context.Background(), dto.UploaderId, fileHash, lockToken)
+	}()
 
-		// 只有未命中后才锁住上传、入库和缓存回填阶段。
-		lockToken, locked, err := a.fileCache.AcquireFileDedupInitLock(ctx, dto.UploaderId, fileHash, a.directUploadLockTTL())
-		if err != nil {
-			return nil, err
-		}
-		if !locked {
+	if file, err := a.findFileByUploaderAndHash(ctx, dto.UploaderId, fileHash); err != nil {
+		return nil, err
+	} else if file != nil {
+		return &DirectUploadInitResDTO{FileId: file.FileId, Status: multipartStatusCompleted}, nil
+	}
+
+	now := time.Now()
+	existing, err := a.fileUploadRepository.FindUploadingByUploaderAndHash(ctx, dto.UploaderId, fileHash, now.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		if existing.UploadMode != directUploadMode {
 			return nil, ErrUploadBusy
 		}
-		defer func() {
-			_ = a.fileCache.ReleaseFileDedupInitLock(context.Background(), dto.UploaderId, fileHash, lockToken)
-		}()
-
-		// 防止等待期间其他请求已经完成上传。
-		existing, err = a.findFileByUploaderAndHash(ctx, dto.UploaderId, fileHash)
-		if err != nil {
-			return nil, err
-		}
-		if existing != nil {
-			return toDTO(existing), nil
-		}
+		return a.presignDirectUpload(ctx, existing)
 	}
 
-	// 新文件上传
 	fileId, err := a.idGenerator.Generate()
 	if err != nil {
 		return nil, err
 	}
+	uploadId, err := a.idGenerator.Generate()
+	if err != nil {
+		return nil, err
+	}
+	ttl := a.directUploadURLTTL()
+	record := filerepo.FileUploadRecord{
+		UploadId:     uploadId,
+		FileId:       fileId,
+		UploaderId:   dto.UploaderId,
+		UploadMode:   directUploadMode,
+		FileHash:     fileHash,
+		ObjectKey:    a.buildObjectKey(dto.UploaderId, fileId, dto.FileName),
+		FileName:     dto.FileName,
+		ContentType:  dto.ContentType,
+		ExpectedSize: dto.Size,
+		Status:       multipartStatusUploading,
+		ExpiresAt:    now.Add(ttl).UnixMilli(),
+		CreatedAt:    now.UnixMilli(),
+		UpdatedAt:    now.UnixMilli(),
+	}
+	if err := a.fileUploadRepository.Create(ctx, record); err != nil {
+		return nil, err
+	}
 
-	objectKey := a.buildObjectKey(dto.UploaderId, fileId, dto.FileName)
+	result, err := a.presignDirectUpload(ctx, &record)
+	if err != nil {
+		_ = a.fileUploadRepository.Delete(context.Background(), uploadId)
+		return nil, err
+	}
+	if err := a.fileCache.SetActiveUpload(ctx, dto.UploaderId, fileHash, uploadId, ttl); err != nil {
+		log.Printf("写入直传活跃上传缓存失败：上传=%s 错误=%v", uploadId, err)
+	}
+	return result, nil
+}
+
+func (a *FileApplication) presignDirectUpload(ctx context.Context, record *filerepo.FileUploadRecord) (*DirectUploadInitResDTO, error) {
+	ttl := time.Until(time.UnixMilli(record.ExpiresAt))
+	if ttl <= 0 {
+		return nil, ErrInvalidUpload
+	}
+	url, err := a.storage.PresignedPutURL(ctx, record.ObjectKey, ttl)
+	if err != nil {
+		return nil, err
+	}
+	return &DirectUploadInitResDTO{
+		UploadId:  record.UploadId,
+		FileId:    record.FileId,
+		Status:    multipartStatusUploading,
+		URL:       url,
+		ExpiresAt: time.UnixMilli(record.ExpiresAt).Unix(),
+	}, nil
+}
+
+func (a *FileApplication) CompleteDirectUpload(ctx context.Context, uploadId, uploaderId string) (*FileDTO, error) {
+	if uploadId == "" || uploaderId == "" {
+		return nil, ErrInvalidUpload
+	}
+	record, err := a.fileUploadRepository.GetByID(ctx, uploadId)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil || record.UploadMode != directUploadMode {
+		return nil, ErrInvalidUpload
+	}
+	if record.UploaderId != uploaderId {
+		return nil, ErrUploadUnauthorized
+	}
+	if record.Status == multipartStatusCompleted {
+		return a.GetFileForUser(ctx, record.FileId, uploaderId)
+	}
+	if record.Status != multipartStatusUploading || record.ExpiresAt <= time.Now().UnixMilli() {
+		return nil, ErrInvalidUpload
+	}
+
+	unlock, lockLost, err := a.acquireFileCompleteLock(ctx, uploadId)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+
+	record, err = a.fileUploadRepository.GetByID(ctx, uploadId)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil || record.UploaderId != uploaderId || record.UploadMode != directUploadMode {
+		return nil, ErrInvalidUpload
+	}
+	if record.Status == multipartStatusCompleted {
+		return a.GetFileForUser(ctx, record.FileId, uploaderId)
+	}
+	if record.Status != multipartStatusUploading || record.ExpiresAt <= time.Now().UnixMilli() {
+		return nil, ErrInvalidUpload
+	}
+
+	info, err := a.storage.StatObject(ctx, record.ObjectKey)
+	if err != nil {
+		return nil, ErrUploadNotCompleted
+	}
+	if info == nil || info.Size != record.ExpectedSize {
+		return nil, ErrFileSizeMismatch
+	}
+	object, err := a.storage.OpenObject(ctx, record.ObjectKey)
+	if err != nil {
+		return nil, err
+	}
 	hasher := sha256.New()
-	if fileHash == "" {
-		reader = io.TeeReader(reader, hasher)
+	written, hashErr := io.Copy(hasher, object)
+	closeErr := object.Close()
+	if hashErr != nil {
+		return nil, hashErr
 	}
-	if err := a.storage.PutObject(ctx, objectKey, reader, dto.Size, dto.ContentType); err != nil {
-		return nil, err
+	if closeErr != nil {
+		return nil, closeErr
 	}
-	if fileHash == "" {
-		fileHash = hex.EncodeToString(hasher.Sum(nil))
+	if written != record.ExpectedSize {
+		return nil, ErrFileSizeMismatch
 	}
+	// 校验hash 是否一致
+	if !strings.EqualFold(hex.EncodeToString(hasher.Sum(nil)), record.FileHash) {
+		return nil, ErrFileHashMismatch
+	}
+
+	// 判断锁是否续期成功
+	select {
+	case <-lockLost:
+		return nil, ErrMultipartLockLost
+	default:
+	}
+
 	file := fileentity.NewFile(
-		fileId,
-		dto.UploaderId,
+		record.FileId,
+		record.UploaderId,
 		a.storage.Bucket(),
-		objectKey,
-		dto.FileName,
-		dto.ContentType,
-		dto.Size,
+		record.ObjectKey,
+		record.FileName,
+		record.ContentType,
+		record.ExpectedSize,
 	)
-	file.FileHash = fileHash
+	file.FileHash = record.FileHash
 
-	// 依靠数据库唯一键兜底，实现无锁入库
-	if err := a.fileRepository.Save(ctx, file); err != nil {
-		// 数据库返回错误可能发生在提交边界，先回查，避免误删已落库对象。
-		existing, findErr := a.findFileByUploaderAndHash(ctx, dto.UploaderId, fileHash)
-		if findErr != nil {
-			return nil, err
-		}
-		if existing != nil {
-			if existing.ObjectKey != objectKey {
-				a.cleanupObject(objectKey)
+	err = a.txManager.WithinTransaction(ctx, func(tx any) error {
+		fileRepo := a.fileRepository.WithTx(tx)
+		fileUploadRepo := a.fileUploadRepository.WithTx(tx)
+		if saveErr := fileRepo.Save(ctx, file); saveErr != nil {
+			existing, findErr := fileRepo.FindByUploaderAndHash(ctx, uploaderId, record.FileHash)
+			if findErr != nil || existing == nil {
+				return saveErr
 			}
-			return toDTO(existing), nil
+			file = existing
 		}
-		a.cleanupObject(objectKey)
+		marked, markErr := fileUploadRepo.MarkCompleted(ctx, uploadId, file.FileId, time.Now().UnixMilli())
+		if markErr != nil {
+			return markErr
+		}
+		if !marked {
+			return ErrInvalidUpload
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	if err := a.fileCache.Set(ctx, file, a.cacheTTL()); err != nil {
-		log.Printf("写入直传文件缓存失败：文件=%s 错误=%v", file.FileId, err)
+	// 当出现并发竞态时，可能会出现某个请求出现唯一键索引，因此需要删除此次上传的文件
+	if file.ObjectKey != record.ObjectKey {
+		a.cleanupObject(record.ObjectKey)
 	}
-
-	if err := a.fileCache.SetFileIDByUploaderAndHash(ctx, dto.UploaderId, fileHash, file.FileId, a.cacheTTL()); err != nil {
-		log.Printf("写入直传文件哈希缓存失败：文件=%s 错误=%v", file.FileId, err)
+	if err := a.fileCache.Set(ctx, file, a.cacheTTL()); err != nil {
+		log.Printf("完成直传后写入文件缓存失败：文件=%s 错误=%v", file.FileId, err)
+	}
+	if err := a.fileCache.SetFileIDByUploaderAndHash(ctx, uploaderId, record.FileHash, file.FileId, a.cacheTTL()); err != nil {
+		log.Printf("完成直传后写入文件哈希缓存失败：文件=%s 错误=%v", file.FileId, err)
+	}
+	if err := a.fileCache.DeleteActiveUploadIfMatches(ctx, uploaderId, record.FileHash, uploadId); err != nil {
+		log.Printf("完成直传后删除活跃上传缓存失败：上传=%s 错误=%v", uploadId, err)
 	}
 	return toDTO(file), nil
 }
@@ -247,9 +355,77 @@ func (a *FileApplication) findFileByUploaderAndHash(ctx context.Context, uploade
 	return file, nil
 }
 
+func (a *FileApplication) findActiveMultipartUpload(ctx context.Context, uploaderId, fileHash string) (*MultipartInitResDTO, bool, error) {
+	if uploadId, err := a.fileCache.GetActiveUploadId(ctx, uploaderId, fileHash); err != nil {
+		return nil, false, err
+	} else if uploadId != "" {
+		meta, err := a.fileCache.GetMultipartUploadMeta(ctx, uploadId)
+		if err != nil {
+			return nil, false, err
+		}
+		if meta != nil {
+			uploadedParts, err := a.uploadedPartNumbers(ctx, meta.ObjectKey, meta.StorageUploadId)
+			if err != nil {
+				return nil, false, err
+			}
+			return &MultipartInitResDTO{
+				UploadId: uploadId, FileId: meta.FileId,
+				Status: multipartStatusUploading, UploadedParts: uploadedParts,
+			}, true, nil
+		}
+	}
+
+	now := time.Now().UnixMilli()
+	record, err := a.fileUploadRepository.FindUploadingByUploaderAndHash(ctx, uploaderId, fileHash, now)
+	if err != nil {
+		return nil, false, err
+	}
+	if record == nil {
+		return nil, false, nil
+	}
+	if record.UploadMode != multipartUploadMode || record.StorageUploadId == "" {
+		return nil, false, ErrUploadBusy
+	}
+	meta := filecache.MultipartUploadMeta{
+		UploadId:        record.UploadId,
+		StorageUploadId: record.StorageUploadId,
+		FileId:          record.FileId,
+		UploaderId:      record.UploaderId,
+		Bucket:          a.storage.Bucket(),
+		ObjectKey:       record.ObjectKey,
+		FileName:        record.FileName,
+		ContentType:     record.ContentType,
+		Size:            record.ExpectedSize,
+		FileHash:        record.FileHash,
+		ChunkSize:       record.ChunkSize,
+		TotalChunks:     record.TotalChunks,
+		CreatedAt:       record.CreatedAt,
+		Status:          record.Status,
+	}
+	ttl := time.Until(time.UnixMilli(record.ExpiresAt))
+	if ttl <= 0 {
+		return nil, false, nil
+	}
+	if err := a.fileCache.SetMultipartUploadMeta(ctx, meta, ttl); err != nil {
+		log.Printf("回填分片上传元数据缓存失败：上传=%s 错误=%v", record.UploadId, err)
+	}
+	if err := a.fileCache.SetActiveUpload(ctx, uploaderId, fileHash, record.UploadId, ttl); err != nil {
+		log.Printf("回填活跃上传缓存失败：上传=%s 错误=%v", record.UploadId, err)
+	}
+	uploadedParts, err := a.uploadedPartNumbers(ctx, record.ObjectKey, record.StorageUploadId)
+	if err != nil {
+		return nil, false, err
+	}
+	return &MultipartInitResDTO{
+		UploadId: record.UploadId, FileId: record.FileId,
+		Status: multipartStatusUploading, UploadedParts: uploadedParts,
+	}, true, nil
+}
+
 func (a *FileApplication) InitMultipartUpload(ctx context.Context, dto MultipartInitDTO) (*MultipartInitResDTO, error) {
+	fileHash := normalizeFileHash(dto.FileHash)
 	if dto.UploaderId == "" || dto.FileName == "" || dto.Size <= 0 ||
-		dto.FileHash == "" || dto.ChunkSize <= 0 || dto.TotalChunks <= 0 {
+		fileHash == "" || dto.ChunkSize <= 0 || dto.TotalChunks <= 0 {
 		return nil, ErrInvalidPart
 	}
 	if a.options.MaxFileSize > 0 && dto.Size > a.options.MaxFileSize {
@@ -266,38 +442,18 @@ func (a *FileApplication) InitMultipartUpload(ctx context.Context, dto Multipart
 		return nil, ErrTooManyParts
 	}
 
-	// 已完成文件和已有上传任务都是只读查询，不需要加锁。
-	if file, err := a.findFileByUploaderAndHash(ctx, dto.UploaderId, dto.FileHash); err != nil {
+	if file, err := a.findFileByUploaderAndHash(ctx, dto.UploaderId, fileHash); err != nil {
 		return nil, err
 	} else if file != nil {
 		return &MultipartInitResDTO{FileId: file.FileId, Status: multipartStatusCompleted}, nil
 	}
 
-	if uploadId, err := a.fileCache.GetActiveUploadId(ctx, dto.UploaderId, dto.FileHash); err != nil {
-		return nil, err
-	} else if uploadId != "" {
-		meta, err := a.fileCache.GetMultipartUpload(ctx, uploadId)
-		if err != nil {
-			return nil, err
-		}
-
-		if meta != nil {
-			uploadedParts, err := a.uploadedPartNumbers(ctx, meta.ObjectKey, meta.StorageUploadId)
-
-			if err != nil {
-				return nil, err
-			}
-
-			return &MultipartInitResDTO{
-				UploadId:      uploadId,
-				FileId:        meta.FileId,
-				Status:        multipartStatusUploading,
-				UploadedParts: uploadedParts,
-			}, nil
-		}
+	if result, found, err := a.findActiveMultipartUpload(ctx, dto.UploaderId, fileHash); err != nil || found {
+		return result, err
 	}
 
-	lockToken, locked, err := a.fileCache.AcquireMultipartInitLock(ctx, dto.UploaderId, dto.FileHash, a.multipartInitLockTTL())
+	// 新上传文件
+	lockToken, locked, err := a.fileCache.AcquireFileInitLock(ctx, dto.UploaderId, fileHash, a.multipartInitLockTTL())
 	if err != nil {
 		return nil, err
 	}
@@ -305,35 +461,20 @@ func (a *FileApplication) InitMultipartUpload(ctx context.Context, dto Multipart
 		return nil, ErrUploadBusy
 	}
 	defer func() {
-		_ = a.fileCache.ReleaseMultipartInitLock(context.Background(), dto.UploaderId, dto.FileHash, lockToken)
+		_ = a.fileCache.ReleaseFileInitLock(context.Background(), dto.UploaderId, fileHash, lockToken)
 	}()
 
-	// 防止等待锁期间其他请求已经创建完成。
-	if file, err := a.findFileByUploaderAndHash(ctx, dto.UploaderId, dto.FileHash); err != nil {
+	// 二次检查，避免出现窗口竞态问题
+	if file, err := a.findFileByUploaderAndHash(ctx, dto.UploaderId, fileHash); err != nil {
 		return nil, err
 	} else if file != nil {
 		return &MultipartInitResDTO{FileId: file.FileId, Status: multipartStatusCompleted}, nil
 	}
-	if uploadId, err := a.fileCache.GetActiveUploadId(ctx, dto.UploaderId, dto.FileHash); err != nil {
-		return nil, err
-	} else if uploadId != "" {
-		meta, err := a.fileCache.GetMultipartUpload(ctx, uploadId)
-		if err != nil {
-			return nil, err
-		}
-		if meta != nil {
-			uploadedParts, err := a.uploadedPartNumbers(ctx, meta.ObjectKey, meta.StorageUploadId)
-			if err != nil {
-				return nil, err
-			}
-			return &MultipartInitResDTO{
-				UploadId: uploadId, FileId: meta.FileId,
-				Status: multipartStatusUploading, UploadedParts: uploadedParts,
-			}, nil
-		}
+	if result, found, err := a.findActiveMultipartUpload(ctx, dto.UploaderId, fileHash); err != nil || found {
+		return result, err
 	}
 
-	// uploadId 为空，新文件上传
+	// uploadId 依旧为空，确定是新文件上传
 	fileId, err := a.idGenerator.Generate()
 	if err != nil {
 		return nil, err
@@ -364,14 +505,14 @@ func (a *FileApplication) InitMultipartUpload(ctx context.Context, dto Multipart
 		FileName:        dto.FileName,
 		ContentType:     dto.ContentType,
 		Size:            dto.Size,
-		FileHash:        dto.FileHash,
+		FileHash:        fileHash,
 		ChunkSize:       dto.ChunkSize,
 		TotalChunks:     dto.TotalChunks,
 		CreatedAt:       time.Now().UnixMilli(),
 		Status:          multipartStatusUploading,
 	}
 	now := time.Now().UnixMilli()
-	if err := a.multipartUploadRepository.Create(ctx, filerepo.MultipartUploadRecord{
+	if err := a.fileUploadRepository.Create(ctx, filerepo.FileUploadRecord{
 		UploadId:        meta.UploadId,
 		FileId:          meta.FileId,
 		UploaderId:      meta.UploaderId,
@@ -379,6 +520,7 @@ func (a *FileApplication) InitMultipartUpload(ctx context.Context, dto Multipart
 		StorageUploadId: meta.StorageUploadId,
 		FileHash:        meta.FileHash,
 		ObjectKey:       meta.ObjectKey,
+		FileName:        meta.FileName,
 		ContentType:     meta.ContentType,
 		ExpectedSize:    meta.Size,
 		ChunkSize:       meta.ChunkSize,
@@ -392,17 +534,17 @@ func (a *FileApplication) InitMultipartUpload(ctx context.Context, dto Multipart
 		return nil, err
 	}
 
-	if err := a.fileCache.SetMultipartUpload(ctx, meta, a.multipartTTL()); err != nil {
+	if err := a.fileCache.SetMultipartUploadMeta(ctx, meta, a.multipartTTL()); err != nil {
 		// 取消 minio 上传
 		_ = a.storage.AbortMultipartUpload(ctx, meta.ObjectKey, storageUploadId)
-		_ = a.multipartUploadRepository.Delete(ctx, uploadId)
+		_ = a.fileUploadRepository.Delete(ctx, uploadId)
 		return nil, err
 	}
 
-	if err := a.fileCache.SetActiveUpload(ctx, dto.UploaderId, dto.FileHash, uploadId, a.multipartTTL()); err != nil {
+	if err := a.fileCache.SetActiveUpload(ctx, dto.UploaderId, fileHash, uploadId, a.multipartTTL()); err != nil {
 		_ = a.storage.AbortMultipartUpload(ctx, meta.ObjectKey, storageUploadId)
-		_ = a.fileCache.DeleteMultipartUpload(ctx, uploadId)
-		_ = a.multipartUploadRepository.Delete(ctx, uploadId)
+		_ = a.fileCache.DeleteMultipartUploadMeta(ctx, uploadId)
+		_ = a.fileUploadRepository.Delete(ctx, uploadId)
 		return nil, err
 	}
 
@@ -415,7 +557,7 @@ func (a *FileApplication) InitMultipartUpload(ctx context.Context, dto Multipart
 }
 
 func (a *FileApplication) PresignMultipartParts(ctx context.Context, uploadId string, uploaderId string, partNumbers []int) ([]MultipartPartURLDTO, error) {
-	meta, err := a.fileCache.GetMultipartUpload(ctx, uploadId)
+	meta, err := a.fileCache.GetMultipartUploadMeta(ctx, uploadId)
 	if err != nil {
 		return nil, err
 	}
@@ -427,9 +569,6 @@ func (a *FileApplication) PresignMultipartParts(ctx context.Context, uploadId st
 	}
 	if meta.Status != multipartStatusUploading {
 		return nil, ErrInvalidUpload
-	}
-	if len(partNumbers) == 0 || len(partNumbers) > 1000 {
-		return nil, ErrInvalidPart
 	}
 	seen := make(map[int]struct{}, len(partNumbers))
 
@@ -452,9 +591,9 @@ func (a *FileApplication) PresignMultipartParts(ctx context.Context, uploadId st
 	return result, nil
 }
 
-func (a *FileApplication) lockMultipartComplete(ctx context.Context, uploadId string) (func(), <-chan struct{}, error) {
+func (a *FileApplication) acquireFileCompleteLock(ctx context.Context, uploadId string) (func(), <-chan struct{}, error) {
 	lockTTL := a.multipartCompleteLockTTL()
-	lockToken, locked, err := a.fileCache.AcquireMultipartCompleteLock(ctx, uploadId, lockTTL)
+	lockToken, locked, err := a.fileCache.AcquireFileCompleteLock(ctx, uploadId, lockTTL)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -484,7 +623,7 @@ func (a *FileApplication) lockMultipartComplete(ctx context.Context, uploadId st
 				return
 			case <-ticker.C:
 				renewCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				renewed, err := a.fileCache.RenewMultipartCompleteLock(renewCtx, uploadId, lockToken, lockTTL)
+				renewed, err := a.fileCache.RenewFileCompleteLock(renewCtx, uploadId, lockToken, lockTTL)
 				cancel()
 				if err != nil || !renewed {
 					if err == nil {
@@ -504,13 +643,12 @@ func (a *FileApplication) lockMultipartComplete(ctx context.Context, uploadId st
 		<-renewDone
 		unlockCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_ = a.fileCache.ReleaseMultipartCompleteLock(unlockCtx, uploadId, lockToken)
+		_ = a.fileCache.ReleaseFileCompleteLock(unlockCtx, uploadId, lockToken)
 	}, lockLost, nil
-
 }
 
 func (a *FileApplication) loadMultipartMeta(ctx context.Context, uploadId string, uploaderId string) (*filecache.MultipartUploadMeta, error) {
-	meta, err := a.fileCache.GetMultipartUpload(ctx, uploadId)
+	meta, err := a.fileCache.GetMultipartUploadMeta(ctx, uploadId)
 
 	if err != nil {
 		return nil, err
@@ -536,11 +674,11 @@ func (a *FileApplication) tryReturnCompletedFile(ctx context.Context, meta *file
 		return nil, false, nil
 	}
 
-	if _, err := a.multipartUploadRepository.MarkCompleted(ctx, meta.UploadId, time.Now().UnixMilli()); err != nil {
+	if _, err := a.fileUploadRepository.MarkCompleted(ctx, meta.UploadId, meta.FileId, time.Now().UnixMilli()); err != nil {
 		return nil, false, err
 	}
 	meta.Status = multipartStatusCompleted
-	if err := a.fileCache.SetMultipartUpload(ctx, *meta, a.multipartTTL()); err != nil {
+	if err := a.fileCache.SetMultipartUploadMeta(ctx, *meta, a.multipartTTL()); err != nil {
 		log.Printf("修复已完成上传任务缓存失败：上传=%s 错误=%v", meta.UploadId, err)
 	}
 
@@ -623,11 +761,11 @@ func (a *FileApplication) afterMultipartCompleted(ctx context.Context, meta *fil
 	}
 
 	meta.Status = multipartStatusCompleted
-	if err := a.fileCache.SetMultipartUpload(ctx, *meta, a.multipartTTL()); err != nil {
+	if err := a.fileCache.SetMultipartUploadMeta(ctx, *meta, a.multipartTTL()); err != nil {
 		log.Printf("完成分片上传后更新上传任务缓存失败：上传=%s 错误=%v", meta.UploadId, err)
 	}
 
-	if err := a.fileCache.DeleteActiveUpload(ctx, meta.UploaderId, meta.FileHash); err != nil {
+	if err := a.fileCache.DeleteActiveUploadIfMatches(ctx, meta.UploaderId, meta.FileHash, meta.UploadId); err != nil {
 		log.Printf("完成分片上传后删除活跃上传缓存失败：上传=%s 错误=%v", meta.UploadId, err)
 	}
 }
@@ -650,7 +788,7 @@ func (a *FileApplication) CompleteMultipartUpload(ctx context.Context, uploadId 
 	}
 
 	// 加锁开始上传
-	unlock, lockLost, err := a.lockMultipartComplete(ctx, uploadId)
+	unlock, lockLost, err := a.acquireFileCompleteLock(ctx, uploadId)
 	if err != nil {
 		return nil, err
 	}
@@ -713,7 +851,7 @@ func (a *FileApplication) CompleteMultipartUpload(ctx context.Context, uploadId 
 		if saveErr := a.fileRepository.WithTx(tx).Save(ctx, entity); saveErr != nil {
 			// 同一 uploadId 可能已经被其他请求写入，先按 fileId 判断，避免误删已完成对象。
 			if existing, findErr := a.fileRepository.WithTx(tx).GetByID(ctx, entity.FileId); findErr == nil && existing != nil {
-				if _, markErr := a.multipartUploadRepository.WithTx(tx).MarkCompleted(ctx, meta.UploadId, time.Now().UnixMilli()); markErr != nil {
+				if _, markErr := a.fileUploadRepository.WithTx(tx).MarkCompleted(ctx, meta.UploadId, existing.FileId, time.Now().UnixMilli()); markErr != nil {
 					return markErr
 				}
 
@@ -724,7 +862,7 @@ func (a *FileApplication) CompleteMultipartUpload(ctx context.Context, uploadId 
 			return saveErr
 		}
 
-		marked, err := a.multipartUploadRepository.WithTx(tx).MarkCompleted(ctx, meta.UploadId, time.Now().UnixMilli())
+		marked, err := a.fileUploadRepository.WithTx(tx).MarkCompleted(ctx, meta.UploadId, entity.FileId, time.Now().UnixMilli())
 		if err != nil {
 			return err
 		}
@@ -931,6 +1069,13 @@ func (a *FileApplication) directUploadLockTTL() time.Duration {
 		return 10 * time.Minute
 	}
 	return a.options.DirectUploadLockTTL
+}
+
+func (a *FileApplication) directUploadURLTTL() time.Duration {
+	if a.options.DirectUploadURLTTL <= 0 {
+		return 30 * time.Minute
+	}
+	return a.options.DirectUploadURLTTL
 }
 
 func (a *FileApplication) partURLTTL() time.Duration {

@@ -28,6 +28,21 @@ type MultipartInitReq struct {
 	TotalChunks int    `json:"totalChunks" binding:"required"`
 }
 
+type DirectUploadInitReq struct {
+	FileName    string `json:"fileName" binding:"required"`
+	ContentType string `json:"contentType"`
+	Size        int64  `json:"size" binding:"required"`
+	FileHash    string `json:"fileHash" binding:"required"`
+}
+
+type DirectUploadInitRes struct {
+	UploadId  string `json:"uploadId"`
+	FileId    string `json:"fileId"`
+	Status    string `json:"status"`
+	URL       string `json:"url,omitempty"`
+	ExpiresAt int64  `json:"expiresAt,omitempty"`
+}
+
 type MultipartInitRes struct {
 	UploadId      string `json:"uploadId"`
 	FileId        string `json:"fileId"`
@@ -72,5 +87,15 @@ func toMultipartInitRes(dto *fileapp.MultipartInitResDTO) MultipartInitRes {
 		FileId:        dto.FileId,
 		Status:        dto.Status,
 		UploadedParts: dto.UploadedParts,
+	}
+}
+
+func toDirectUploadInitRes(dto *fileapp.DirectUploadInitResDTO) DirectUploadInitRes {
+	return DirectUploadInitRes{
+		UploadId:  dto.UploadId,
+		FileId:    dto.FileId,
+		Status:    dto.Status,
+		URL:       dto.URL,
+		ExpiresAt: dto.ExpiresAt,
 	}
 }

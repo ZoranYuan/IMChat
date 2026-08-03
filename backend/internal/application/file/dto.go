@@ -25,6 +25,22 @@ type UploadDTO struct {
 	Reader      io.Reader
 }
 
+type DirectUploadInitDTO struct {
+	UploaderId  string
+	FileName    string
+	ContentType string
+	Size        int64
+	FileHash    string
+}
+
+type DirectUploadInitResDTO struct {
+	UploadId  string `json:"uploadId"`
+	FileId    string `json:"fileId"`
+	Status    string `json:"status"`
+	URL       string `json:"url,omitempty"`
+	ExpiresAt int64  `json:"expiresAt,omitempty"`
+}
+
 type MultipartInitDTO struct {
 	UploaderId  string
 	FileName    string

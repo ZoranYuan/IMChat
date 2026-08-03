@@ -2,6 +2,7 @@
 import { ArrowLeft, Bot, ChevronRight, FileText, Image as ImageIcon, Info, LoaderCircle, MoreHorizontal, Paperclip, Pause, Phone, Play, Send, Smile, Users, Video, X } from "@lucide/vue";
 import { nextTick, ref, watch } from "vue";
 import { MessageType } from "../../constants/message.js";
+import { UploadStatus } from "../../constants/upload.js";
 
 const props = defineProps({
   conversation: { type: Object, default: null },
@@ -11,7 +12,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   hasMore: { type: Boolean, default: false },
   mobile: { type: Boolean, default: false },
-  uploadStatus: { type: String, default: "idle" },
+  uploadStatus: { type: String, default: UploadStatus.IDLE },
   uploadProgress: { type: Number, default: 0 },
 });
 
@@ -47,7 +48,12 @@ const handleEnter = (event) => {
 };
 
 const isMine = (message) => message.senderId === (props.currentUser.userId || props.currentUser.id);
-const isUploadVisible = () => !["idle", "completed", "failed", "canceled"].includes(props.uploadStatus);
+const isUploadVisible = () => ![
+  UploadStatus.IDLE,
+  UploadStatus.COMPLETED,
+  UploadStatus.FAILED,
+  UploadStatus.CANCELED,
+].includes(props.uploadStatus);
 const fileSizeText = (size) => {
   const bytes = Number(size) || 0;
   if (!bytes) return "";
@@ -131,9 +137,9 @@ watch(() => props.messages.length, scrollToBottom);
           <i :class="connection"></i>{{ connection === "connecting" ? "正在连接实时消息服务..." : "实时连接已断开，暂时无法发送消息" }}
         </div>
         <div v-if="isUploadVisible()" class="upload-progress-row">
-          <div><span><LoaderCircle v-if="uploadStatus !== 'paused'" class="spin" :size="14" /><Pause v-else :size="14" />{{ uploadStatus === "hashing" ? "正在计算文件指纹" : uploadStatus === "initializing" ? "正在初始化上传" : uploadStatus === "completing" ? "正在合并分片" : uploadStatus === "paused" ? "上传已暂停" : "正在上传附件" }}</span><strong>{{ uploadProgress }}%</strong></div>
+          <div><span><LoaderCircle v-if="uploadStatus !== UploadStatus.PAUSED" class="spin" :size="14" /><Pause v-else :size="14" />{{ uploadStatus === UploadStatus.HASHING ? "正在计算文件指纹" : uploadStatus === UploadStatus.INITIALIZING ? "正在初始化上传" : uploadStatus === UploadStatus.COMPLETING ? "正在合并分片" : uploadStatus === UploadStatus.PAUSED ? "上传已暂停" : "正在上传附件" }}</span><strong>{{ uploadProgress }}%</strong></div>
           <progress :value="uploadProgress" max="100"></progress>
-          <span class="upload-actions"><button v-if="uploadStatus === 'uploading'" type="button" title="暂停上传" @click="$emit('pause-upload')"><Pause :size="15" /></button><button v-if="uploadStatus === 'paused'" type="button" title="继续上传" @click="$emit('resume-upload')"><Play :size="15" /></button><button type="button" title="取消上传" @click="$emit('cancel-upload')"><X :size="15" /></button></span>
+          <span class="upload-actions"><button v-if="uploadStatus === UploadStatus.UPLOADING" type="button" title="暂停上传" @click="$emit('pause-upload')"><Pause :size="15" /></button><button v-if="uploadStatus === UploadStatus.PAUSED" type="button" title="继续上传" @click="$emit('resume-upload')"><Play :size="15" /></button><button type="button" title="取消上传" @click="$emit('cancel-upload')"><X :size="15" /></button></span>
         </div>
         <div class="composer-toolbar">
           <button type="button" title="表情" @click="$emit('unsupported', '表情')"><Smile :size="19" /></button>
