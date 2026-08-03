@@ -384,6 +384,7 @@ func main() {
 
 	// 注册路由
 	apiGroup := r.Group("/api/v1")
+	apiGroup.Use(authMiddle.CookieOriginProtectionMiddleware())
 	httpapi.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
 	httpapi.RegisterUserRouter(apiGroup, userHandle, authMiddle, limiterMiddleware)
 	httpapi.RegisterUserConversationRouter(apiGroup, userConversationHandler, authMiddle, limiterMiddleware)

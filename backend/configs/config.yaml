@@ -28,7 +28,7 @@ ws:
   batch_max_bytes: 8192
   batch_linger_milliseconds: 20
   batch_ready_queue_size: 16
-  allowed_origins: ""
+  allowed_origins: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081,http://127.0.0.1:8081"
 message:
   room_realtime_fanout_limit: 500
   large_room_notice_linger_milliseconds: 200
