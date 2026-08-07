@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -83,6 +84,30 @@ func NewObjectStorage(ctx context.Context, cfg configs.MinIOConfig) (objectport.
 		publicEndpoint: strings.TrimRight(publicEndpoint, "/"),
 		useSSL:         cfg.UseSSL,
 	}, nil
+}
+
+func isInlineContentType(contentType string) bool {
+	switch strings.ToLower(contentType) {
+	case "image/jpeg",
+		"image/png",
+		"image/gif",
+		"video/mp4":
+		return true
+	default:
+		return false
+	}
+}
+
+func sanitizeFileName(name string) string {
+	name = strings.ReplaceAll(name, "\r", "")
+	name = strings.ReplaceAll(name, "\n", "")
+	name = strings.ReplaceAll(name, `"`, "")
+	name = strings.TrimSpace(name)
+
+	if name == "" {
+		return "download"
+	}
+	return name
 }
 
 func (s *ObjectStorage) Bucket() string {
@@ -170,8 +195,24 @@ func (s *ObjectStorage) AbortMultipartUpload(ctx context.Context, objectKey stri
 	return s.core.AbortMultipartUpload(ctx, s.bucket, objectKey, uploadId)
 }
 
-func (s *ObjectStorage) PresignedGetURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error) {
-	u, err := s.publicClient.PresignedGetObject(ctx, s.bucket, objectKey, ttl, nil)
+func (s *ObjectStorage) PresignedGetURL(ctx context.Context,
+	objectKey string,
+	ttl time.Duration,
+	contentType string,
+	fileName string,
+) (string, error) {
+	params := url.Values{}
+	// 对不适合浏览器直接展示的文件强制下载，避免 HTML、SVG、脚本等内容被浏览器执行
+	if !isInlineContentType(contentType) {
+		params.Set(
+			"response-content-disposition", mime.FormatMediaType("attachment", map[string]string{
+				"filename": sanitizeFileName(fileName),
+			}),
+		)
+		params.Set("response-content-type", "application/octet-stream")
+	}
+
+	u, err := s.publicClient.PresignedGetObject(ctx, s.bucket, objectKey, ttl, params)
 	usePublicEndpoint := true
 	if err != nil {
 		u, err = s.client.PresignedGetObject(ctx, s.bucket, objectKey, ttl, nil)

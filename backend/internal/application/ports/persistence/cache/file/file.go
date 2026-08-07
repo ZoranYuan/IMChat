@@ -20,6 +20,7 @@ type MultipartUploadMeta struct {
 	ChunkSize       int64  `json:"chunkSize"`
 	TotalChunks     int    `json:"totalChunks"`
 	CreatedAt       int64  `json:"createdAt"`
+	ExpiresAt       int64  `json:"expiresAt"`
 	Status          string `json:"status"`
 }
 

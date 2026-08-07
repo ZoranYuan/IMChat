@@ -4,6 +4,7 @@ import (
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	roomentity "IM_backend/internal/domain/room/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
+	"context"
 	"errors"
 
 	"gorm.io/gorm"
@@ -37,6 +38,22 @@ func (rr *RoomRepository) FindActiveRoom(roomId string, status int) (*roomentity
 	}
 
 	return toDomain(m), nil
+}
+
+func (rr *RoomRepository) IncrementMemberCount(ctx context.Context, roomId string, status int) (bool, error) {
+	result := rr.db.WithContext(ctx).
+		Model(&model.Room{}).
+		Where("room_id = ? AND status = ? AND (max_members <= 0 OR member_count < max_members)", roomId, status).
+		UpdateColumn("member_count", gorm.Expr("member_count + 1"))
+	return result.RowsAffected == 1, result.Error
+}
+
+func (rr *RoomRepository) DecrementMemberCount(ctx context.Context, roomId string, status int) (bool, error) {
+	result := rr.db.WithContext(ctx).
+		Model(&model.Room{}).
+		Where("room_id = ? AND status = ? AND member_count > 0", roomId, status).
+		UpdateColumn("member_count", gorm.Expr("member_count - 1"))
+	return result.RowsAffected == 1, result.Error
 }
 
 func (rr *RoomRepository) WithTx(tx any) roomrepo.RoomRepository {

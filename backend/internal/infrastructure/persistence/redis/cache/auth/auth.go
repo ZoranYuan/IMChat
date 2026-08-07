@@ -2,6 +2,7 @@ package auth
 
 import (
 	authport "IM_backend/internal/application/ports/persistence/cache/auth"
+	cachekey "IM_backend/internal/infrastructure/persistence/redis/cache/key"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
 	"encoding/json"
@@ -19,6 +20,8 @@ const rotateRefreshSessionScript = `
 	redis.call("SET", KEYS[2], ARGV[1], "PX", ARGV[2])
 	return 1
 `
+
+const revokedSessionValue = "revoked"
 
 type authCache struct {
 	store *shared.Store
@@ -78,4 +81,26 @@ func (ac *authCache) DeleteRefreshSession(
 	token string,
 ) error {
 	return ac.store.Del(ctx, RefreshTokenKey(token))
+}
+
+func (ac *authCache) RevokeSession(
+	ctx context.Context,
+	sessionID string,
+	expire time.Duration,
+) error {
+	if sessionID == "" {
+		return nil
+	}
+	return ac.store.SetString(ctx, cachekey.AuthRevokedSession(sessionID), revokedSessionValue, expire)
+}
+
+func (ac *authCache) IsSessionRevoked(
+	ctx context.Context,
+	sessionID string,
+) (bool, error) {
+	if sessionID == "" {
+		return false, nil
+	}
+	value, err := ac.store.GetString(ctx, cachekey.AuthRevokedSession(sessionID))
+	return value != "", err
 }

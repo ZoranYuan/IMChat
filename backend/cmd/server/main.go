@@ -26,7 +26,6 @@ import (
 	usermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
 	"IM_backend/internal/infrastructure/persistence/redis"
 	authcache "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
-	conversationcache "IM_backend/internal/infrastructure/persistence/redis/cache/conversation"
 	filecache "IM_backend/internal/infrastructure/persistence/redis/cache/file"
 	friendcache "IM_backend/internal/infrastructure/persistence/redis/cache/friend"
 	messagecache "IM_backend/internal/infrastructure/persistence/redis/cache/message"
@@ -111,8 +110,6 @@ func main() {
 	messageCache := messagecache.NewMessageCache(redisClient)
 	userCache := usercache.NewUserCache(redisClient)
 
-	conversationCache := conversationcache.NewConversationCache(redisClient)
-
 	kafkaClient, err := kafka.NewClient(cfg.Kafka)
 
 	if err != nil {
@@ -183,15 +180,7 @@ func main() {
 		fileRepository,
 		fileCache,
 		objectStorage,
-		filecleanup.Options{
-			Interval:         time.Duration(cfg.Storage.MinIO.MultipartCleanupIntervalSeconds) * time.Second,
-			BatchSize:        cfg.Storage.MinIO.MultipartCleanupBatchSize,
-			StaleAfter:       time.Duration(cfg.Storage.MinIO.MultipartCleanupStaleSeconds) * time.Second,
-			BaseRetryWait:    time.Duration(cfg.Storage.MinIO.MultipartCleanupRetrySeconds) * time.Second,
-			OperationTimeout: time.Duration(cfg.Storage.MinIO.MultipartCleanupOperationSeconds) * time.Second,
-			MaxRetries:       cfg.Storage.MinIO.MultipartCleanupMaxRetries,
-			OrphanAfter:      time.Duration(cfg.Storage.MinIO.OrphanRetentionSeconds) * time.Second,
-		},
+		cfg.FileCleanup,
 	)
 	cleanupDone := make(chan struct{})
 	go func() {
@@ -229,7 +218,6 @@ func main() {
 		messageRepository,
 		conversationRepository,
 		userConversationRepository,
-		conversationCache,
 		friendRepository,
 		friendCache,
 		txManager,
@@ -248,7 +236,6 @@ func main() {
 		roomUserRepository,
 		userConversationRepository,
 		conversationRepository,
-		conversationCache,
 		roomCache,
 		roomMemberCache,
 		txManager,
@@ -275,22 +262,32 @@ func main() {
 	readNotifyHandler := mqhandler.NewReadHandler(realtimeGateway)
 	friendRequestHandler := mqhandler.NewFriendRequestHandler(realtimeGateway)
 	roomMemberChangedHandler := mqhandler.NewRoomMemberChangedHandler(roomApp)
-	messageProducer := kafka.NewProducer(kafkaClient, "msg")
+	topicRouter, routerErr := kafka.NewTopicRouter(map[string]string{
+		string(protocol.EventTypeSendMessage):      cfg.Kafka.Topics.Message,
+		string(protocol.EventReadMessageCommitted): cfg.Kafka.Topics.ReadMessageCommitted,
+		string(protocol.EventFriendRequestCreated): cfg.Kafka.Topics.FriendRequestCreated,
+		string(protocol.EventRoomMemberChanged):    cfg.Kafka.Topics.RoomMemberChanged,
+	})
+	if routerErr != nil {
+		log.Fatal("创建 Kafka Topic 路由失败：", routerErr)
+	}
+	messageProducer := kafka.NewProducer(kafkaClient, topicRouter)
 	consumerRouter := kafka.NewConsumerRouter(map[string]eventbus.Handler{
 		protocol.EventTypeSendMessage:      messageSendHandler,
-		protocol.EventReadMessageCommitted: readNotifyHandler, // 当读水位提交后，将已读用户通知给消息发送方
+		protocol.EventReadMessageCommitted: readNotifyHandler,
 		protocol.EventFriendRequestCreated: friendRequestHandler,
 		protocol.EventRoomMemberChanged:    roomMemberChangedHandler,
-	}, kafka.WithInbox(inboxRepository, txManager))
-
-	messageConsumerGroup, err := kafka.NewConsumerGroup(kafkaClient, []string{
-		string(protocol.EventReadMessageCommitted),
-		string(protocol.EventTypeSendMessage),
-		string(protocol.EventFriendRequestCreated),
-		string(protocol.EventRoomMemberChanged),
 	},
+		inboxRepository,
+		txManager,
+		cfg.Kafka.Consumer,
+	)
+
+	messageConsumerGroup, err := kafka.NewConsumerGroup(kafkaClient, topicRouter.Topics(),
 		consumerRouter,
-		kafka.WithDeadLetterPublisher(messageProducer),
+		messageProducer,
+		topicRouter,
+		cfg.Kafka.Consumer,
 	)
 
 	if err != nil {
@@ -306,7 +303,12 @@ func main() {
 	}()
 
 	dispatcher := ws.NewDispatcher()
-	outboxWorker := outboxinfra.NewWorker(txManager, outboxRepository, messageProducer)
+	outboxWorker := outboxinfra.NewWorker(
+		txManager,
+		outboxRepository,
+		messageProducer,
+		cfg.Outbox,
+	)
 
 	outboxDone := make(chan struct{})
 	go func() {
@@ -315,7 +317,6 @@ func main() {
 	}()
 
 	messageApplication := messageapp.NewMessageApplication(
-		conversationCache,
 		friendCache,
 		messageCache,
 		roomMemberCache,
@@ -376,7 +377,7 @@ func main() {
 	// testdataHandle := testdatahttp.NewHandle(testdataApplication)
 
 	// 注册中间件
-	authMiddle := middleware.NewAuthMiddleware(cfg)
+	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
 
 	limiter := ratelimit.NewRedisLimit(redisClient, "rate:limit")
 	limiterMiddleware := middleware.NewLimitMiddleware(limiter, false)

@@ -1,6 +1,7 @@
 package file
 
 import (
+	fileentity "IM_backend/internal/domain/file/entity"
 	"errors"
 	"fmt"
 )
@@ -19,17 +20,20 @@ func (e *UploadIncompleteError) Unwrap() error {
 }
 
 var (
-	ErrFileRequired       = errors.New("文件不能为空")
-	ErrFileNotFound       = errors.New("文件不存在")
-	ErrFileSizeMismatch   = errors.New("文件大小校验失败")
-	ErrFileHashMismatch   = errors.New("文件哈希校验失败")
-	ErrFileTooLarge       = errors.New("文件超过大小限制")
-	ErrDuplicateUpload    = errors.New("重复上传文件")
-	ErrInvalidUpload      = errors.New("上传任务不存在")
-	ErrInvalidPart        = errors.New("分片参数错误")
-	ErrUploadNotCompleted = errors.New("分片未上传完成")
-	ErrUploadUnauthorized = errors.New("无权操作该上传任务")
-	ErrUploadBusy         = errors.New("文件正在上传")
-	ErrMultipartLockLost  = errors.New("分片合并锁已失效")
-	ErrTooManyParts       = errors.New("分片数量超过限制")
+	ErrFileRequired         = errors.New("文件不能为空")
+	ErrFileNotFound         = errors.New("文件不存在")
+	ErrFileSizeMismatch     = errors.New("文件大小校验失败")
+	ErrFileHashMismatch     = errors.New("文件哈希校验失败")
+	ErrFileTooLarge         = errors.New("文件超过大小限制")
+	ErrFileHashConflict     = fileentity.ErrFileHashConflict
+	ErrFileIdentityConflict = fileentity.ErrFileIdentityConflict
+	ErrInvalidUpload        = errors.New("上传任务不存在")
+	ErrInvalidMIME          = errors.New("不允许的媒体资源类型")
+	ErrInvalidPart          = errors.New("分片参数错误")
+	ErrUploadNotCompleted   = errors.New("分片未上传完成")
+	ErrUnsupportedFileType  = errors.New("不支持该文件类型")
+	ErrUploadUnauthorized   = errors.New("无权操作该上传任务")
+	ErrUploadBusy           = errors.New("文件正在上传")
+	ErrMultipartLockLost    = errors.New("分片合并锁已失效")
+	ErrTooManyParts         = errors.New("分片数量超过限制")
 )

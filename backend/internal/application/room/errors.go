@@ -8,6 +8,7 @@ import (
 var (
 	ErrRoomNameRequired          = roomentity.ErrRoomNameRequired
 	ErrRoomNotFound              = roomentity.ErrRoomNotFound
+	ErrRoomFull                  = roomentity.ErrRoomFull
 	ErrUnknown                   = errors.New("未知错误")
 	ErrNotRoomMember             = roomentity.ErrMemberNotFound
 	ErrRoomUnavailable           = errors.New("房间当前不可用")

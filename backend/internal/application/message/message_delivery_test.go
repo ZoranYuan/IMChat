@@ -65,6 +65,14 @@ func (stub *deliveryRoomRepositoryStub) FindActiveRoom(string, int) (*roomentity
 	return stub.room, nil
 }
 
+func (stub *deliveryRoomRepositoryStub) IncrementMemberCount(context.Context, string, int) (bool, error) {
+	return true, nil
+}
+
+func (stub *deliveryRoomRepositoryStub) DecrementMemberCount(context.Context, string, int) (bool, error) {
+	return true, nil
+}
+
 type deliveryRoomUserRepositoryStub struct {
 	members []string
 	called  bool

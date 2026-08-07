@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"IM_backend/configs"
+	authport "IM_backend/internal/application/ports/persistence/cache/auth"
 	"IM_backend/internal/infrastructure/security/jwt"
 	"IM_backend/internal/transport/http/response"
 	"net/http"
@@ -12,12 +13,14 @@ import (
 )
 
 type AuthMiddleware struct {
-	config configs.Config
+	config    configs.Config
+	authCache authport.AuthCache
 }
 
-func NewAuthMiddleware(cfg configs.Config) *AuthMiddleware {
+func NewAuthMiddleware(cfg configs.Config, authCache authport.AuthCache) *AuthMiddleware {
 	return &AuthMiddleware{
-		config: cfg,
+		config:    cfg,
+		authCache: authCache,
 	}
 }
 
@@ -42,9 +45,20 @@ func (a *AuthMiddleware) JWTAuthMiddleware() gin.HandlerFunc {
 		}
 
 		claim, err := jwt.ValidateToken(token, a.config.JWT.Secret)
-		if err != nil || claim.TokenType != "access" {
+		if err != nil {
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 			return
+		}
+		if a.authCache != nil {
+			revoked, err := a.authCache.IsSessionRevoked(ctx, claim.SessionID)
+			if err != nil {
+				ctx.AbortWithStatusJSON(http.StatusServiceUnavailable, response.Error(http.StatusServiceUnavailable, "认证服务暂时不可用"))
+				return
+			}
+			if revoked {
+				ctx.AbortWithStatusJSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录已失效"))
+				return
+			}
 		}
 
 		ctx.Set("userId", claim.UserID)
@@ -55,7 +69,7 @@ func (a *AuthMiddleware) JWTAuthMiddleware() gin.HandlerFunc {
 
 func (a *AuthMiddleware) CookieOriginProtectionMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		// 防止 CSFR 攻击，允许 GET 请求和没有身份的请求访问
+		// 防止 CSFR 攻击，允许 GET 请求或者没有身份的请求访问
 		if !isUnsafeMethod(ctx.Request.Method) || !hasAuthCookie(ctx) {
 			ctx.Next()
 			return
@@ -97,7 +111,7 @@ func (a *AuthMiddleware) isAllowedOrigin(ctx *gin.Context, origin string) bool {
 		return false
 	}
 
-	for _, allowed := range strings.Split(a.config.WebSocket.AllowedOrigins, ",") {
+	for _, allowed := range strings.Split(a.config.Security.AllowedOrigins, ",") {
 		if strings.TrimSpace(allowed) == origin {
 			return true
 		}

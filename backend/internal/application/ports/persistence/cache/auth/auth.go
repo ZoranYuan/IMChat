@@ -16,6 +16,8 @@ type AuthCache interface {
 		expire time.Duration,
 	) (bool, error)
 	DeleteRefreshSession(ctx context.Context, token string) error
+	RevokeSession(ctx context.Context, sessionID string, expire time.Duration) error
+	IsSessionRevoked(ctx context.Context, sessionID string) (bool, error)
 }
 
 type RefreshSession struct {

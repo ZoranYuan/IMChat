@@ -9,23 +9,20 @@ import (
 
 type Producer struct {
 	client *Client
-	topic  string
+	router *TopicRouter
 }
 
-func NewProducer(c *Client, topic string) *Producer {
-	return &Producer{
-		client: c,
-		topic:  topic,
-	}
+func NewProducer(c *Client, router *TopicRouter) *Producer {
+	return &Producer{client: c, router: router}
 }
 
 func (p *Producer) Publish(ctx context.Context, event eventbus.IntegrationEvent) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	targetTopic := p.topic
-	if event.Name != "" {
-		targetTopic = event.Name
+	targetTopic, err := p.router.TopicFor(event.Name)
+	if err != nil {
+		return err
 	}
 
 	message := &sarama.ProducerMessage{
@@ -44,7 +41,7 @@ func (p *Producer) Publish(ctx context.Context, event eventbus.IntegrationEvent)
 		}}
 	}
 
-	_, _, err := p.client.Producer.SendMessage(message)
+	_, _, err = p.client.Producer.SendMessage(message)
 
 	return err
 }

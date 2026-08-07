@@ -1,6 +1,7 @@
 package filecleanup
 
 import (
+	configs "IM_backend/configs"
 	filecache "IM_backend/internal/application/ports/persistence/cache/file"
 	filerepo "IM_backend/internal/application/ports/persistence/repository/file"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
@@ -12,25 +13,6 @@ import (
 	"math"
 	"time"
 )
-
-const (
-	defaultInterval         = time.Minute
-	defaultBatchSize        = 50
-	defaultStaleAfter       = 5 * time.Minute
-	defaultBaseRetryWait    = 30 * time.Second
-	defaultOperationTimeout = 30 * time.Second
-	defaultMaxRetries       = 10
-)
-
-type Options struct {
-	Interval         time.Duration
-	BatchSize        int
-	StaleAfter       time.Duration
-	BaseRetryWait    time.Duration
-	OperationTimeout time.Duration
-	MaxRetries       int
-	OrphanAfter      time.Duration
-}
 
 type Worker struct {
 	txManager        txmanager.TxManager
@@ -53,43 +35,21 @@ func NewWorker(
 	fileRepo filerepo.FileRepository,
 	fileCache filecache.FileCache,
 	storage objectstorage.ObjectStorage,
-	options Options,
+	config configs.FileCleanupConfig,
 ) *Worker {
-	if options.Interval <= 0 {
-		options.Interval = defaultInterval
-	}
-	if options.BatchSize <= 0 {
-		options.BatchSize = defaultBatchSize
-	}
-	if options.StaleAfter <= 0 {
-		options.StaleAfter = defaultStaleAfter
-	}
-	if options.BaseRetryWait <= 0 {
-		options.BaseRetryWait = defaultBaseRetryWait
-	}
-	if options.OperationTimeout <= 0 {
-		options.OperationTimeout = defaultOperationTimeout
-	}
-	if options.MaxRetries <= 0 {
-		options.MaxRetries = defaultMaxRetries
-	}
-	if options.OrphanAfter <= 0 {
-		options.OrphanAfter = 24 * time.Hour
-	}
-
 	return &Worker{
 		txManager:        txManager,
 		fileUploadRepo:   fileUploadRepo,
 		fileRepo:         fileRepo,
 		fileCache:        fileCache,
 		storage:          storage,
-		interval:         options.Interval,
-		batchSize:        options.BatchSize,
-		staleAfter:       options.StaleAfter,
-		baseRetryWait:    options.BaseRetryWait,
-		operationTimeout: options.OperationTimeout,
-		maxRetries:       options.MaxRetries,
-		orphanAfter:      options.OrphanAfter,
+		interval:         time.Duration(config.IntervalSeconds) * time.Second,
+		batchSize:        config.BatchSize,
+		staleAfter:       time.Duration(config.StaleAfterSeconds) * time.Second,
+		baseRetryWait:    time.Duration(config.BaseRetryWaitSeconds) * time.Second,
+		operationTimeout: time.Duration(config.OperationTimeoutSeconds) * time.Second,
+		maxRetries:       config.MaxRetries,
+		orphanAfter:      time.Duration(config.OrphanAfterSeconds) * time.Second,
 	}
 }
 
@@ -131,17 +91,17 @@ func (w *Worker) dispatchPendingOnce(ctx context.Context) error {
 			w.recordFailure(ctx, upload, err)
 		}
 	}
-	if err := w.cleanupOrphanFiles(ctx, now-w.orphanAfter.Milliseconds()); err != nil && ctx.Err() == nil {
+	if err := w.cleanupOrphanFiles(ctx, now-w.orphanAfter.Milliseconds(), now); err != nil && ctx.Err() == nil {
 		log.Printf("未引用文件清理任务执行失败：%v", err)
 	}
 	return nil
 }
 
-func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64) error {
+func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64, now int64) error {
 	if w.fileRepo == nil {
 		return nil
 	}
-	files, err := w.fileRepo.ListOrphanCandidates(ctx, before, w.batchSize)
+	files, err := w.fileRepo.ListOrphanCandidates(ctx, before, now, w.batchSize)
 	if err != nil {
 		return err
 	}
@@ -150,7 +110,7 @@ func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64) error {
 			continue
 		}
 		if file.Status == fileentity.FileStatusUploaded {
-			marked, err := w.fileRepo.MarkDeleting(ctx, file.FileId, before)
+			marked, err := w.fileRepo.MarkDeleting(ctx, file.FileId, before, now)
 			if err != nil || !marked {
 				continue
 			}

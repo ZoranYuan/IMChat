@@ -8,7 +8,6 @@ type UserRegisterReq struct {
 }
 
 type UserRegisterRes struct {
-	Token     string `json:"token"`
 	UserId    string `json:"userId"`
 	UserName  string `json:"username"`
 	NickName  string `json:"nickName"`
@@ -18,6 +17,14 @@ type UserRegisterRes struct {
 	WxUnionID string `json:"-" gorm:"type:varchar(64);index;comment:微信UnionID(预留)"`
 }
 
+type UserSessionRes struct {
+	UserId   string `json:"userId"`
+	UserName string `json:"username"`
+	NickName string `json:"nickName"`
+	Phone    string `json:"phone"`
+	Avatar   string `json:"avatar"`
+}
+
 type UserLoginReq struct {
 	LoginType int    `json:"loginType" binding:"required"`
 	Phone     string `json:"phone"`
@@ -25,7 +32,6 @@ type UserLoginReq struct {
 }
 
 type UserLoginRes struct {
-	Token     string `json:"token"`
 	UserId    string `json:"userId"`
 	UserName  string `json:"username"`
 	NickName  string `json:"nickName"`
@@ -43,6 +49,5 @@ type UserInfoRes struct {
 	UserId   string `json:"userId"`
 	UserName string `json:"username"`
 	NickName string `json:"nickName"`
-	Phone    string `json:"phone"`
 	Avatar   string `json:"avatar"`
 }

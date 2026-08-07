@@ -1,6 +1,7 @@
 package outbox
 
 import (
+	"IM_backend/configs"
 	eventbus "IM_backend/internal/application/ports/eventbus"
 	outboxport "IM_backend/internal/application/ports/outbox"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
@@ -12,56 +13,78 @@ import (
 )
 
 type OutboxWorker struct {
-	txManager     txmanager.TxManager
-	outboxRepo    outboxport.Repository
-	publisher     eventbus.Publisher
-	batchSize     int
-	interval      time.Duration
-	staleAfter    time.Duration
-	baseRetryWait time.Duration
-	maxRetries    int
+	txManager  txmanager.TxManager
+	outboxRepo outboxport.Repository
+	publisher  eventbus.Publisher
+	options    configs.OutboxConfig
+	pool       *OutboxPool
 }
 
 func NewWorker(
 	txManager txmanager.TxManager,
 	outboxRepo outboxport.Repository,
 	publisher eventbus.Publisher,
+	options configs.OutboxConfig,
 ) *OutboxWorker {
 	return &OutboxWorker{
-		txManager:     txManager,
-		outboxRepo:    outboxRepo,
-		publisher:     publisher,
-		batchSize:     10,
-		interval:      2 * time.Second,
-		staleAfter:    30 * time.Second,
-		baseRetryWait: 2 * time.Second,
-		maxRetries:    10,
+		txManager:  txManager,
+		outboxRepo: outboxRepo,
+		publisher:  publisher,
+		options:    options,
 	}
 }
 
 func (w *OutboxWorker) Start(ctx context.Context) {
-	ticker := time.NewTicker(w.interval)
+	w.pool = NewOutboxPool(w.options.WorkerCount, w.options.QueueSize, func(ctx context.Context, item *outboxport.Entry) error {
+		return w.dispatchOne(ctx, item)
+	})
+	w.pool.Start(ctx)
+	defer w.pool.Wait()
+
+	ticker := time.NewTicker(time.Duration(w.options.PollIntervalSeconds) * time.Second)
 	defer ticker.Stop()
-	for {
-		if err := w.dispatchPendingOnce(ctx); err != nil {
-			log.Printf("消息出箱任务执行失败：%v", err)
+
+	drain := func() {
+		for ctx.Err() == nil {
+			processed, err := w.dispatchPendingOnce(ctx)
+			if err != nil {
+				if ctx.Err() == nil {
+					log.Printf("消息出箱任务执行失败：%v", err)
+				}
+				return
+			}
+			if !processed {
+				return
+			}
 		}
+	}
+
+	// 启动后立即 drain；积压时连续领取，不等待下一次 ticker。
+	drain()
+	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			drain()
 		}
 	}
 }
 
-func (w *OutboxWorker) dispatchPendingOnce(ctx context.Context) error {
+func (w *OutboxWorker) dispatchPendingOnce(ctx context.Context) (bool, error) {
 	if w.txManager == nil || w.outboxRepo == nil || w.publisher == nil {
-		return errors.New("消息出箱工作器依赖未配置")
+		return false, errors.New("消息出箱工作器依赖未配置")
 	}
+
 	var batch []*outboxport.Entry
 	now := time.Now()
 	err := w.txManager.WithinTransaction(ctx, func(tx any) error {
-		items, err := w.outboxRepo.WithTx(tx).ClaimPending(ctx, now, now.Add(-w.staleAfter), w.batchSize)
+		items, err := w.outboxRepo.WithTx(tx).ClaimPending(
+			ctx,
+			now,
+			now.Add(-time.Duration(w.options.StaleAfterSeconds)*time.Second),
+			w.options.BatchSize,
+		)
 		if err != nil {
 			return err
 		}
@@ -69,17 +92,22 @@ func (w *OutboxWorker) dispatchPendingOnce(ctx context.Context) error {
 		return nil
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
+
 	for _, item := range batch {
-		if item == nil {
-			continue
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		default:
 		}
-		if err := w.dispatchOne(ctx, item); err != nil {
-			log.Printf("分发消息出箱记录 %s 失败：%v", item.ID, err)
+
+		if err := w.pool.Submit(ctx, item); err != nil {
+			return false, err
 		}
 	}
-	return nil
+
+	return len(batch) > 0, nil
 }
 
 func (w *OutboxWorker) dispatchOne(ctx context.Context, item *outboxport.Entry) error {
@@ -95,15 +123,24 @@ func (w *OutboxWorker) dispatchOne(ctx context.Context, item *outboxport.Entry) 
 }
 
 func (w *OutboxWorker) markRetry(ctx context.Context, item *outboxport.Entry, lastError string) error {
-	if item.RetryCount >= w.maxRetries {
+	if item.RetryCount >= w.options.MaxRetries {
 		return w.outboxRepo.MarkDead(ctx, item.ID, item.LockToken, lastError)
 	}
-	retryDelay := w.baseRetryWait * time.Duration(int(math.Pow(2, float64(item.RetryCount))))
+
+	baseRetryWait := time.Duration(w.options.BaseRetryWaitSeconds) * time.Second
+	retryDelay := baseRetryWait * time.Duration(int(math.Pow(2, float64(item.RetryCount))))
 	if retryDelay > 5*time.Minute {
 		retryDelay = 5 * time.Minute
 	}
 	if retryDelay <= 0 {
-		retryDelay = w.baseRetryWait
+		retryDelay = baseRetryWait
 	}
-	return w.outboxRepo.MarkRetry(ctx, item.ID, item.LockToken, time.Now().Add(retryDelay), lastError)
+
+	return w.outboxRepo.MarkRetry(
+		ctx,
+		item.ID,
+		item.LockToken,
+		time.Now().Add(retryDelay),
+		lastError,
+	)
 }

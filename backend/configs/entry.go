@@ -1,8 +1,10 @@
 package configs
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -11,15 +13,18 @@ import (
 )
 
 type Config struct {
-	App       App             `yaml:"app"`
-	Server    Server          `yaml:"server"`
-	Database  Database        `yaml:"database"`
-	JWT       JWT             `yaml:"jwt"`
-	WebSocket WebSocketConfig `yaml:"ws"`
-	Message   MessageConfig   `yaml:"message"`
-	Kafka     KafkaConfig     `yaml:"kafka"`
-	Storage   StorageConfig   `yaml:"storage"`
-	Cache     CacheConfig     `yaml:"cache"`
+	App         App               `yaml:"app"`
+	Server      Server            `yaml:"server"`
+	Database    Database          `yaml:"database"`
+	JWT         JWT               `yaml:"jwt"`
+	Security    SecurityConfig    `yaml:"security"`
+	WebSocket   WebSocketConfig   `yaml:"ws"`
+	Message     MessageConfig     `yaml:"message"`
+	Outbox      OutboxConfig      `yaml:"outbox"`
+	Kafka       KafkaConfig       `yaml:"kafka"`
+	Storage     StorageConfig     `yaml:"storage"`
+	FileCleanup FileCleanupConfig `yaml:"file_cleanup"`
+	Cache       CacheConfig       `yaml:"cache"`
 }
 
 type UserProfile struct {
@@ -44,14 +49,20 @@ type KafkaConfig struct {
 }
 
 type KafkaTopics struct {
-	Chat string `yaml:"chat"`
-	Ack  string `yaml:"ack"`
+	Message              string `yaml:"message"`
+	ReadMessageCommitted string `yaml:"read_message_committed"`
+	FriendRequestCreated string `yaml:"friend_request_created"`
+	RoomMemberChanged    string `yaml:"room_member_changed"`
 }
 
 type KafkaConsumerConfig struct {
-	GroupID  string `yaml:"group_id"`
-	Version  string `yaml:"version"`
-	Assignor string `yaml:"assignor"` // range / roundrobin / sticky
+	GroupID                  string `yaml:"group_id"`
+	Version                  string `yaml:"version"`
+	Assignor                 string `yaml:"assignor"` // range / roundrobin / sticky
+	MaxInboxRetries          int    `yaml:"max_inbox_retries"`
+	InboxStaleAfterSecs      int    `yaml:"inbox_stale_after_seconds"`
+	ConsumeRetryIntervalSecs int    `yaml:"consume_retry_interval_seconds"`
+	DeadLetterSuffix         string `yaml:"dead_letter_suffix"`
 }
 
 type KafkaProducerConfig struct {
@@ -70,32 +81,35 @@ type StorageConfig struct {
 	MinIO MinIOConfig `yaml:"minio"`
 }
 
+type FileCleanupConfig struct {
+	IntervalSeconds         int `yaml:"interval_seconds"`
+	BatchSize               int `yaml:"batch_size"`
+	StaleAfterSeconds       int `yaml:"stale_after_seconds"`
+	BaseRetryWaitSeconds    int `yaml:"base_retry_wait_seconds"`
+	OperationTimeoutSeconds int `yaml:"operation_timeout_seconds"`
+	MaxRetries              int `yaml:"max_retries"`
+	OrphanAfterSeconds      int `yaml:"orphan_after_seconds"`
+}
+
 type MinIOConfig struct {
-	Endpoint                         string  `yaml:"endpoint"`
-	PublicEndpoint                   string  `yaml:"public_endpoint"`
-	AccessKeyID                      string  `yaml:"access_key_id"`
-	SecretAccessKey                  string  `yaml:"secret_access_key"`
-	Bucket                           string  `yaml:"bucket"`
-	UseSSL                           bool    `yaml:"use_ssl"`
-	CacheTTLSeconds                  int     `yaml:"cache_ttl_seconds"`
-	URLTTLSeconds                    int     `yaml:"url_ttl_seconds"`
-	MultipartTTL                     int     `yaml:"multipartTTL"`
-	PartURLTTLSeconds                int     `yaml:"part_url_ttl_seconds"`
-	DirectUploadURLTTLSeconds        int     `yaml:"direct_upload_url_ttl_seconds"`
-	DirectUploadMaxSizeBytes         int64   `yaml:"direct_upload_max_size_bytes"`
-	MultipartInitLockTTLSeconds      int     `yaml:"multipart_init_lock_ttl_seconds"`
-	MultipartCompleteLockTTLSeconds  int     `yaml:"multipart_complete_lock_ttl_seconds"`
-	MultipartCleanupIntervalSeconds  int     `yaml:"multipart_cleanup_interval_seconds"`
-	MultipartCleanupBatchSize        int     `yaml:"multipart_cleanup_batch_size"`
-	MultipartCleanupStaleSeconds     int     `yaml:"multipart_cleanup_stale_seconds"`
-	MultipartCleanupRetrySeconds     int     `yaml:"multipart_cleanup_retry_seconds"`
-	MultipartCleanupOperationSeconds int     `yaml:"multipart_cleanup_operation_seconds"`
-	MultipartCleanupMaxRetries       int     `yaml:"multipart_cleanup_max_retries"`
-	MaxFileSizeBytes                 int64   `yaml:"max_file_size_bytes"`
-	MaxMultipartParts                int     `yaml:"max_multipart_parts"`
-	UploadRate                       float64 `yaml:"upload_rate"`
-	UploadBurst                      int64   `yaml:"upload_burst"`
-	OrphanRetentionSeconds           int     `yaml:"orphan_retention_seconds"`
+	Endpoint                        string  `yaml:"endpoint"`
+	PublicEndpoint                  string  `yaml:"public_endpoint"`
+	AccessKeyID                     string  `yaml:"access_key_id"`
+	SecretAccessKey                 string  `yaml:"secret_access_key"`
+	Bucket                          string  `yaml:"bucket"`
+	UseSSL                          bool    `yaml:"use_ssl"`
+	CacheTTLSeconds                 int     `yaml:"cache_ttl_seconds"`
+	URLTTLSeconds                   int     `yaml:"url_ttl_seconds"`
+	MultipartTTL                    int     `yaml:"multipartTTL"`
+	PartURLTTLSeconds               int     `yaml:"part_url_ttl_seconds"`
+	DirectUploadURLTTLSeconds       int     `yaml:"direct_upload_url_ttl_seconds"`
+	DirectUploadMaxSizeBytes        int64   `yaml:"direct_upload_max_size_bytes"`
+	MultipartInitLockTTLSeconds     int     `yaml:"multipart_init_lock_ttl_seconds"`
+	MultipartCompleteLockTTLSeconds int     `yaml:"multipart_complete_lock_ttl_seconds"`
+	MaxFileSizeBytes                int64   `yaml:"max_file_size_bytes"`
+	MaxMultipartParts               int     `yaml:"max_multipart_parts"`
+	UploadRate                      float64 `yaml:"upload_rate"`
+	UploadBurst                     int64   `yaml:"upload_burst"`
 }
 
 type App struct {
@@ -106,30 +120,45 @@ type App struct {
 }
 
 type WebSocketConfig struct {
-	WriteWaitSeconds         int    `yaml:"write_wait_seconds"`
-	PongWaitSeconds          int    `yaml:"pong_wait_seconds"`
-	PingPeriodSeconds        int    `yaml:"ping_period_seconds"`
-	TimerInterval            int    `yaml:"timer_interval_seconds"`
-	MaxMessageSize           int    `yaml:"max_message_size"`
-	MaxMessageSendBufferSize int    `yaml:"max_message_send_buffer_size"`
-	SendMessageRate          int    `yaml:"send_message_rate"`
-	SendMessageBurst         int    `yaml:"send_message_burst"`
-	BatchMaxMessages         int    `yaml:"batch_max_messages"`
-	BatchMaxBytes            int    `yaml:"batch_max_bytes"`
-	BatchLingerMilliseconds  int    `yaml:"batch_linger_milliseconds"`
-	BatchReadyQueueSize      int    `yaml:"batch_ready_queue_size"`
-	AllowedOrigins           string `yaml:"allowed_origins"`
+	WriteWaitSeconds         int `yaml:"write_wait_seconds"`
+	PongWaitSeconds          int `yaml:"pong_wait_seconds"`
+	PingPeriodSeconds        int `yaml:"ping_period_seconds"`
+	TimerInterval            int `yaml:"timer_interval_seconds"`
+	MaxMessageSize           int `yaml:"max_message_size"`
+	MaxMessageSendBufferSize int `yaml:"max_message_send_buffer_size"`
+	SendMessageRate          int `yaml:"send_message_rate"`
+	SendMessageBurst         int `yaml:"send_message_burst"`
+	BatchMaxMessages         int `yaml:"batch_max_messages"`
+	BatchMaxBytes            int `yaml:"batch_max_bytes"`
+	BatchLingerMilliseconds  int `yaml:"batch_linger_milliseconds"`
+	BatchReadyQueueSize      int `yaml:"batch_ready_queue_size"`
 }
 
 type MessageConfig struct {
-	RoomRealtimeFanoutLimit           int `yaml:"room_realtime_fanout_limit"`
-	LargeRoomNoticeLingerMilliseconds int `yaml:"large_room_notice_linger_milliseconds"`
-	LargeRoomNoticeShardCount         int `yaml:"large_room_notice_shard_count"`
-	LargeRoomNoticeMaxPending         int `yaml:"large_room_notice_max_pending"`
-	HistoryDefaultLimit               int `yaml:"history_default_limit"`
-	HistoryMaxLimit                   int `yaml:"history_max_limit"`
-	SyncDefaultLimit                  int `yaml:"sync_default_limit"`
-	SyncMaxLimit                      int `yaml:"sync_max_limit"`
+	RoomRealtimeFanoutLimit           int   `yaml:"room_realtime_fanout_limit"`
+	LargeRoomNoticeLingerMilliseconds int   `yaml:"large_room_notice_linger_milliseconds"`
+	LargeRoomNoticeShardCount         int   `yaml:"large_room_notice_shard_count"`
+	LargeRoomNoticeMaxPending         int   `yaml:"large_room_notice_max_pending"`
+	HistoryDefaultLimit               int   `yaml:"history_default_limit"`
+	HistoryMaxLimit                   int   `yaml:"history_max_limit"`
+	SyncDefaultLimit                  int   `yaml:"sync_default_limit"`
+	SyncMaxLimit                      int   `yaml:"sync_max_limit"`
+	MaxTextRunes                      int   `yaml:"max_text_runes"`
+	MaxWidth                          int   `yaml:"max_width"`
+	MaxHeight                         int   `yaml:"max_height"`
+	MaxVideoMs                        int64 `yaml:"max_video_ms"`
+	MaxIdentifierLength               int   `yaml:"max_identifier_length"`
+	AttachmentTTLSeconds              int64 `yaml:"attachment_ttl_seconds"`
+}
+
+type OutboxConfig struct {
+	BatchSize            int `yaml:"batch_size"`
+	WorkerCount          int `yaml:"worker_count"`
+	QueueSize            int `yaml:"queue_size"`
+	PollIntervalSeconds  int `yaml:"poll_interval_seconds"`
+	StaleAfterSeconds    int `yaml:"stale_after_seconds"`
+	BaseRetryWaitSeconds int `yaml:"base_retry_wait_seconds"`
+	MaxRetries           int `yaml:"max_retries"`
 }
 
 type Server struct {
@@ -153,6 +182,10 @@ type JWT struct {
 	Secret              string `yaml:"secret"`
 	AccessExpireMinutes int    `yaml:"access_expire_minutes"`
 	RefreshExpireHours  int    `yaml:"refresh_expire_hours"`
+}
+
+type SecurityConfig struct {
+	AllowedOrigins string `yaml:"allowed_origins"`
 }
 
 func LoadConfig(path string) Config {
@@ -213,8 +246,8 @@ func applyEnvironmentOverrides(config *Config) {
 			config.Storage.MinIO.UseSSL = parsed
 		}
 	}
-	if value := os.Getenv("WS_ALLOWED_ORIGINS"); value != "" {
-		config.WebSocket.AllowedOrigins = value
+	if value := os.Getenv("ALLOWED_ORIGINS"); value != "" {
+		config.Security.AllowedOrigins = value
 	}
 }
 
@@ -227,6 +260,22 @@ func splitCSV(value string) []string {
 		}
 	}
 	return result
+}
+
+func validateFileEndPoint(publicEndpoint string, allowedOrigins []string) error {
+	fileURL, err := url.Parse(publicEndpoint)
+	if err != nil || fileURL.Host == "" {
+		return errors.New("MinIO public_endpoint 无效")
+	}
+
+	for _, orign := range allowedOrigins {
+		// 禁止 minio 访问域名与后端域名相同
+		orign, err := url.Parse(orign)
+		if err == nil && orign.Host == fileURL.Host {
+			return errors.New("文件域名不能与主站域名相同")
+		}
+	}
+	return nil
 }
 
 func (c Config) Validate() error {
@@ -261,9 +310,18 @@ func (c Config) Validate() error {
 		if c.Storage.MinIO.AccessKeyID == "minioadmin" || c.Storage.MinIO.SecretAccessKey == "minioadmin" {
 			return fmt.Errorf("生产环境禁止使用默认 MinIO 凭据")
 		}
-		if c.WebSocket.AllowedOrigins == "" {
-			return fmt.Errorf("生产环境必须配置 ws.allowed_origins")
+		if c.Security.AllowedOrigins == "" {
+			return fmt.Errorf("生产环境必须配置 security.allowed_origins")
 		}
 	}
+
+	if c.App.Env == "production" && c.Storage.MinIO.PublicEndpoint == "" {
+		return errors.New("生产环境必须配置 minio.public_endpoint")
+	}
+
+	if err := validateFileEndPoint(c.Storage.MinIO.PublicEndpoint, []string{}); err != nil {
+		return err
+	}
+
 	return nil
 }

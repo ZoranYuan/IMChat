@@ -1,6 +1,7 @@
 package outbox
 
 import (
+	"IM_backend/configs"
 	eventbus "IM_backend/internal/application/ports/eventbus"
 	outboxport "IM_backend/internal/application/ports/outbox"
 	"context"
@@ -58,7 +59,15 @@ func (stub *outboxRepositoryStub) WithTx(any) outboxport.Repository {
 func TestWorkerPublishesStoredPayload(t *testing.T) {
 	repository := &outboxRepositoryStub{}
 	publisher := &publisherStub{}
-	worker := NewWorker(nil, repository, publisher)
+	worker := NewWorker(nil, repository, publisher, configs.OutboxConfig{
+		BatchSize:            10,
+		PollIntervalSeconds:  2,
+		StaleAfterSeconds:    30,
+		BaseRetryWaitSeconds: 2,
+		MaxRetries:           10,
+		WorkerCount:          2,
+		QueueSize:            4,
+	})
 	item := &outboxport.Entry{
 		ID:         "o1",
 		EventType:  "msg",
@@ -83,8 +92,16 @@ func TestWorkerPublishesStoredPayload(t *testing.T) {
 
 func TestWorkerMarksExhaustedItemDead(t *testing.T) {
 	repository := &outboxRepositoryStub{}
-	worker := NewWorker(nil, repository, &publisherStub{err: errors.New("消息队列不可用")})
-	item := &outboxport.Entry{ID: "o1", RetryCount: worker.maxRetries, LockToken: "lease-2"}
+	worker := NewWorker(nil, repository, &publisherStub{err: errors.New("消息队列不可用")}, configs.OutboxConfig{
+		BatchSize:            10,
+		PollIntervalSeconds:  2,
+		StaleAfterSeconds:    30,
+		BaseRetryWaitSeconds: 2,
+		MaxRetries:           10,
+		WorkerCount:          2,
+		QueueSize:            4,
+	})
+	item := &outboxport.Entry{ID: "o1", RetryCount: worker.options.MaxRetries, LockToken: "lease-2"}
 
 	if err := worker.dispatchOne(context.Background(), item); err != nil {
 		t.Fatalf("标记死信失败：%v", err)

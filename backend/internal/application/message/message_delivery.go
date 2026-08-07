@@ -125,7 +125,6 @@ func (delivery *Delivery) deliverRoomMessage(
 	return delivery.deliverSmallRoomMessage(eventType, members, envelope)
 }
 
-// 小房间的处理方式和单聊一样
 func (delivery *Delivery) deliverSmallRoomMessage(
 	eventType string,
 	members []string,

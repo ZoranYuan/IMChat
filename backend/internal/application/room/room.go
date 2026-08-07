@@ -3,7 +3,6 @@ package room
 import (
 	idport "IM_backend/internal/application/ports/id"
 	outboxport "IM_backend/internal/application/ports/outbox"
-	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
@@ -26,7 +25,6 @@ type RoomApplication struct {
 	roomUserRepository         roomrepo.RoomUserRepository
 	userConversationRepository conversationrepo.UserConversationRepository
 	conversationRepository     conversationrepo.ConversationRepository
-	conversationCache          convcache.ConversationCache
 	roomCache                  roomcache.RoomCache
 	roomMemberCache            roomcache.RoomMemberCache
 	txManager                  txmanager.TxManager
@@ -39,7 +37,6 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
 	userConversationRepository conversationrepo.UserConversationRepository,
 	conversationRepository conversationrepo.ConversationRepository,
-	conversationCache convcache.ConversationCache,
 	roomCache roomcache.RoomCache,
 	roomMemberCache roomcache.RoomMemberCache,
 	txManager txmanager.TxManager,
@@ -52,7 +49,6 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 		roomUserRepository:         roomUserRepository,
 		conversationRepository:     conversationRepository,
 		userConversationRepository: userConversationRepository,
-		conversationCache:          conversationCache,
 		roomCache:                  roomCache,
 		roomMemberCache:            roomMemberCache,
 		txManager:                  txManager,
@@ -93,7 +89,6 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		userId,
 		conversationId,
 		0,
-		0,
 		conversationvo.RoomChat,
 	)
 
@@ -130,21 +125,12 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		if err := userConversationRepository.CreateUserConversation(ctx, userConversation); err != nil {
 			return err
 		}
-
 		return nil
 	}); err != nil {
 		if cleanupErr := ra.roomCache.DeleteInviteCode(ctx, roomId); cleanupErr != nil {
 			log.Println("清理邀请码缓存失败：", cleanupErr)
 		}
 		return nil, err
-	}
-
-	if err := ra.conversationCache.RecoverConvLatestSeq(
-		ctx,
-		conversationId,
-		conversation.LatestSeq,
-	); err != nil {
-		log.Println("预热会话序列缓存失败：", err)
 	}
 
 	ra.invalidateRoomMemberCache(ctx, roomId, userId)
@@ -223,6 +209,14 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 			newRoomUser := roomentity.NewRoomUser(userId, roomId, roomvo.RegularUser)
 			newRoomUser.Join()
 
+			updated, err := ra.roomRepository.WithTx(tx).IncrementMemberCount(ctx, roomId, int(roomvo.Normal))
+			if err != nil {
+				return err
+			}
+			if !updated {
+				return ErrRoomFull
+			}
+
 			persistedMember, err = ra.roomUserRepository.WithTx(tx).JoinRoom(newRoomUser)
 
 			if err != nil {
@@ -237,12 +231,21 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 				return err
 			}
 
+			updated, err := ra.roomRepository.WithTx(tx).IncrementMemberCount(ctx, roomId, int(roomvo.Normal))
+			if err != nil {
+				return err
+			}
+			if !updated {
+				return ErrRoomFull
+			}
+
 			if err := ra.roomUserRepository.WithTx(tx).RejoinRoom(member); err != nil {
 				return err
 			}
 
 			persistedMember = member
 		}
+		room.MemberCount++
 		if err := ra.writeMemberChangedEvent(ctx, tx, persistedMember); err != nil {
 			return err
 		}
@@ -255,7 +258,6 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 		userConversation := conversationentity.BuildUserConversation(
 			userId,
 			conversationId,
-			conv.LatestSeq,
 			conv.LatestSeq,
 			conversationvo.RoomChat,
 		)
@@ -377,6 +379,13 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 				return ErrConcurrentUpdate
 			}
 			return ErrUnknown
+		}
+		updated, err := ra.roomRepository.WithTx(tx).DecrementMemberCount(ctx, roomId, int(roomvo.Normal))
+		if err != nil {
+			return err
+		}
+		if !updated {
+			return ErrConcurrentUpdate
 		}
 		if err := ra.writeMemberChangedEvent(ctx, tx, roomUser); err != nil {
 			return err

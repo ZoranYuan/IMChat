@@ -112,6 +112,10 @@ func (rh *RoomHandle) Join(c *gin.Context) {
 	roomUserApp, roomApp, err := rh.app.Join(ctx, userId, req.InviteCode)
 
 	if err != nil {
+		if errors.Is(err, roomapp.ErrRoomFull) {
+			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, err.Error()))
 		return
 	}

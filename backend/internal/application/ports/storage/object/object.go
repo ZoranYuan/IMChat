@@ -17,7 +17,12 @@ type ObjectStorage interface {
 	ListMultipartParts(ctx context.Context, objectKey string, uploadId string) ([]MultipartPart, error)
 	CompleteMultipartUpload(ctx context.Context, objectKey string, uploadId string, parts []MultipartPart) error
 	AbortMultipartUpload(ctx context.Context, objectKey string, uploadId string) error
-	PresignedGetURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error)
+	PresignedGetURL(ctx context.Context,
+		objectKey string,
+		ttl time.Duration,
+		contentType string,
+		fileName string,
+	) (string, error)
 	Bucket() string
 }
 

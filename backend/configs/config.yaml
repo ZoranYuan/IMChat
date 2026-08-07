@@ -15,6 +15,10 @@ jwt:
   secret: "U2FsdGVkX19anQGSRtiUwgRLpWV333jI4xjlCF32dek="
   access_expire_minutes: 150
   refresh_expire_hours: 168
+
+security:
+  allowed_origins: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081,http://127.0.0.1:8081"
+
 ws:
   write_wait_seconds: 10
   pong_wait_seconds: 60
@@ -28,9 +32,14 @@ ws:
   batch_max_bytes: 8192
   batch_linger_milliseconds: 20
   batch_ready_queue_size: 16
-  allowed_origins: "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081,http://127.0.0.1:8081"
 message:
   room_realtime_fanout_limit: 500
+  max_text_runes: 4096
+  max_width: 8192
+  max_height: 8192
+  max_video_ms: 86400000
+  max_identifier_length: 128
+  attachment_ttl_seconds: 1209600
   large_room_notice_linger_milliseconds: 200
   large_room_notice_shard_count: 16
   large_room_notice_max_pending: 100000
@@ -38,19 +47,31 @@ message:
   history_max_limit: 30
   sync_default_limit: 50
   sync_max_limit: 100
+outbox:
+  batch_size: 100
+  worker_count: 10
+  queue_size: 100
+  poll_interval_seconds: 2
+  stale_after_seconds: 30
+  base_retry_wait_seconds: 2
+  max_retries: 10
 kafka:
   brokers:
     - "kafka:9092"
-
   topics:
-    chat: "chat"
-    video: "video"
-    ack: "ack"
+    message: "im.message"
+    read_message_committed: "im.read"
+    friend_request_created: "im.friend"
+    room_member_changed: "im.room"
 
   consumer:
     group_id: "im-chat-consumer-group"
     version: "2.6.0"
     assignor: "range"   # range / roundrobin / sticky
+    max_inbox_retries: 5
+    inbox_stale_after_seconds: 30
+    consume_retry_interval_seconds: 1
+    dead_letter_suffix: ".dlq"
 
   producer:
     acks: "all"         # all / 1 / 0
@@ -77,17 +98,19 @@ storage:
     direct_upload_max_size_bytes: 8388608
     multipart_init_lock_ttl_seconds: 15
     multipart_complete_lock_ttl_seconds: 30
-    multipart_cleanup_interval_seconds: 60
-    multipart_cleanup_batch_size: 50
-    multipart_cleanup_stale_seconds: 300
-    multipart_cleanup_retry_seconds: 30
-    multipart_cleanup_operation_seconds: 30
-    multipart_cleanup_max_retries: 10
     max_file_size_bytes: 1073741824
     max_multipart_parts: 10000
     upload_rate: 1
     upload_burst: 5
-    orphan_retention_seconds: 86400
+
+file_cleanup:
+  interval_seconds: 60
+  batch_size: 50
+  stale_after_seconds: 300
+  base_retry_wait_seconds: 30
+  operation_timeout_seconds: 30
+  max_retries: 10
+  orphan_after_seconds: 86400
 
 cache:
   user_profile:

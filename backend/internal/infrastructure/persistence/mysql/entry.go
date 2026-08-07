@@ -56,6 +56,9 @@ func Migrate(db *gorm.DB) error {
 	prepareLegacyOutboxColumns(db)
 	prepareFileUploadColumns(db)
 	prepareFileHashColumn(db)
+	if err := prepareMessageSequenceIndex(db); err != nil {
+		return err
+	}
 
 	if err := db.AutoMigrate(
 		&model.User{},
@@ -94,6 +97,67 @@ func Migrate(db *gorm.DB) error {
 	}
 	dropLegacyColumns(db)
 	return nil
+}
+
+// 历史版本可能把所有消息写成 seq=0。先按发送时间补齐会话序号，才能建立唯一索引。
+func prepareMessageSequenceIndex(db *gorm.DB) error {
+	if !db.Migrator().HasTable("messages") {
+		return nil
+	}
+
+	var duplicateGroups int64
+	if err := db.Raw(`
+		SELECT COUNT(*)
+		FROM (
+			SELECT conversation_id, seq
+			FROM messages
+			GROUP BY conversation_id, seq
+			HAVING COUNT(*) > 1
+		) AS duplicated
+	`).Scan(&duplicateGroups).Error; err != nil {
+		return err
+	}
+	if duplicateGroups == 0 {
+		return nil
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`
+			UPDATE messages AS m
+			JOIN (
+				SELECT ranked.message_id, ranked.new_seq
+				FROM (
+					SELECT message_id,
+						ROW_NUMBER() OVER (
+							PARTITION BY conversation_id
+							ORDER BY send_time ASC, message_id ASC
+						) AS new_seq
+					FROM messages
+				) AS ranked
+			) AS repaired ON repaired.message_id = m.message_id
+			SET m.seq = repaired.new_seq
+		`).Error; err != nil {
+			return err
+		}
+
+		return tx.Exec(`
+			UPDATE conversations AS c
+			JOIN (
+				SELECT m.conversation_id, m.message_id, m.seq
+				FROM messages AS m
+				JOIN (
+					SELECT conversation_id, MAX(seq) AS max_seq
+					FROM messages
+					GROUP BY conversation_id
+				) AS latest
+				  ON latest.conversation_id = m.conversation_id
+				 AND latest.max_seq = m.seq
+			) AS latest_message
+			  ON latest_message.conversation_id = c.conversation_id
+			SET c.latest_seq = latest_message.seq,
+				c.latest_message_id = latest_message.message_id
+		`).Error
+	})
 }
 
 func backfillFileUploadRetryState(db *gorm.DB) error {

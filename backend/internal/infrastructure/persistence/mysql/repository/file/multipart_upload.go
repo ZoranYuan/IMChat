@@ -193,15 +193,18 @@ func (r *FileUploadRepository) MarkCompleted(ctx context.Context, uploadId, file
 	if result.RowsAffected > 0 {
 		return true, nil
 	}
-	var status string
+	var row struct {
+		Status string
+		FileID string `gorm:"column:file_id"`
+	}
 	if err := r.db.WithContext(ctx).
 		Model(&model.FileUpload{}).
-		Select("status").
+		Select("status, file_id").
 		Where("upload_id = ?", uploadId).
-		Scan(&status).Error; err != nil {
+		Scan(&row).Error; err != nil {
 		return false, err
 	}
-	return status == "completed", nil
+	return row.Status == "completed" && row.FileID == fileId, nil
 }
 
 func (r *FileUploadRepository) Delete(ctx context.Context, uploadId string) error {

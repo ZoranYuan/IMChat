@@ -14,6 +14,7 @@ type Message struct {
 	ConversationId string
 	SendId         string
 	ClientMsgId    *string
+	RequestHash    string
 	Seq            int64
 	Type           messagevo.CType
 	Content        string

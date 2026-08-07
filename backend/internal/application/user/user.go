@@ -101,20 +101,12 @@ func (ua *UserApplication) RegisterWithPhone(password string, phone string, reco
 		return nil, err
 	}
 
-	// 生成 token
-	accessToken, refreshToken, err := ua.issueTokensAndCache(userId)
-	if err != nil {
-		return nil, err
-	}
-
 	userApp := &UserAppDTO{
-		UserId:       newUser.UserId,
-		UserName:     newUser.UserName,
-		NickName:     newUser.NickName,
-		Avatar:       newUser.Avatar,
-		Phone:        string(newUser.Phone),
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+		UserId:   newUser.UserId,
+		UserName: newUser.UserName,
+		NickName: newUser.NickName,
+		Avatar:   newUser.Avatar,
+		Phone:    string(newUser.Phone),
 	}
 
 	return userApp, nil
@@ -217,7 +209,6 @@ func (ua *UserApplication) GetUserByID(userId string) (*UserAppDTO, error) {
 		UserId:   user.UserId,
 		UserName: user.UserName,
 		NickName: user.NickName,
-		Phone:    string(user.Phone),
 		Avatar:   user.Avatar,
 	}
 
@@ -237,12 +228,11 @@ func (ua *UserApplication) ResolveUser(keyword string) (*UserAppDTO, error) {
 		UserId:   user.UserId,
 		UserName: user.UserName,
 		NickName: user.NickName,
-		Phone:    string(user.Phone),
 		Avatar:   user.Avatar,
 	}, nil
 }
 
-func (ua *UserApplication) Logout(userId, refreshToken string) error {
+func (ua *UserApplication) Logout(userId, refreshToken, sessionID string) error {
 	user, err := ua.userRepository.FindByUserID(userId)
 	if err != nil {
 		return err
@@ -254,6 +244,20 @@ func (ua *UserApplication) Logout(userId, refreshToken string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	if refreshToken != "" {
+		refreshSession, found, err := ua.authCache.GetRefreshSession(ctx, refreshToken)
+		if err != nil {
+			return err
+		}
+		if found && refreshSession.SessionID != "" && refreshSession.SessionID != sessionID {
+			if err := ua.authCache.RevokeSession(ctx, refreshSession.SessionID, ua.options.RefreshTokenTTL); err != nil {
+				return err
+			}
+		}
+	}
+	if err := ua.authCache.RevokeSession(ctx, sessionID, ua.options.RefreshTokenTTL); err != nil {
+		return err
+	}
 	if refreshToken != "" {
 		if err := ua.authCache.DeleteRefreshSession(ctx, refreshToken); err != nil {
 			return err
@@ -274,6 +278,13 @@ func (ua *UserApplication) Refresh(refreshToken string) (*UserAppDTO, error) {
 		return nil, err
 	}
 	if !found || session.UserID == "" {
+		return nil, ErrUserNotFound
+	}
+	revoked, err := ua.authCache.IsSessionRevoked(ctx, session.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if revoked {
 		return nil, ErrUserNotFound
 	}
 	user, err := ua.userRepository.FindByUserID(session.UserID)

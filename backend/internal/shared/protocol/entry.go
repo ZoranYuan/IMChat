@@ -9,10 +9,10 @@ type Envelope struct {
 type AckStatus string
 
 const (
-	AckStatusSent      AckStatus = "sent"
-	AckStatusDelivered AckStatus = "delivered"
-	AckStatusRead      AckStatus = "read"
-	AckStatusFailed    AckStatus = "failed"
+	AckStatusSent      AckStatus = "sent"      // 服务端事务已提交
+	AckStatusDelivered AckStatus = "delivered" // 至少一个目标在线 Session 已接收
+	AckStatusRead      AckStatus = "read"      // 对方读水位已越过该消息
+	AckStatusFailed    AckStatus = "failed"    // 服务端未提交
 )
 
 type EventType string

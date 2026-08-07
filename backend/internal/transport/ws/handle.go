@@ -52,7 +52,7 @@ func NewWSHandler(
 				if origin == "" || config.App.Env == "development" {
 					return true
 				}
-				for _, allowed := range strings.Split(config.WebSocket.AllowedOrigins, ",") {
+				for _, allowed := range strings.Split(config.Security.AllowedOrigins, ",") {
 					if strings.TrimSpace(allowed) == origin {
 						return true
 					}
@@ -224,19 +224,32 @@ func (wh *WSHandler) handleClientClosed(session *realtimews.Session) {
 	wh.gateway.Unregister(session)
 }
 
+func (wh *WSHandler) checkOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+
+	if wh.config.App.Env == "development" {
+		return true
+	}
+
+	if origin == "" {
+		return false
+	}
+
+	for _, allowed := range strings.Split(wh.config.Security.AllowedOrigins, ",") {
+		if strings.TrimSpace(allowed) == origin {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (wh *WSHandler) Handler(c *gin.Context) {
-	userId := c.GetString("userId")
+	userId := strings.TrimSpace(c.GetString("userId"))
 	ctx, cancel := context.WithCancel(context.Background())
 
 	if userId == "" {
 		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
-		cancel()
-		return
-	}
-
-	conn, err := wh.upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "网络异常，无法连接服务器"))
 		cancel()
 		return
 	}
@@ -258,6 +271,25 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 		platform,
 		sessionId,
 	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "网络异常，无法连接服务器"))
+		cancel()
+		return
+	}
+
+	if isValid := wh.checkOrigin(c.Request); !isValid {
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "非法请求"))
+		cancel()
+		return
+	}
+
+	conn, err := wh.upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "网络异常，无法连接服务器"))
+		cancel()
+		return
+	}
 
 	batchConfig := realtimews.MessageBatchConfig{
 		MaxMessages:    wh.config.WebSocket.BatchMaxMessages,

@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	configs "IM_backend/configs"
 	eventbus "IM_backend/internal/application/ports/eventbus"
 	inboxport "IM_backend/internal/application/ports/inbox"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
@@ -13,10 +14,6 @@ import (
 	"github.com/IBM/sarama"
 )
 
-const defaultConsumeRetryInterval = time.Second
-
-const inboxStaleAfter = 30 * time.Second
-
 var (
 	ErrHandlerNotFound = errors.New("消息处理器不存在")
 	ErrInvalidClient   = errors.New("消息队列客户端无效")
@@ -24,79 +21,71 @@ var (
 )
 
 type ConsumerRouter struct {
-	handlers  map[string]eventbus.Handler
-	inbox     inboxport.InboxRepository
-	txManager txmanager.TxManager
+	handlers        map[string]eventbus.Handler
+	inbox           inboxport.InboxRepository
+	txManager       txmanager.TxManager
+	inboxStaleAfter time.Duration
 }
 
-type RouterOption func(*ConsumerRouter)
-
-func WithInbox(repo inboxport.InboxRepository, txManager txmanager.TxManager) RouterOption {
-	return func(router *ConsumerRouter) {
-		router.inbox = repo
-		router.txManager = txManager
-	}
-}
-
-func NewConsumerRouter(handlers map[string]eventbus.Handler, options ...RouterOption) *ConsumerRouter {
+func NewConsumerRouter(handlers map[string]eventbus.Handler, inbox inboxport.InboxRepository, txManager txmanager.TxManager, config configs.KafkaConsumerConfig) *ConsumerRouter {
 	registered := make(map[string]eventbus.Handler, len(handlers))
-	for topic, handler := range handlers {
-		if topic == "" || handler == nil {
+	for eventName, handler := range handlers {
+		if eventName == "" || handler == nil {
 			continue
 		}
 
-		registered[topic] = handler
+		registered[eventName] = handler
 	}
-	router := &ConsumerRouter{handlers: registered}
-	for _, option := range options {
-		if option != nil {
-			option(router)
-		}
+	return &ConsumerRouter{
+		handlers:        registered,
+		inbox:           inbox,
+		txManager:       txManager,
+		inboxStaleAfter: time.Duration(config.InboxStaleAfterSecs) * time.Second,
 	}
-	return router
 }
 
-func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEvent) (string, error) {
+func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEvent) (string, int, error) {
 	if r == nil {
-		return "", ErrHandlerNotFound
+		return "", 0, ErrHandlerNotFound
 	}
 
 	handler, ok := r.handlers[message.Name]
 	if !ok {
-		return "", ErrHandlerNotFound
+		return "", 0, ErrHandlerNotFound
 	}
 
 	claimed := true
 	lockToken := ""
+	retryCount := 1
 	if r.inbox != nil && message.EventID != "" {
 		if r.txManager == nil {
-			return "", errors.New("Inbox 事务管理器未配置")
+			return "", 0, errors.New("Inbox 事务管理器未配置")
 		}
 		now := time.Now()
 		var err error
 		err = r.txManager.WithinTransaction(ctx, func(tx any) error {
-			claimed, lockToken, err = r.inbox.WithTx(tx).TryClaim(ctx, message.EventID, string(message.Name), now, now.Add(-inboxStaleAfter))
+			claimed, lockToken, retryCount, err = r.inbox.WithTx(tx).TryClaim(ctx, message.EventID, string(message.Name), now, now.Add(-r.inboxStaleAfter))
 			return err
 		})
 		if err != nil {
-			return "", err
+			return "", retryCount, err
 		}
 		if !claimed {
-			return "", nil
+			return "", retryCount, nil
 		}
 	}
 
 	err := handler.Handle(ctx, message)
 	if err != nil {
-		return lockToken, err
+		return lockToken, retryCount, err
 	}
 
-	if r.inbox != nil && message.EventID != "" && claimed {
+	if r.inbox != nil && message.EventID != "" {
 		if err := r.inbox.MarkCompleted(ctx, message.EventID, lockToken, time.Now()); err != nil {
-			return lockToken, fmt.Errorf("标记 Inbox 完成状态失败：%w", err)
+			return lockToken, retryCount, fmt.Errorf("标记 Inbox 完成状态失败：%w", err)
 		}
 	}
-	return lockToken, nil
+	return lockToken, retryCount, nil
 }
 
 func (r *ConsumerRouter) markDead(ctx context.Context, message eventbus.IncomingEvent, lockToken, lastError string) error {
@@ -108,6 +97,8 @@ func (r *ConsumerRouter) markDead(ctx context.Context, message eventbus.Incoming
 
 type saramaAdapter struct {
 	router              *ConsumerRouter
+	topicRouter         *TopicRouter
+	maxInboxRetries     int
 	deadLetterPublisher eventbus.Publisher
 	deadLetterSuffix    string
 }
@@ -148,10 +139,15 @@ func (h saramaAdapter) ConsumeClaim(
 				return nil
 			}
 
-			lockToken, err := h.router.handle(session.Context(),
+			eventName, mapErr := h.topicRouter.EventFor(message.Topic)
+			if mapErr != nil {
+				return mapErr
+			}
+
+			lockToken, retryCount, err := h.router.handle(session.Context(),
 				eventbus.IncomingEvent{
 					EventID: eventIDFromHeaders(message.Headers),
-					Name:    message.Topic,
+					Name:    eventName,
 
 					// 复制数据，避免业务层继续持有 Sarama 内部消息切片。
 					Key:     cloneBytes(message.Key),
@@ -159,12 +155,15 @@ func (h saramaAdapter) ConsumeClaim(
 				})
 
 			if err != nil {
-				if eventbus.IsNonRetryable(err) && h.deadLetterPublisher != nil {
+				if eventbus.IsNonRetryable(err) || (h.maxInboxRetries > 0 && retryCount >= h.maxInboxRetries) {
+					if h.deadLetterPublisher == nil {
+						return fmt.Errorf("死信发布器未配置：%w", err)
+					}
 					if publishErr := h.deadLetterPublisher.Publish(
 						session.Context(),
 						eventbus.IntegrationEvent{
 							EventID:      eventIDFromHeaders(message.Headers),
-							Name:         message.Topic + h.deadLetterSuffix,
+							Name:         eventName + h.deadLetterSuffix,
 							PartitionKey: string(message.Key),
 							Payload:      cloneBytes(message.Value),
 						},
@@ -173,7 +172,7 @@ func (h saramaAdapter) ConsumeClaim(
 					}
 					if markErr := h.router.markDead(session.Context(), eventbus.IncomingEvent{
 						EventID: eventIDFromHeaders(message.Headers),
-						Name:    message.Topic,
+						Name:    eventName,
 					}, lockToken, err.Error()); markErr != nil {
 						return fmt.Errorf("标记 Inbox 死信状态失败：%w", markErr)
 					}
@@ -204,19 +203,13 @@ func (h saramaAdapter) ConsumeClaim(
 
 type ConsumerGroup struct {
 	group               sarama.ConsumerGroup
+	topicRouter         *TopicRouter
+	maxInboxRetries     int
 	topics              []string
 	handlerRouter       *ConsumerRouter
 	retryInterval       time.Duration
 	deadLetterPublisher eventbus.Publisher
 	deadLetterSuffix    string
-}
-
-type ConsumerGroupOption func(*ConsumerGroup)
-
-func WithDeadLetterPublisher(publisher eventbus.Publisher) ConsumerGroupOption {
-	return func(group *ConsumerGroup) {
-		group.deadLetterPublisher = publisher
-	}
 }
 
 func normalizeTopics(topics []string) []string {
@@ -239,7 +232,14 @@ func normalizeTopics(topics []string) []string {
 	return result
 }
 
-func NewConsumerGroup(client *Client, topics []string, router *ConsumerRouter, options ...ConsumerGroupOption) (*ConsumerGroup, error) {
+func NewConsumerGroup(
+	client *Client,
+	topics []string,
+	router *ConsumerRouter,
+	deadLetterPublisher eventbus.Publisher,
+	topicRouter *TopicRouter,
+	config configs.KafkaConsumerConfig,
+) (*ConsumerGroup, error) {
 	if client == nil || client.Consumer == nil {
 		return nil, ErrInvalidClient
 	}
@@ -249,21 +249,25 @@ func NewConsumerGroup(client *Client, topics []string, router *ConsumerRouter, o
 		return nil, ErrEmptyTopics
 	}
 
-	if router == nil {
-		router = NewConsumerRouter(nil)
+	if router == nil || topicRouter == nil {
+		return nil, errors.New("Kafka Consumer 路由器未配置")
+	}
+	if config.MaxInboxRetries <= 0 || config.InboxStaleAfterSecs <= 0 || config.ConsumeRetryIntervalSecs <= 0 {
+		return nil, errors.New("Kafka Consumer 重试配置无效")
+	}
+	if config.DeadLetterSuffix == "" {
+		return nil, errors.New("Kafka DLQ 后缀未配置")
 	}
 
 	group := &ConsumerGroup{
-		group:            client.Consumer,
-		topics:           validTopics,
-		handlerRouter:    router,
-		retryInterval:    defaultConsumeRetryInterval,
-		deadLetterSuffix: ".dlq",
-	}
-	for _, option := range options {
-		if option != nil {
-			option(group)
-		}
+		group:               client.Consumer,
+		topics:              validTopics,
+		handlerRouter:       router,
+		topicRouter:         topicRouter,
+		maxInboxRetries:     config.MaxInboxRetries,
+		retryInterval:       time.Duration(config.ConsumeRetryIntervalSecs) * time.Second,
+		deadLetterPublisher: deadLetterPublisher,
+		deadLetterSuffix:    config.DeadLetterSuffix,
 	}
 	return group, nil
 }
@@ -275,6 +279,7 @@ func (c *ConsumerGroup) Start(ctx context.Context) error {
 
 	handler := saramaAdapter{
 		router:              c.handlerRouter,
+		maxInboxRetries:     c.maxInboxRetries,
 		deadLetterPublisher: c.deadLetterPublisher,
 		deadLetterSuffix:    c.deadLetterSuffix,
 	}
@@ -294,6 +299,7 @@ func (c *ConsumerGroup) Start(ctx context.Context) error {
 			}
 		}
 	}
+	// 返回上下文取消的具体原因
 	return context.Cause(ctx)
 }
 

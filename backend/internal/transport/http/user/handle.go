@@ -84,13 +84,12 @@ func (uh *UserHandle) Login(c *gin.Context) {
 		return
 	}
 
-	var res = UserRegisterRes{
+	var res = UserSessionRes{
 		UserId:   userApp.UserId,
 		UserName: userApp.UserName,
 		NickName: userApp.NickName,
 		Phone:    userApp.Phone,
 		Avatar:   userApp.Avatar,
-		Token:    userApp.AccessToken,
 	}
 
 	c.SetSameSite(http.SameSiteLaxMode)
@@ -107,7 +106,7 @@ func (uh *UserHandle) Logout(c *gin.Context) {
 	}
 
 	refreshToken, _ := c.Cookie(refreshTokenCookieName)
-	if err := uh.app.Logout(userId, refreshToken); err != nil {
+	if err := uh.app.Logout(userId, refreshToken, c.GetString("sessionId")); err != nil {
 		log.Println("退出登录失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "退出登录失败"))
 		return
@@ -132,7 +131,7 @@ func (uh *UserHandle) Refresh(c *gin.Context) {
 	}
 	c.SetSameSite(http.SameSiteLaxMode)
 	uh.setTokenCookies(c, userApp)
-	c.JSON(http.StatusOK, response.Success(UserRegisterRes{UserId: userApp.UserId, UserName: userApp.UserName, NickName: userApp.NickName, Phone: userApp.Phone, Avatar: userApp.Avatar, Token: userApp.AccessToken}))
+	c.JSON(http.StatusOK, response.Success(UserSessionRes{UserId: userApp.UserId, UserName: userApp.UserName, NickName: userApp.NickName, Phone: userApp.Phone, Avatar: userApp.Avatar}))
 }
 
 func (uh *UserHandle) Register(c *gin.Context) {
@@ -181,11 +180,8 @@ func (uh *UserHandle) Register(c *gin.Context) {
 		NickName: userApp.NickName,
 		Phone:    userApp.Phone,
 		Avatar:   userApp.Avatar,
-		Token:    userApp.AccessToken,
 	}
 
-	c.SetSameSite(http.SameSiteLaxMode)
-	uh.setTokenCookies(c, userApp)
 	c.JSON(http.StatusOK, response.Success(res))
 }
 
@@ -224,7 +220,6 @@ func (uh *UserHandle) GetUserByID(c *gin.Context) {
 		UserId:   userApp.UserId,
 		UserName: userApp.UserName,
 		NickName: userApp.NickName,
-		Phone:    userApp.Phone,
 		Avatar:   userApp.Avatar,
 	}
 
@@ -249,7 +244,6 @@ func (uh *UserHandle) ResolveUser(c *gin.Context) {
 		UserId:   userApp.UserId,
 		UserName: userApp.UserName,
 		NickName: userApp.NickName,
-		Phone:    userApp.Phone,
 		Avatar:   userApp.Avatar,
 	}))
 }

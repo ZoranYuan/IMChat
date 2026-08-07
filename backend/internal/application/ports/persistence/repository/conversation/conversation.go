@@ -11,9 +11,9 @@ type ConversationRepository interface {
 	GetByID(ctx context.Context, conversationID string) (*conversationentity.Conversation, error)
 	UpdateLatestSequence(
 		ctx context.Context,
-		conversation *conversationentity.Conversation,
-		updateLatestMessage bool,
-	) error
+		conversationId string,
+		messageId string,
+	) (int64, error)
 	ListByIDs(ctx context.Context, ids []string) ([]*conversationentity.Conversation, error)
 	WithTx(tx any) ConversationRepository
 }

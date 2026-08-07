@@ -3,7 +3,6 @@ package friend
 import (
 	idport "IM_backend/internal/application/ports/id"
 	outboxport "IM_backend/internal/application/ports/outbox"
-	convcache "IM_backend/internal/application/ports/persistence/cache/conversation"
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
@@ -27,6 +26,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"unicode/utf8"
 )
 
 type RequestApplication struct {
@@ -34,7 +34,6 @@ type RequestApplication struct {
 	userRepository          userrepo.UserRepository
 	messageRepository       messagerepo.MessageRepository
 	friendRepository        friendrepo.FriendRepository
-	conversationCache       convcache.ConversationCache
 	conversationRepository  conversationrepo.ConversationRepository
 	userConvRepository      conversationrepo.UserConversationRepository
 	friendCache             friendcache.FriendCache
@@ -49,7 +48,6 @@ func NewRequestApplication(
 	messageRepository messagerepo.MessageRepository,
 	conversationRepository conversationrepo.ConversationRepository,
 	userConvRepository conversationrepo.UserConversationRepository,
-	conversationCache convcache.ConversationCache,
 	friendRepository friendrepo.FriendRepository,
 	friendCache friendcache.FriendCache,
 	txManager txmanager.TxManager,
@@ -62,7 +60,6 @@ func NewRequestApplication(
 		messageRepository:       messageRepository,
 		userConvRepository:      userConvRepository,
 		conversationRepository:  conversationRepository,
-		conversationCache:       conversationCache,
 		friendRepository:        friendRepository,
 		friendCache:             friendCache,
 		txManager:               txManager,
@@ -171,13 +168,30 @@ func (fa *RequestApplication) reRequest(
 	return &dto, nil
 }
 
+func validateFriendRequest(
+	fromUserID string,
+	toUserID string,
+	message string,
+) error {
+	if fromUserID == "" || toUserID == "" {
+		return ErrEmptyUserId
+	}
+	if fromUserID == toUserID {
+		return ErrSelfRequest
+	}
+	if utf8.RuneCountInString(message) > 200 {
+		return ErrTooManyMessage
+	}
+	return nil
+}
+
 func (fa *RequestApplication) CreateFriendRequest(
 	userID string,
 	toUserID string,
 	message string,
 ) (*FriendRequestDTO, error) {
-	if userID == toUserID {
-		return nil, ErrSelfRequest
+	if err := validateFriendRequest(userID, toUserID, message); err != nil {
+		return nil, err
 	}
 
 	relation, err := fa.friendRepository.FindRelation(userID, toUserID)
@@ -330,14 +344,12 @@ func (fa *RequestApplication) acceptFriendRequest(
 		userID,
 		convId,
 		0,
-		0,
 		uconvvo.PrivateChat,
 	)
 
 	fromUserConv := conversationentity.BuildUserConversation(
 		record.FromUserId,
 		convId,
-		0,
 		0,
 		uconvvo.PrivateChat,
 	)
@@ -444,14 +456,6 @@ func (fa *RequestApplication) acceptFriendRequest(
 		return nil
 	}); err != nil {
 		return ErrOperationFailed
-	}
-
-	if err := fa.conversationCache.RecoverConvLatestSeq(
-		ctx,
-		convId,
-		conv.LatestSeq,
-	); err != nil {
-		log.Println("预热会话序列缓存失败：", err)
 	}
 
 	state := &friendcache.RelationState{Status: friendvo.Friend}

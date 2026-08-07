@@ -9,6 +9,7 @@ var (
 	ErrInviteCodeExpired = errors.New("邀请码已过期")
 	ErrRoomNameRequired  = errors.New("房间名称不能为空")
 	ErrRoomNotFound      = errors.New("房间不存在")
+	ErrRoomFull          = errors.New("房间成员已满")
 	ErrMemberNotFound    = errors.New("不是房间成员")
 	ErrPermissionDenied  = errors.New("没有操作权限")
 	ErrVersionConflict   = errors.New("数据已被修改，请重试")

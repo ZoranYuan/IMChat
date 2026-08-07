@@ -4,6 +4,7 @@ import (
 	messagecache "IM_backend/internal/application/ports/persistence/cache/message"
 	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -22,12 +23,28 @@ func NewMessageCache(client *redis.Client) *MessageCache {
 func (c *MessageCache) SetDedupEntry(
 	ctx context.Context,
 	sendID,
-	clientMsgID, messageID string,
+	clientMsgID, messageID, requestHash string,
 	ttl time.Duration,
 ) (bool, error) {
-	return c.store.SetNXString(ctx, MessageDedupKey(sendID, clientMsgID), messageID, ttl)
+	value, err := json.Marshal(messagecache.DedupEntry{
+		MessageID:   messageID,
+		RequestHash: requestHash,
+	})
+	if err != nil {
+		return false, err
+	}
+	return c.store.SetNXString(ctx, MessageDedupKey(sendID, clientMsgID), string(value), ttl)
 }
 
-func (c *MessageCache) GetDedupEntry(ctx context.Context, sendID, clientMsgID string) (string, error) {
-	return c.store.GetString(ctx, MessageDedupKey(sendID, clientMsgID))
+func (c *MessageCache) GetDedupEntry(ctx context.Context, sendID, clientMsgID string) (messagecache.DedupEntry, error) {
+	value, err := c.store.GetString(ctx, MessageDedupKey(sendID, clientMsgID))
+	if err != nil || value == "" {
+		return messagecache.DedupEntry{}, err
+	}
+
+	var entry messagecache.DedupEntry
+	if err := json.Unmarshal([]byte(value), &entry); err != nil {
+		return messagecache.DedupEntry{}, err
+	}
+	return entry, nil
 }

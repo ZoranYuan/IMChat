@@ -6,6 +6,7 @@ import (
 	"IM_backend/internal/infrastructure/persistence/redis/cache/shared"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"time"
@@ -15,6 +16,10 @@ import (
 
 var (
 	_ roomcache.RoomCache = (*RoomCache)(nil)
+)
+
+var (
+	RoomProfileTTL = 24 * 60 * 60
 )
 
 type RoomCache struct {
@@ -179,4 +184,13 @@ func (rc *RoomCache) DeleteInviteCode(ctx context.Context, roomId string) error 
 		roomId,
 	)
 	return err
+}
+
+func (rc *RoomCache) SetRoomProfile(ctx context.Context, room roomentity.Room, ttl time.Duration) error {
+	data, err := json.Marshal(room)
+	if err != nil {
+		return nil
+	}
+
+	return rc.store.SetJSON(ctx, RoomProfile(room.RoomId), string(data), ttl)
 }

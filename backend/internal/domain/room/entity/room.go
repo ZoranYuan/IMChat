@@ -38,6 +38,7 @@ func NewRoom(
 		RoomName:    roomName,
 		Status:      roomvo.Normal,
 		Avatar:      avatar,
+		MemberCount: 1,
 		Version:     1,
 	}, nil
 }

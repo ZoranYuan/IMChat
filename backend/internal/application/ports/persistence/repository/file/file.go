@@ -8,10 +8,12 @@ import (
 type FileRepository interface {
 	Save(ctx context.Context, file *fileentity.File) error
 	GetByID(ctx context.Context, fileId string) (*fileentity.File, error)
+	FindUploadedByIDForUploader(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error)
+	FindUploadedByIDForUploaderForUpdate(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error)
 	FindByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (*fileentity.File, error)
 	BatchGetByIDs(ctx context.Context, fileIds []string) (map[string]*fileentity.File, error)
-	ListOrphanCandidates(ctx context.Context, before int64, limit int) ([]*fileentity.File, error)
-	MarkDeleting(ctx context.Context, fileId string, before int64) (bool, error)
+	ListOrphanCandidates(ctx context.Context, before int64, now int64, limit int) ([]*fileentity.File, error)
+	MarkDeleting(ctx context.Context, fileId string, before int64, now int64) (bool, error)
 	DeleteDeleting(ctx context.Context, fileId string) (bool, error)
 	WithTx(tx any) FileRepository
 }

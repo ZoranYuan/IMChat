@@ -9,6 +9,7 @@ import (
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ConversationRepository struct {
@@ -52,43 +53,38 @@ func (r *ConversationRepository) GetByID(ctx context.Context, id string) (*conve
 
 func (r *ConversationRepository) UpdateLatestSequence(
 	ctx context.Context,
-	domain *conversationentity.Conversation,
-	updateLatestMessage bool,
-) error {
-	m := toConversationModel(domain)
-	updates := map[string]interface{}{
-		"latest_seq": gorm.Expr("GREATEST(latest_seq, ?)", m.LatestSeq),
-	}
-	if updateLatestMessage {
-		updates["latest_message_id"] = gorm.Expr(
-			"CASE WHEN latest_seq < ? THEN ? ELSE latest_message_id END",
-			m.LatestSeq,
-			m.LatestMessageId,
-		)
+	conversationId string,
+	messageId string,
+) (int64, error) {
+	var row model.Conversation
+	err := r.db.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Model(&model.Conversation{}).
+		Where("conversation_id = ?", conversationId).
+		First(&row).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, conversationentity.ErrConversationNotCreated
+		}
+		return 0, err
 	}
 
-	result := r.db.WithContext(ctx).
+	nextSeq := row.LatestSeq + 1
+
+	err = r.db.WithContext(ctx).
 		Model(&model.Conversation{}).
-		Where("conversation_id = ?", m.ConversationId).
-		Updates(updates)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected > 0 {
-		return nil
+		Where("conversation_id = ?", conversationId).
+		Updates(map[string]any{
+			"latest_seq":        nextSeq,
+			"latest_message_id": messageId,
+		}).Error
+
+	if err != nil {
+		return 0, err
 	}
 
-	var count int64
-	if err := r.db.WithContext(ctx).
-		Model(&model.Conversation{}).
-		Where("conversation_id = ?", m.ConversationId).
-		Count(&count).Error; err != nil {
-		return err
-	}
-	if count == 0 {
-		return conversationentity.ErrConversationNotCreated
-	}
-	return nil
+	return nextSeq, nil
 }
 
 func (r *ConversationRepository) GetConversationSeq(

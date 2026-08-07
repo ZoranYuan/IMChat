@@ -11,7 +11,6 @@ func GenerateAccessToken(userId, sessionID, secretKey string, expire time.Durati
 	claims := Claims{
 		UserID:    userId,
 		SessionID: sessionID,
-		TokenType: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expire)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

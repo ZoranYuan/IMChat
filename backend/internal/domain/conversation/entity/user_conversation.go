@@ -14,7 +14,6 @@ func BuildUserConversation(
 	userId string,
 	conversationId string,
 	lastReadSeq int64,
-	_ int64,
 	convtype uconvvo.ConvType,
 ) *UserConversation {
 	return &UserConversation{
