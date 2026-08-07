@@ -29,10 +29,17 @@ const validate = () => {
 const submit = async () => {
   if (!validate()) return;
   submitting.value = true;
-  try {
-    await authenticate({ mode: mode.value, ...form });
-    messageTips.success(mode.value === "login" ? "登录成功" : "注册成功，已自动登录");
-    router.replace(typeof route.query.redirect === "string" ? route.query.redirect : "/chat");
+	try {
+		await authenticate({ mode: mode.value, ...form });
+		if (mode.value === "register") {
+			messageTips.success("注册成功，请登录");
+			mode.value = "login";
+			form.password = "";
+			form.reconfirmPassword = "";
+			return;
+		}
+		messageTips.success("登录成功");
+		router.replace(typeof route.query.redirect === "string" ? route.query.redirect : "/chat");
   } catch (error) {
     errors.submit = error.message;
     messageTips.error({ title: mode.value === "login" ? "登录失败" : "注册失败", message: error.message });
@@ -87,7 +94,7 @@ watch(mode, () => {
 
           <div v-if="mode === 'login'" class="auth-options"><label><input v-model="form.remember" type="checkbox" />记住我</label><button type="button" @click="messageTips.info('暂未提供找回密码接口')">忘记密码?</button></div>
           <div v-if="errors.submit" class="auth-error">{{ errors.submit }}</div>
-          <button class="auth-submit" type="submit" :disabled="submitting">{{ submitting ? "正在提交..." : mode === "login" ? "登录" : "注册并登录" }}</button>
+		  <button class="auth-submit" type="submit" :disabled="submitting">{{ submitting ? "正在提交..." : mode === "login" ? "登录" : "注册" }}</button>
         </form>
 
         <div class="auth-social"><span>其他登录方式</span><div><button type="button" title="微信登录" @click="messageTips.info('暂未提供第三方登录接口')"><MessageCircle :size="20" /></button><button type="button" title="GitHub 登录" @click="messageTips.info('暂未提供第三方登录接口')"><Globe2 :size="20" /></button><button type="button" title="扫码登录" @click="messageTips.info('暂未提供扫码登录接口')"><QrCode :size="20" /></button></div></div>

@@ -350,10 +350,12 @@ export const useChatStore = defineStore("chat", () => {
   );
   const activeMessages = computed(() => state.messages[state.activeConversationId] || []);
 
-  const authenticate = async ({ mode, account, password, reconfirmPassword, remember }) => {
-    const auth = mode === "register"
-      ? await registerUser({ phone: account, password, reconfirmPassword })
-      : await loginUser({ account, password });
+	const authenticate = async ({ mode, account, password, reconfirmPassword, remember }) => {
+		if (mode === "register") {
+			return registerUser({ phone: account, password, reconfirmPassword });
+		}
+
+		const auth = await loginUser({ account, password });
     state.authenticated = true;
     state.currentUser = authUserProfile(auth);
     state.dataSource = "api";
