@@ -93,13 +93,13 @@ http.interceptors.response.use(
   },
 );
 
-export const loginUser = ({ account, phone, userName, password }) => {
-  const credential = (account || phone || userName || "").trim();
-  const payload = { loginType: 1, password };
-  if (/^1\d{10}$/.test(credential)) payload.phone = credential;
-  else payload.userName = credential;
-  return http.post("/users/login", payload);
-};
+// 后端当前只实现 loginType=1（手机号）登录，不接受 userName 字段。
+export const loginUser = ({ account, phone, password }) =>
+  http.post("/users/login", {
+    loginType: 1,
+    phone: (account || phone || "").trim(),
+    password,
+  });
 
 export const registerUser = ({ phone, password, reconfirmPassword }) =>
   http.post("/users/register", {
@@ -115,6 +115,9 @@ export const refreshSession = () => refreshAccessToken();
 
 export const getUser = (userId) => http.get(`/users/${userId}`);
 
+export const resolveUser = (keyword) =>
+  http.get("/users/resolve", { params: { keyword } });
+
 export const getFriends = () => http.get("/friends");
 
 export const getFriendRequests = () => http.get("/friend-requests");
@@ -122,8 +125,8 @@ export const getFriendRequests = () => http.get("/friend-requests");
 export const createFriendRequest = ({ toUserId, message }) =>
   http.post("/friend-requests", { toUserId, message });
 
-export const operateFriendRequest = ({ requestId, action }) =>
-  http.post("/friend-requests/actions", { requestId, action });
+export const operateFriendRequest = ({ requestId, fromUserId, action }) =>
+  http.post("/friend-requests/actions", { requestId, fromUserId, action });
 
 export const createRoom = ({ roomName, description = "", avatar = "" }) =>
   http.post("/rooms", { roomName, description, avatar });
@@ -132,11 +135,26 @@ export const joinRoom = (inviteCode) => http.post("/rooms/join", { inviteCode })
 
 export const getRoomInviteCode = (roomId) => http.get(`/rooms/${roomId}/invite-code`);
 
+export const leaveRoom = (roomId) => http.post(`/rooms/${roomId}/leave`);
+
 export const getConversations = () => http.get("/conversations");
 
 export const getMessageHistory = (conversationId, cursor = 0, limit = 30) =>
   http.get("/messages/history", {
     params: { conversationId, cursor, limit },
+  });
+
+export const syncMessages = (conversationId, afterSeq = 0, limit = 50) =>
+  http.get("/messages/sync", {
+    params: { conversationId, afterSeq, limit },
+  });
+
+export const getRoomVideoHistory = (roomId, limit = 20) =>
+  http.get("/messages/videos", { params: { roomId, limit } });
+
+export const getVideoDanmaku = (roomId, videoId, { startTime = 0, endTime = 0, limit = 200 } = {}) =>
+  http.get("/messages/danmaku", {
+    params: { roomId, videoId, startTime, endTime, limit },
   });
 
 export const initDirectUpload = (payload) =>

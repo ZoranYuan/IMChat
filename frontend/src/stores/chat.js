@@ -8,6 +8,7 @@ import {
   getFriendRequests,
   getFriends,
   getMessageHistory,
+  syncMessages,
   joinRoom,
   loginUser,
   logoutUser,
@@ -241,6 +242,7 @@ const handleMessageAck = (ack) => {
     const pending = messages.find((item) => item.clientMsgId === ack.clientMsgId);
     if (!pending) return;
     pending.id = ack.messageId || pending.id;
+    pending.seq = Number(ack.seq) || pending.seq || 0;
     pending.attachmentId = ack.attachmentId || pending.attachmentId || "";
     pending.status = ack.status === "failed" ? "failed" : "sent";
     pending.error = ack.extra || "";
@@ -273,18 +275,49 @@ const refreshConversationSnapshot = async () => {
   state.conversations = snapshot;
 };
 
+const mergeMessages = (conversationId, incomingItems) => {
+  const incoming = (incomingItems || []).map(normalizeMessage);
+  const existing = state.messages[conversationId] || [];
+  const incomingIds = new Set(incoming.map((item) => item.id));
+  state.messages[conversationId] = [...existing.filter((item) => !incomingIds.has(item.id)), ...incoming]
+    .sort((a, b) => (a.seq || a.sendTime) - (b.seq || b.sendTime));
+  resolveAttachmentURLs(state.messages[conversationId]).catch(() => { });
+  persistMessages(conversationId);
+};
+
+const syncConversation = async (conversationId) => {
+  if (!conversationId || !state.authenticated) return;
+  let afterSeq = Math.max(0, ...(state.messages[conversationId] || []).map((item) => Number(item.seq) || 0));
+  let hasMore = true;
+  while (hasMore) {
+    const data = await syncMessages(conversationId, afterSeq, 50);
+    mergeMessages(conversationId, data?.messages);
+    hasMore = Boolean(data?.hasMore);
+    const nextSeq = Number(data?.nextSeq) || afterSeq;
+    if (nextSeq <= afterSeq) break;
+    afterSeq = nextSeq;
+  }
+};
+
 const wsClient = createWsClient({
   onStateChange: (connection) => {
     state.connection = connection;
   },
   onOpen: ({ recovered }) => {
-    if (recovered) refreshConversationSnapshot().catch(() => {
-      state.connection = "error";
-    });
+    if (recovered) {
+      refreshConversationSnapshot()
+        .then(() => Promise.all(Object.keys(state.messages).map(syncConversation)))
+        .catch(() => {
+          state.connection = "error";
+        });
+    }
   },
   onMessage: upsertIncomingMessage,
   onAck: handleMessageAck,
   onReadNotify: handleReadNotify,
+  onRoomMessageNotice: (notice) => syncConversation(notice.conversationId).catch(() => {
+    state.connection = "error";
+  }),
 });
 
 // 退出登录前清楚缓存中的数据
@@ -521,7 +554,6 @@ export const useChatStore = defineStore("chat", () => {
     wsClient.sendReadAck({
       conversationId: conversation.id,
       lastReadSeq: last.seq,
-      senderId: last.senderId,
     });
   };
 
@@ -546,6 +578,7 @@ export const useChatStore = defineStore("chat", () => {
   const handleFriendRequest = async (request, accepted) => {
     await operateFriendRequest({
       requestId: request.id,
+      fromUserId: request.fromUserId,
       action: accepted ? 1 : 2,
     });
     state.friendRequests = state.friendRequests.filter((item) => item.id !== request.id);

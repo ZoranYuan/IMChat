@@ -4,6 +4,7 @@ const payloadTypes = {
   msg: "messageEvent",
   msg_ack: "messageAck",
   msg_read_notify: "readAckEvent",
+  room_msg_notice: "roomMessageNotice",
 };
 
 export function createWsClient(callbacks = {}) {
@@ -30,6 +31,7 @@ export function createWsClient(callbacks = {}) {
     if (frame.op === "msg") callbacks.onMessage?.(payload);
     if (frame.op === "msg_ack") callbacks.onAck?.(payload);
     if (frame.op === "msg_read_notify") callbacks.onReadNotify?.(payload);
+    if (frame.op === "room_msg_notice") callbacks.onRoomMessageNotice?.(payload);
   };
 
   const dispatchFrame = (event) => {

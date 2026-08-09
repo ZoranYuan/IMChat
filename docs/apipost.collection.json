@@ -1,23 +1,27 @@
 {
   "info": {
     "_postman_id": "d7b4f4a5-4f08-4f4c-8bd1-4c8f0d42b4a1",
-    "name": "SYCHAT API",
-    "description": "SYCHAT backend API collection for Apipost import.",
+    "name": "IMChat API",
+    "description": "根据 backend/internal/transport/http 与 backend/internal/transport/ws 当前实现整理。HTTP 成功响应统一为 {code: 200, message: \"success\", data: ...}；登录后服务端通过 HttpOnly Cookie 保存 access_token/refresh_token，也支持 Authorization: Bearer <access_token>。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8080/api/v1" },
+    { "key": "baseUrl", "value": "http://localhost:8081/api/v1" },
     { "key": "healthUrl", "value": "http://localhost:8081/healthz" },
-    { "key": "token", "value": "REPLACE_ME" },
+    { "key": "liveUrl", "value": "http://localhost:8081/livez" },
+    { "key": "readyUrl", "value": "http://localhost:8081/readyz" },
+    { "key": "token", "value": "REPLACE_ACCESS_TOKEN" },
     { "key": "userId", "value": "REPLACE_USER_ID" },
     { "key": "roomId", "value": "REPLACE_ROOM_ID" },
     { "key": "conversationId", "value": "REPLACE_CONVERSATION_ID" },
-    { "key": "fileId", "value": "REPLACE_FILE_ID" },
+    { "key": "attachmentId", "value": "REPLACE_ATTACHMENT_ID" },
     { "key": "uploadId", "value": "REPLACE_UPLOAD_ID" },
-    { "key": "partNumber", "value": "1" },
-    { "key": "inviteCode", "value": "REPLACE_INVITE_CODE" },
     { "key": "requestId", "value": "REPLACE_REQUEST_ID" },
-    { "key": "targetUserId", "value": "REPLACE_TARGET_USER_ID" }
+    { "key": "fromUserId", "value": "REPLACE_FROM_USER_ID" },
+    { "key": "targetUserId", "value": "REPLACE_TARGET_USER_ID" },
+    { "key": "inviteCode", "value": "REPLACE_INVITE_CODE" },
+    { "key": "fileId", "value": "REPLACE_FILE_ID" },
+    { "key": "presignedUrl", "value": "REPLACE_PRESIGNED_URL" }
   ],
   "auth": {
     "type": "bearer",
@@ -30,11 +34,16 @@
       "name": "系统模块",
       "item": [
         {
+          "name": "存活检查",
+          "request": { "method": "GET", "url": "{{liveUrl}}", "auth": { "type": "noauth" } }
+        },
+        {
           "name": "健康检查",
-          "request": {
-            "method": "GET",
-            "url": "{{healthUrl}}"
-          }
+          "request": { "method": "GET", "url": "{{healthUrl}}", "auth": { "type": "noauth" } }
+        },
+        {
+          "name": "就绪检查",
+          "request": { "method": "GET", "url": "{{readyUrl}}", "auth": { "type": "noauth" } }
         }
       ]
     },
@@ -42,63 +51,56 @@
       "name": "账户模块",
       "item": [
         {
-          "name": "用户注册",
+          "name": "用户注册（手机号）",
           "request": {
             "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"phone\": \"13800138000\",\n  \"password\": \"123456\",\n  \"reconfirmPassword\": \"123456\",\n  \"loginType\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/users/register"
           }
         },
         {
-          "name": "用户登录",
+          "name": "用户登录（手机号）",
           "request": {
             "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"phone\": \"13800138000\",\n  \"password\": \"123456\",\n  \"loginType\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/users/login"
           }
         },
         {
-          "name": "退出登录",
+          "name": "刷新登录会话",
           "request": {
             "method": "POST",
-            "url": "{{baseUrl}}/users/logout"
+            "auth": { "type": "noauth" },
+            "description": "依赖 refresh_token HttpOnly Cookie，成功后会重新下发两个 Cookie。",
+            "url": "{{baseUrl}}/users/refresh"
           }
         },
         {
-          "name": "获取用户信息",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/users/{{userId}}"
-          }
-        },
-        {
-          "name": "解析用户",
+          "name": "解析用户（手机号或关键词）",
           "request": {
             "method": "GET",
             "url": "{{baseUrl}}/users/resolve?keyword=13800138000"
           }
+        },
+        {
+          "name": "获取用户信息",
+          "request": { "method": "GET", "url": "{{baseUrl}}/users/{{userId}}" }
+        },
+        {
+          "name": "退出登录",
+          "request": { "method": "POST", "url": "{{baseUrl}}/users/logout" }
         }
       ]
     },
@@ -107,52 +109,47 @@
       "item": [
         {
           "name": "好友列表",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/friends"
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/friends" }
         },
         {
           "name": "发送好友申请",
           "request": {
             "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"toUserId\": \"{{targetUserId}}\",\n  \"message\": \"你好，添加一下好友\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/friend-requests"
           }
         },
         {
           "name": "好友申请列表",
+          "request": { "method": "GET", "url": "{{baseUrl}}/friend-requests" }
+        },
+        {
+          "name": "同意好友申请",
           "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/friend-requests"
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"fromUserId\": \"{{fromUserId}}\",\n  \"action\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/friend-requests/actions"
           }
         },
         {
-          "name": "处理好友申请",
+          "name": "拒绝好友申请",
           "request": {
             "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"action\": 1\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"fromUserId\": \"{{fromUserId}}\",\n  \"action\": 2\n}",
+              "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/friend-requests/actions"
           }
@@ -166,130 +163,112 @@
           "name": "创建房间",
           "request": {
             "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"roomName\": \"项目群\",\n  \"description\": \"项目协作讨论\",\n  \"avatar\": \"\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/rooms"
           }
         },
         {
           "name": "获取房间邀请码",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/rooms/{{roomId}}/invite-code"
-          }
+          "request": { "method": "GET", "url": "{{baseUrl}}/rooms/{{roomId}}/invite-code" }
         },
         {
           "name": "通过邀请码加入房间",
           "request": {
             "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"inviteCode\": \"{{inviteCode}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/rooms/join"
           }
         },
         {
           "name": "退出房间",
-          "request": {
-            "method": "POST",
-            "url": "{{baseUrl}}/rooms/{{roomId}}/leave"
-          }
+          "request": { "method": "POST", "url": "{{baseUrl}}/rooms/{{roomId}}/leave" }
         }
       ]
     },
     {
-      "name": "视频模块",
+      "name": "文件模块",
+      "description": "后端只提供上传初始化、预签名地址和完成接口；实际文件字节由客户端直接 PUT 到对象存储预签名 URL。允许的 Content-Type：image/jpeg、image/png、image/webp、video/mp4、application/pdf、text/plain。",
       "item": [
         {
-          "name": "上传视频文件",
+          "name": "初始化直传",
           "request": {
             "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "file",
-                  "type": "file",
-                  "src": "/path/to/video.mp4"
-                }
-              ]
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"demo.png\",\n  \"contentType\": \"image/png\",\n  \"size\": 1024,\n  \"fileHash\": \"SHA256_HEX\"\n}",
+              "options": { "raw": { "language": "json" } }
             },
-            "url": "{{baseUrl}}/files"
+            "url": "{{baseUrl}}/files/direct/init"
           }
+        },
+        {
+          "name": "直传对象存储（预签名 PUT）",
+          "request": {
+            "method": "PUT",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "image/png" }],
+            "body": { "mode": "file", "file": { "src": "/path/to/demo.png" } },
+            "url": "{{presignedUrl}}"
+          }
+        },
+        {
+          "name": "完成直传",
+          "request": { "method": "POST", "url": "{{baseUrl}}/files/direct/{{uploadId}}/complete" }
         },
         {
           "name": "初始化分片上传",
           "request": {
             "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fileName\": \"demo.mp4\",\n  \"contentType\": \"video/mp4\",\n  \"size\": 10485760,\n  \"chunkSize\": 5242880,\n  \"totalChunks\": 2,\n  \"fileHash\": \"demo-file-hash\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
+              "raw": "{\n  \"fileName\": \"demo.mp4\",\n  \"contentType\": \"video/mp4\",\n  \"size\": 10485760,\n  \"fileHash\": \"SHA256_HEX_OR_FINGERPRINT\",\n  \"chunkSize\": 5242880,\n  \"totalChunks\": 2\n}",
+              "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/files/multipart/init"
           }
         },
         {
-          "name": "上传分片",
+          "name": "批量获取分片预签名地址",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partNumbers\": [1, 2]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/files/multipart/{{uploadId}}/parts/presign"
+          }
+        },
+        {
+          "name": "上传分片（预签名 PUT）",
           "request": {
             "method": "PUT",
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "chunk",
-                  "type": "file",
-                  "src": "/path/to/chunk.bin"
-                },
-                {
-                  "key": "chunkHash",
-                  "type": "text",
-                  "value": "demo-chunk-hash"
-                }
-              ]
-            },
-            "url": "{{baseUrl}}/files/multipart/{{uploadId}}/parts/{{partNumber}}"
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/octet-stream" }],
+            "body": { "mode": "file", "file": { "src": "/path/to/chunk.bin" } },
+            "url": "{{presignedUrl}}"
           }
         },
         {
           "name": "完成分片上传",
-          "request": {
-            "method": "POST",
-            "url": "{{baseUrl}}/files/multipart/{{uploadId}}/complete"
-          }
+          "request": { "method": "POST", "url": "{{baseUrl}}/files/multipart/{{uploadId}}/complete" }
         },
         {
-          "name": "获取视频文件",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/files/{{fileId}}"
-          }
+          "name": "获取附件访问地址",
+          "request": { "method": "GET", "url": "{{baseUrl}}/files/attachments/{{attachmentId}}/access-url" }
         }
       ]
     },
@@ -300,7 +279,7 @@
           "name": "获取会话列表",
           "request": {
             "method": "GET",
-            "description": "登录成功、页面初始化、手动刷新或 WebSocket 重连成功后调用。返回会话最后一条消息和未读数，不返回离线期间的全部消息。",
+            "description": "返回当前用户的私聊/群聊侧边栏快照、最后一条消息和未读数，不返回离线期间全部消息。",
             "url": "{{baseUrl}}/conversations"
           }
         }
@@ -313,15 +292,15 @@
           "name": "历史消息",
           "request": {
             "method": "GET",
-            "description": "用户打开会话时调用。cursor=0 获取最新一页，之后使用 nextCursor 加载更早消息。",
-            "url": "{{baseUrl}}/messages/history?conversationId={{conversationId}}&cursor=0&limit=20"
+            "description": "cursor=0 获取最新一页，之后将 nextCursor 作为 cursor 获取更早消息；limit 受服务端配置限制。",
+            "url": "{{baseUrl}}/messages/history?conversationId={{conversationId}}&cursor=0&limit=30"
           }
         },
         {
           "name": "增量同步消息",
           "request": {
             "method": "GET",
-            "description": "收到大群轻提示 room_msg_notice、WebSocket 重连或检测到本地 seq 缺口后调用。afterSeq 表示客户端本地已持有的最后一条 seq，服务端返回 seq > afterSeq 的完整消息，按 seq 正序返回。",
+            "description": "返回 seq > afterSeq 的完整消息，按 seq 正序返回。",
             "url": "{{baseUrl}}/messages/sync?conversationId={{conversationId}}&afterSeq=0&limit=50"
           }
         },
@@ -348,10 +327,9 @@
           "name": "WebSocket 连接",
           "request": {
             "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{token}}" }
-            ],
-            "url": "ws://localhost:8080/api/v1/ws?token={{token}}"
+            "description": "通过 Authorization: Bearer <access_token> 或 access_token Cookie 握手；前端使用 ?batch=1，服务端返回 protobuf 二进制帧。客户端操作：msg(messageReq)、msg_read_ack(readAck)；大群可能收到 room_msg_notice，随后调用消息增量同步接口。",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "ws://localhost:8081/api/v1/ws?batch=1"
           }
         }
       ]
