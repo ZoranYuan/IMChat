@@ -20,8 +20,6 @@ import (
 type ObjectStorage struct {
 	client         *minio.Client
 	core           *minio.Core
-	publicClient   *minio.Client
-	publicCore     *minio.Core
 	bucket         string
 	publicEndpoint string
 	useSSL         bool
@@ -65,21 +63,11 @@ func NewObjectStorage(ctx context.Context, cfg configs.MinIOConfig) (objectport.
 	publicEndpoint = strings.TrimPrefix(publicEndpoint, "http://")
 	publicEndpoint = strings.TrimPrefix(publicEndpoint, "https://")
 
-	publicClient, err := minio.New(publicEndpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
-		Secure: cfg.UseSSL,
-	})
-	if err != nil {
-		return nil, err
-	}
 	core := &minio.Core{Client: client}
-	publicCore := &minio.Core{Client: publicClient}
 
 	return &ObjectStorage{
 		client:         client,
 		core:           core,
-		publicClient:   publicClient,
-		publicCore:     publicCore,
 		bucket:         cfg.Bucket,
 		publicEndpoint: strings.TrimRight(publicEndpoint, "/"),
 		useSSL:         cfg.UseSSL,
@@ -115,11 +103,12 @@ func (s *ObjectStorage) Bucket() string {
 }
 
 func (s *ObjectStorage) PresignedPutURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error) {
-	u, err := s.publicClient.PresignedPutObject(ctx, s.bucket, objectKey, ttl)
+	// 后端容器只能访问内部 endpoint；签名完成后再替换成浏览器可访问的 Host。
+	u, err := s.client.PresignedPutObject(ctx, s.bucket, objectKey, ttl)
 	if err != nil {
 		return "", err
 	}
-	return u.String(), nil
+	return s.rewritePublicURL(u), nil
 }
 
 func (s *ObjectStorage) StatObject(ctx context.Context, objectKey string) (*objectport.ObjectInfo, error) {
@@ -151,14 +140,14 @@ func (s *ObjectStorage) PresignMultipartPart(ctx context.Context, objectKey stri
 	if uploadId == "" || partNumber <= 0 {
 		return "", fmt.Errorf("参数错误")
 	}
-	u, err := s.publicCore.Presign(ctx, http.MethodPut, s.bucket, objectKey, ttl, url.Values{
+	u, err := s.core.Presign(ctx, http.MethodPut, s.bucket, objectKey, ttl, url.Values{
 		"uploadId":   []string{uploadId},
 		"partNumber": []string{strconv.Itoa(partNumber)},
 	})
 	if err != nil {
 		return "", err
 	}
-	return u.String(), nil
+	return s.rewritePublicURL(u), nil
 }
 
 func (s *ObjectStorage) ListMultipartParts(ctx context.Context, objectKey string, uploadId string) ([]objectport.MultipartPart, error) {
@@ -212,17 +201,17 @@ func (s *ObjectStorage) PresignedGetURL(ctx context.Context,
 		params.Set("response-content-type", "application/octet-stream")
 	}
 
-	u, err := s.publicClient.PresignedGetObject(ctx, s.bucket, objectKey, ttl, params)
-	usePublicEndpoint := true
+	u, err := s.client.PresignedGetObject(ctx, s.bucket, objectKey, ttl, params)
 	if err != nil {
-		u, err = s.client.PresignedGetObject(ctx, s.bucket, objectKey, ttl, nil)
-		if err != nil {
-			return "", err
-		}
-		usePublicEndpoint = false
+		return "", err
 	}
-	if !usePublicEndpoint || s.publicEndpoint == "" {
-		return u.String(), nil
+
+	return s.rewritePublicURL(u), nil
+}
+
+func (s *ObjectStorage) rewritePublicURL(u *url.URL) string {
+	if s.publicEndpoint == "" {
+		return u.String()
 	}
 
 	scheme := u.Scheme
@@ -235,8 +224,5 @@ func (s *ObjectStorage) PresignedGetURL(ctx context.Context,
 	publicURL := *u
 	publicURL.Scheme = scheme
 	publicURL.Host = strings.TrimRight(s.publicEndpoint, "/")
-	if _, err := url.Parse(publicURL.String()); err != nil {
-		return "", err
-	}
-	return publicURL.String(), nil
+	return publicURL.String()
 }

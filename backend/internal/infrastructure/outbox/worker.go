@@ -39,6 +39,7 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 		return w.dispatchOne(ctx, item)
 	})
 	w.pool.Start(ctx)
+	log.Printf("消息出箱池已启动：workers=%d queueSize=%d", w.options.WorkerCount, w.options.QueueSize)
 	defer w.pool.Wait()
 
 	ticker := time.NewTicker(time.Duration(w.options.PollIntervalSeconds) * time.Second)

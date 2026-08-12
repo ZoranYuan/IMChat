@@ -138,6 +138,7 @@ func (h saramaAdapter) ConsumeClaim(
 			if !ok {
 				return nil
 			}
+			eventID := eventIDFromHeaders(message.Headers)
 
 			eventName, mapErr := h.topicRouter.EventFor(message.Topic)
 			if mapErr != nil {
@@ -146,7 +147,7 @@ func (h saramaAdapter) ConsumeClaim(
 
 			lockToken, retryCount, err := h.router.handle(session.Context(),
 				eventbus.IncomingEvent{
-					EventID: eventIDFromHeaders(message.Headers),
+					EventID: eventID,
 					Name:    eventName,
 
 					// 复制数据，避免业务层继续持有 Sarama 内部消息切片。
@@ -162,7 +163,7 @@ func (h saramaAdapter) ConsumeClaim(
 					if publishErr := h.deadLetterPublisher.Publish(
 						session.Context(),
 						eventbus.IntegrationEvent{
-							EventID:      eventIDFromHeaders(message.Headers),
+							EventID:      eventID,
 							Name:         eventName + h.deadLetterSuffix,
 							PartitionKey: string(message.Key),
 							Payload:      cloneBytes(message.Value),
@@ -171,7 +172,7 @@ func (h saramaAdapter) ConsumeClaim(
 						return fmt.Errorf("发布死信消息失败：%w", publishErr)
 					}
 					if markErr := h.router.markDead(session.Context(), eventbus.IncomingEvent{
-						EventID: eventIDFromHeaders(message.Headers),
+						EventID: eventID,
 						Name:    eventName,
 					}, lockToken, err.Error()); markErr != nil {
 						return fmt.Errorf("标记 Inbox 死信状态失败：%w", markErr)
@@ -276,9 +277,9 @@ func (c *ConsumerGroup) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-
 	handler := saramaAdapter{
 		router:              c.handlerRouter,
+		topicRouter:         c.topicRouter,
 		maxInboxRetries:     c.maxInboxRetries,
 		deadLetterPublisher: c.deadLetterPublisher,
 		deadLetterSuffix:    c.deadLetterSuffix,

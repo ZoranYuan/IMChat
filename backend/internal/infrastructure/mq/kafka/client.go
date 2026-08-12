@@ -27,6 +27,9 @@ func NewClient(cfg configs.KafkaConfig) (*Client, error) {
 
 	ccfg := sarama.NewConfig()
 	ccfg.Version = sarama.V2_6_0_0
+	// 没有已提交 offset 的消费组从最早消息开始，避免服务重启期间产生的
+	// Outbox 事件被默认的 newest 策略跳过。
+	ccfg.Consumer.Offsets.Initial = sarama.OffsetOldest
 	ccfg.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{
 		sarama.NewBalanceStrategySticky(),
 	}

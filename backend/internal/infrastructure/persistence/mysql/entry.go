@@ -56,6 +56,9 @@ func Migrate(db *gorm.DB) error {
 	prepareLegacyOutboxColumns(db)
 	prepareFileUploadColumns(db)
 	prepareFileHashColumn(db)
+	if err := prepareMessageRequestHashColumn(db); err != nil {
+		return err
+	}
 	if err := prepareMessageSequenceIndex(db); err != nil {
 		return err
 	}
@@ -97,6 +100,16 @@ func Migrate(db *gorm.DB) error {
 	}
 	dropLegacyColumns(db)
 	return nil
+}
+
+func prepareMessageRequestHashColumn(db *gorm.DB) error {
+	if !db.Migrator().HasTable("messages") || db.Migrator().HasColumn("messages", "request_hash") {
+		return nil
+	}
+	return db.Exec(`
+		ALTER TABLE messages
+		ADD COLUMN request_hash VARCHAR(64) NOT NULL DEFAULT ''
+	`).Error
 }
 
 // 历史版本可能把所有消息写成 seq=0。先按发送时间补齐会话序号，才能建立唯一索引。
@@ -445,7 +458,9 @@ func dropLegacyColumns(db *gorm.DB) {
 		}
 	}
 
-	for _, column := range []string{"bucket", "file_name", "size"} {
+	// file_uploads.file_name 仍是当前 FileUpload 模型和上传完成流程的业务字段，
+	// 不能按历史字段删除；bucket、size 才是已废弃的旧字段。
+	for _, column := range []string{"bucket", "size"} {
 		if !db.Migrator().HasColumn("file_uploads", column) {
 			continue
 		}
