@@ -1,5 +1,5 @@
 <script setup>
-import { Bell, ChevronRight, CircleHelp, LogOut, ShieldCheck } from "@lucide/vue";
+import { LogOut } from "@lucide/vue";
 
 defineProps({ currentUser: { type: Object, required: true } });
 defineEmits(["logout"]);
@@ -22,16 +22,6 @@ defineEmits(["logout"]);
       <div class="mt-4 grid grid-cols-2 divide-x divide-[#eeeaf7] rounded-xl border border-[#eeeaf7] bg-[#fcfbff] py-3 text-center">
         <span class="grid gap-1"><small class="text-[10px] text-[#aaa6b5]">手机</small><strong class="truncate px-2 text-[11px] font-semibold text-[#4e475f]">{{ currentUser.phone || "未设置" }}</strong></span>
         <span class="grid gap-1"><small class="text-[10px] text-[#aaa6b5]">用户 ID</small><strong class="truncate px-2 text-[11px] font-semibold text-[#4e475f]">{{ currentUser.userId || currentUser.id || "-" }}</strong></span>
-      </div>
-
-      <div class="mt-5 overflow-hidden rounded-xl border border-[#eeeaf7]">
-        <button v-for="item in [
-          { label: '消息通知', icon: Bell },
-          { label: '账号与安全', icon: ShieldCheck },
-          { label: '帮助与反馈', icon: CircleHelp },
-        ]" :key="item.label" class="group flex min-h-12 w-full items-center gap-3 border-b border-[#f0edf6] px-4 text-left text-[#817b90] last:border-b-0 hover:bg-[#faf9ff]" type="button">
-          <component :is="item.icon" :size="18" /><span class="flex-1 text-xs text-[#4e475f]">{{ item.label }}</span><ChevronRight class="text-[#b2adbb] transition-transform group-hover:translate-x-0.5" :size="17" />
-        </button>
       </div>
 
       <button class="mt-5 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#f2d6dc] bg-[#fff7f8] text-xs font-semibold text-[#c34d65] transition-colors hover:bg-[#fff0f3]" type="button" @click="$emit('logout')"><LogOut :size="18" />退出登录</button>

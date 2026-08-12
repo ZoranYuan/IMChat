@@ -30,6 +30,10 @@ import { createWsClient } from "../services/wsClient.js";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const THEME_GROUP_AVATAR = "#6d4aff";
+const THEME_CONTACT_AVATAR = "#8b72d6";
+const THEME_SELF_AVATAR = "#5b35f5";
+
 const authUserProfile = (auth) => ({
   userId: auth?.userId || "",
   username: auth?.username || "",
@@ -96,12 +100,10 @@ const normalizeConversation = (item) => ({
   subtitle: contentPreview(item.lastMessage),
   time: formatTime(item.lastMessage?.sendTime),
   unread: Number(item.unread) || 0,
-  pinned: false,
-  muted: Boolean(item.isMuted),
   online: false,
   memberCount: item.room?.memberCount || 2,
   avatar: item.avatar || item.room?.avatar || item.peerUser?.avatar || "",
-  avatarColor: item.convType === 2 ? "#2856a6" : "#2d7d68",
+  avatarColor: item.convType === 2 ? THEME_GROUP_AVATAR : THEME_CONTACT_AVATAR,
   tag: item.convType === 2 ? "群聊" : "联系人",
   description: item.room?.description || "",
 });
@@ -128,7 +130,7 @@ const normalizeMessage = (item) => ({
   sendTime: Number(item.sendTime) || Date.now(),
   status: item.status || "sent",
   clientMsgId: item.clientMsgId || "",
-  avatarColor: item.senderId === state.currentUser.userId ? "#2856a6" : "#2d7d68",
+  avatarColor: item.senderId === state.currentUser.userId ? THEME_SELF_AVATAR : THEME_CONTACT_AVATAR,
 });
 
 const currentUserId = () => (state.currentUser && (state.currentUser.userId || state.currentUser.id)) || "";
@@ -219,12 +221,10 @@ const upsertIncomingMessage = (payload) => {
       subtitle: contentPreview(payload),
       time: formatTime(payload.sendTime),
       unread: state.activeConversationId === payload.conversationId ? 0 : 1,
-      pinned: false,
-      muted: false,
       online: false,
       memberCount: payload.convType === 2 ? 0 : 2,
       avatar: "",
-      avatarColor: payload.convType === 2 ? "#2856a6" : "#2d7d68",
+      avatarColor: payload.convType === 2 ? THEME_GROUP_AVATAR : THEME_CONTACT_AVATAR,
       tag: payload.convType === 2 ? "群聊" : "联系人",
       description: "",
     };
@@ -268,10 +268,6 @@ const handleReadNotify = (receipt) => {
 const refreshConversationSnapshot = async () => {
   const items = await getConversations();
   const snapshot = (items || []).map(normalizeConversation);
-  const localPinned = new Map(state.conversations.map((item) => [item.id, item.pinned]));
-  snapshot.forEach((item) => {
-    item.pinned = localPinned.get(item.id) || false;
-  });
   state.conversations = snapshot;
 };
 
@@ -413,7 +409,7 @@ export const useChatStore = defineStore("chat", () => {
         avatar: item.friendAvatar || "",
         role: item.status === 1 ? "好友" : "联系人",
         online: false,
-        avatarColor: "#2d7d68",
+        avatarColor: THEME_CONTACT_AVATAR,
         conversationId: state.conversations.find((conversation) => conversation.targetId === item.friendUserId)?.id || "",
       }));
       state.friendRequests = (requests || []).filter((item) => item.status === 1).map((item) => ({
@@ -422,7 +418,7 @@ export const useChatStore = defineStore("chat", () => {
         name: item.fromDisplayName || item.fromUsername || item.fromUserId || "新联系人",
         note: item.message,
         time: formatTime(item.applyTime),
-        avatarColor: "#357078",
+        avatarColor: "#8069c7",
       }));
       if (!state.conversations.some((item) => item.id === state.activeConversationId)) {
         state.activeConversationId = state.conversations[0]?.id || "";
@@ -490,7 +486,7 @@ export const useChatStore = defineStore("chat", () => {
       time: formatTime(Date.now()),
       sendTime: Date.now(),
       status: "sending",
-      avatarColor: "#2856a6",
+      avatarColor: THEME_SELF_AVATAR,
     };
     if (!state.messages[conversation.id]) state.messages[conversation.id] = [];
     state.messages[conversation.id].push(message);
@@ -557,19 +553,6 @@ export const useChatStore = defineStore("chat", () => {
     });
   };
 
-  const togglePinned = (id) => {
-    const item = state.conversations.find((conversation) => conversation.id === id);
-    if (item) item.pinned = !item.pinned;
-    state.conversations.sort((a, b) => Number(b.pinned) - Number(a.pinned));
-    return item?.pinned;
-  };
-
-  const toggleMuted = (id) => {
-    const item = state.conversations.find((conversation) => conversation.id === id);
-    if (item) item.muted = !item.muted;
-    return item?.muted;
-  };
-
   const clearConversation = (id) => {
     state.messages[id] = [];
     deleteMessages(currentUserId(), id).catch(() => { });
@@ -602,12 +585,10 @@ export const useChatStore = defineStore("chat", () => {
         subtitle: "可以开始聊天了",
         time: "",
         unread: 0,
-        pinned: false,
-        muted: false,
         online: contact.online,
         memberCount: 2,
         avatar: contact.avatar || "",
-        avatarColor: contact.avatarColor || "#2d7d68",
+        avatarColor: contact.avatarColor || THEME_CONTACT_AVATAR,
         tag: "联系人",
         description: "",
       };
@@ -653,8 +634,6 @@ export const useChatStore = defineStore("chat", () => {
     sendMessage,
     sendAttachment,
     sendReadAck,
-    togglePinned,
-    toggleMuted,
     clearConversation,
     handleFriendRequest,
     addFriendRequest,

@@ -12,14 +12,14 @@ body,
 }
 
 html {
-  background: #f4f7fb;
+  background: #f3f1fb;
 }
 
 body {
   min-width: 320px;
   margin: 0;
   overflow-x: hidden;
-  background: #f4f7fb;
+  background: #f3f1fb;
   color: #17122c;
   font-family: "Aptos", "PingFang SC", "Microsoft YaHei", sans-serif;
   text-rendering: optimizeLegibility;
@@ -59,131 +59,61 @@ img {
   background: #d9d6e5;
 }
 
-/* Dynamic grid columns are driven by ChatView's resize state. */
+/* The main workspace stays intentionally simple: navigation, conversations, chat. */
 .im-workspace {
   display: grid;
-  grid-template-columns: var(--sidebar-width, 300px) 8px minmax(360px, 1fr) 8px var(--details-width, 0px);
-}
-
-.im-workspace.details-visible {
-  grid-template-columns: var(--sidebar-width, 300px) 8px minmax(360px, 1fr) 8px var(--details-width, 300px);
+  grid-template-columns: minmax(280px, 300px) minmax(0, 1fr);
 }
 
 .directory-shell {
   grid-column: 1;
-  transition: opacity 160ms ease;
+  grid-row: 1;
 }
 
-.sidebar-collapsed .directory-shell {
-  border-right: 0;
-  opacity: 0;
-  pointer-events: none;
+.conversation-stage {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-panel {
-  grid-column: 3;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.details-panel,
-.ai-workspace-panel {
-  grid-column: 5;
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 45;
-  width: min(330px, 90vw);
+.details-panel {
+  flex: 0 0 300px;
+  width: 300px;
+  min-width: 0;
+  border-left: 1px solid #ebe9f7;
 }
 
-.ai-workspace-panel {
-  width: min(720px, 92vw);
+.details-panel-enter-active,
+.details-panel-leave-active {
+  overflow: hidden;
+  transition: flex-basis 240ms cubic-bezier(.22, 1, .36, 1),
+    width 240ms cubic-bezier(.22, 1, .36, 1),
+    opacity 180ms ease,
+    transform 240ms cubic-bezier(.22, 1, .36, 1);
 }
 
-.column-resizer {
-  position: relative;
-  z-index: 12;
-  width: 8px;
-  min-width: 8px;
-  height: 100%;
-  cursor: col-resize;
-  touch-action: none;
-  background: transparent;
-}
-
-.column-resizer::after {
-  position: absolute;
-  top: 18px;
-  bottom: 18px;
-  left: 3px;
-  width: 2px;
-  border-radius: 2px;
-  background: transparent;
-  content: "";
-  transition: background-color 140ms ease, box-shadow 140ms ease;
-}
-
-.column-resizer:hover::after,
-.im-workspace.resizing .column-resizer::after {
-  background: #a493ff;
-  box-shadow: 0 0 0 3px rgba(91, 53, 245, .08);
-}
-
-.sidebar-resizer {
-  grid-column: 2;
-}
-
-.details-resizer {
-  grid-column: 4;
-}
-
-.sidebar-toggle {
-  position: absolute;
-  top: 18px;
-  left: calc(var(--sidebar-width, 300px) + 4px);
-  z-index: 18;
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-items: center;
-  border: 1px solid #ded8ff;
-  border-radius: 999px;
-  background: #fff;
-  color: #5b35f5;
-  box-shadow: 0 8px 20px rgba(63, 44, 139, .12);
-  font-size: 19px;
-  font-weight: 700;
-  line-height: 1;
-  transform: translateX(-50%);
-  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
-}
-
-.sidebar-toggle:hover {
-  background: #f1efff;
-  color: #4724d8;
-}
-
-.sidebar-collapsed .sidebar-toggle {
-  left: 4px;
-}
-
-.column-resize-active {
-  cursor: col-resize;
-  user-select: none;
-}
-
-.column-resize-active * {
-  cursor: col-resize !important;
-  user-select: none !important;
+.details-panel-enter-from,
+.details-panel-leave-to {
+  flex-basis: 0;
+  width: 0;
+  opacity: 0;
+  transform: translateX(20px);
 }
 
 @media (max-width: 1023px) {
   .im-workspace {
-    grid-template-columns: var(--sidebar-width, 300px) 8px minmax(0, 1fr) 0 0;
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   }
 
-  .details-resizer {
-    display: none;
-  }
 }
 
 @media (max-width: 767px) {
@@ -202,29 +132,27 @@ img {
     border-right: 0;
   }
 
-  .directory-shell.mobile-hidden,
-  .sidebar-resizer,
-  .sidebar-toggle {
+  .directory-shell.mobile-hidden {
     display: none;
   }
 
-  .column-resizer {
-    display: none;
+  .conversation-stage {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
-  .details-panel,
-  .ai-workspace-panel {
-    grid-column: auto;
+  .details-panel {
+    flex: 0 0 auto;
     width: 100%;
   }
 }
 
-@media (min-width: 1440px) {
-  .im-workspace.details-visible .details-panel,
-  .im-workspace.details-visible .ai-workspace-panel {
-    position: static;
+@media (max-width: 767px) {
+  .details-panel-enter-from,
+  .details-panel-leave-to {
+    flex-basis: auto;
     width: 100%;
-    transform: none;
-    box-shadow: none;
+    transform: translateX(100%);
   }
 }

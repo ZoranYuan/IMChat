@@ -1,9 +1,8 @@
 <script setup>
-import { Bell, BellOff, FileText, Pin, PinOff, Search, Trash2, Users, X } from "@lucide/vue";
-import { sharedFiles } from "../../mocks/chat.js";
+import { Trash2, Users, X } from "@lucide/vue";
 
 defineProps({ conversation: { type: Object, default: null } });
-defineEmits(["close", "toggle-pin", "toggle-mute", "clear"]);
+defineEmits(["close", "clear"]);
 </script>
 
 <template>
@@ -16,20 +15,9 @@ defineEmits(["close", "toggle-pin", "toggle-mute", "clear"]);
         <p class="m-0 text-[10px] text-[#8d889d]">{{ conversation.type === "group" ? `${conversation.memberCount} 位成员` : conversation.online ? "当前在线" : "当前离线" }}</p>
       </section>
 
-      <div class="grid grid-cols-3 gap-1.5 border-b border-[#ebe9f7] py-[18px]">
-        <button class="flex min-h-[58px] flex-col items-center justify-center gap-1.5 rounded-lg bg-[#f8f7ff] text-[9px] text-[#7c7891] hover:bg-[#f1efff] hover:text-[#5b35f5]" type="button"><Search :size="18" /><span>搜索</span></button>
-        <button class="flex min-h-[58px] flex-col items-center justify-center gap-1.5 rounded-lg bg-[#f8f7ff] text-[9px] text-[#7c7891] hover:bg-[#f1efff] hover:text-[#5b35f5]" type="button" @click="$emit('toggle-pin')"><PinOff v-if="conversation.pinned" :size="18" /><Pin v-else :size="18" /><span>{{ conversation.pinned ? "取消置顶" : "置顶" }}</span></button>
-        <button class="flex min-h-[58px] flex-col items-center justify-center gap-1.5 rounded-lg bg-[#f8f7ff] text-[9px] text-[#7c7891] hover:bg-[#f1efff] hover:text-[#5b35f5]" type="button" @click="$emit('toggle-mute')"><Bell v-if="conversation.muted" :size="18" /><BellOff v-else :size="18" /><span>{{ conversation.muted ? "开启通知" : "消息免打扰" }}</span></button>
-      </div>
-
       <section v-if="conversation.type === 'group'" class="border-b border-[#ebe9f7] py-[18px]">
         <div class="mb-3 flex items-center justify-between"><strong class="text-xs">群聊信息</strong><span class="text-[10px] text-[#aaa6b5]">{{ conversation.memberCount }} 人</span></div>
         <p class="m-0 text-[11px] leading-[1.7] text-[#7c7891]">{{ conversation.description || "用于团队日常沟通与项目协作。" }}</p>
-      </section>
-
-      <section class="border-b border-[#ebe9f7] py-[18px]">
-        <div class="mb-3 flex items-center justify-between"><strong class="text-xs">共享文件</strong><span class="text-[10px] text-[#aaa6b5]">{{ sharedFiles.length }}</span></div>
-        <button v-for="file in sharedFiles" :key="file.id" class="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-2 text-left text-[#5b35f5] hover:bg-[#f8f7ff]" type="button"><FileText :size="19" /><span class="grid min-w-0 gap-0.5"><strong class="truncate text-[10px] text-[#332d45]">{{ file.name }}</strong><small class="text-[9px] text-[#aaa6b5]">{{ file.meta }}</small></span></button>
       </section>
 
       <button class="mt-4 flex min-h-11 w-full items-center gap-2 rounded-lg bg-[#fff5f6] px-3 text-[11px] text-[#c0444d] hover:bg-[#ffeff1]" type="button" @click="$emit('clear')"><Trash2 :size="18" />清空聊天记录</button>

@@ -1,5 +1,5 @@
 <script setup>
-import { BellOff, Edit3, LoaderCircle, Pin, Plus, Search, Users } from "@lucide/vue";
+import { LoaderCircle, Plus, Search, Users } from "@lucide/vue";
 import { computed, ref } from "vue";
 
 const props = defineProps({
@@ -11,20 +11,11 @@ const props = defineProps({
 defineEmits(["select", "create-room"]);
 
 const query = ref("");
-const filter = ref("all");
 const filtered = computed(() => {
   const keyword = query.value.trim().toLowerCase();
-  return props.conversations.filter((item) => {
-    const matchKeyword = !keyword || item.name.toLowerCase().includes(keyword) || item.subtitle.toLowerCase().includes(keyword);
-    const matchFilter = filter.value === "all" || (filter.value === "unread" && item.unread > 0) || (filter.value === "mentions" && item.subtitle.includes("@")) || (filter.value === "pinned" && item.pinned);
-    return matchKeyword && matchFilter;
-  });
+  return props.conversations.filter((item) => !keyword || item.name.toLowerCase().includes(keyword) || item.subtitle.toLowerCase().includes(keyword));
 });
 
-const previewText = (conversation) => {
-  if (conversation.type === "group" && conversation.unread > 0) return `AI · ${conversation.unread * 2} 条未读消息已总结`;
-  return conversation.subtitle;
-};
 </script>
 
 <template>
@@ -32,38 +23,24 @@ const previewText = (conversation) => {
     <header class="flex items-center justify-between px-5 pb-4 pt-6">
       <div>
         <p class="mb-1 text-[10px] font-bold tracking-[0.16em] text-[#5b35f5]">IMCHAT</p>
-        <h1 class="m-0 text-[22px] font-bold tracking-[-0.03em] text-[#17122c]">消息</h1>
+        <h1 class="m-0 text-[20px] font-bold tracking-[-0.03em] text-[#17122c]">消息</h1>
       </div>
       <div class="flex items-center gap-1.5">
         <button class="grid size-9 place-items-center rounded-[9px] border border-transparent bg-transparent text-[#8d91a3] transition-[background,color,border-color] duration-150 hover:border-[#ebe9f7] hover:bg-[#f8f7ff] hover:text-[#5b35f5]"
           type="button" title="新建群聊" @click="$emit('create-room')"><Plus :size="19" /></button>
-        <button class="grid size-9 place-items-center rounded-[9px] border border-transparent bg-transparent text-[#8d91a3] transition-[background,color,border-color] duration-150 hover:border-[#ebe9f7] hover:bg-[#f8f7ff] hover:text-[#5b35f5]"
-          type="button" title="发起会话"><Edit3 :size="18" /></button>
       </div>
     </header>
 
     <label class="mx-4 flex min-h-10 items-center gap-2 rounded-[10px] border border-transparent bg-[#f8f8fb] px-3 text-[#a3a0b0] transition-[border-color,box-shadow] duration-150 focus-within:border-[#cfc5ff] focus-within:ring-4 focus-within:ring-[rgba(91,53,245,0.08)]">
       <Search :size="17" />
       <input v-model="query" type="search" placeholder="搜索会话或消息"
-        class="min-w-0 flex-1 border-0 bg-transparent text-[12px] text-[#17122c] outline-0 placeholder:text-[#aaa6b5]" />
+        class="min-w-0 flex-1 border-0 bg-transparent text-[11px] text-[#17122c] outline-0 placeholder:text-[#aaa6b5]" />
       <kbd class="rounded border border-[#e7e4ef] bg-white px-1.5 py-0.5 text-[10px] text-[#aaa6b5]">⌘ K</kbd>
     </label>
 
-    <div class="mx-4 mt-4 grid grid-cols-4 rounded-[9px] bg-[#f8f7fb] p-1" aria-label="会话筛选">
-      <button v-for="item in [
-        { key: 'all', label: '全部' },
-        { key: 'unread', label: '未读' },
-        { key: 'mentions', label: '@我' },
-        { key: 'pinned', label: '置顶' },
-      ]" :key="item.key" :class="filter === item.key
-        ? '!bg-white !text-[#5b35f5] !shadow-[0_3px_8px_rgba(62,42,137,0.08)]'
-        : 'text-[#a09baa]'" class="min-h-8 rounded-[7px] bg-transparent text-[11px] font-semibold transition-[background,color,box-shadow] duration-150"
-        type="button" @click="filter = item.key">{{ item.label }}</button>
-    </div>
-
-    <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+    <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4">
       <div v-if="loading" class="flex min-h-32 flex-col items-center justify-center gap-2 text-xs text-[#9994a7]"><LoaderCircle class="animate-spin" :size="20" /><span>正在同步会话</span></div>
-      <div v-else-if="filtered.length === 0" class="flex min-h-32 flex-col items-center justify-center gap-1 text-center text-xs text-[#9994a7]"><span>没有匹配的会话</span><small class="text-[11px] text-[#b1adbb]">尝试更换关键词或筛选条件</small></div>
+      <div v-else-if="filtered.length === 0" class="flex min-h-32 flex-col items-center justify-center gap-1 text-center text-xs text-[#9994a7]"><span>没有匹配的会话</span><small class="text-[11px] text-[#b1adbb]">尝试更换搜索关键词</small></div>
       <button v-for="conversation in filtered" v-else :key="conversation.id" :class="conversation.id === activeId
         ? 'border-[#cfc5ff] bg-[#f4f1ff] shadow-[0_8px_20px_rgba(91,53,245,0.07)]'
         : 'border-transparent hover:bg-[#faf9fd]'" class="group flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-[background,border-color,box-shadow] duration-150"
@@ -76,14 +53,12 @@ const previewText = (conversation) => {
         </span>
         <span class="min-w-0 flex-1">
           <span class="flex items-center justify-between gap-2">
-            <strong class="truncate text-[13px] font-semibold text-[#29233e]">{{ conversation.name }}</strong>
+            <strong class="truncate text-[12px] font-semibold text-[#29233e]">{{ conversation.name }}</strong>
             <time class="flex-none text-[10px] text-[#aaa6b5]">{{ conversation.time }}</time>
           </span>
           <span class="mt-1 flex items-center justify-between gap-2">
-            <span :class="conversation.id === activeId ? 'text-[#6a55bc]' : 'text-[#9994a7]'" class="truncate text-[11px]">{{ previewText(conversation) }}</span>
+            <span :class="conversation.id === activeId ? 'text-[#6a55bc]' : 'text-[#9994a7]'" class="truncate text-[10px]">{{ conversation.subtitle }}</span>
             <span class="flex flex-none items-center gap-1 text-[#aaa6b5]">
-              <Pin v-if="conversation.pinned" :size="12" />
-              <BellOff v-if="conversation.muted" :size="12" />
               <b v-if="conversation.unread" class="grid min-w-5 place-items-center rounded-full bg-[#5b35f5] px-1 text-[10px] font-semibold text-white">{{ conversation.unread > 99 ? "99+" : conversation.unread }}</b>
             </span>
           </span>

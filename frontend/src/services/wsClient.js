@@ -7,6 +7,21 @@ const payloadTypes = {
   room_msg_notice: "roomMessageNotice",
 };
 
+const DEVICE_ID_KEY = "im_device_id";
+
+const getDeviceId = () => {
+  try {
+    const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+    if (existing) return existing;
+    const generated = globalThis.crypto?.randomUUID?.()
+      || `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.localStorage.setItem(DEVICE_ID_KEY, generated);
+    return generated;
+  } catch {
+    return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+};
+
 export function createWsClient(callbacks = {}) {
   let socket = null;
   let authenticated = false;
@@ -18,7 +33,11 @@ export function createWsClient(callbacks = {}) {
 
   const buildUrl = () => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${protocol}//${window.location.host}/api/v1/ws?batch=1`;
+    const params = new URLSearchParams({
+      device_id: getDeviceId(),
+      platform: "web",
+    });
+    return `${protocol}//${window.location.host}/api/v1/ws?${params.toString()}`;
   };
 
   const dispatchApplicationFrame = (frame) => {
