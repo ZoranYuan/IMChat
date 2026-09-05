@@ -2,76 +2,104 @@ package message
 
 import messageentity "IM_backend/internal/domain/message/entity"
 
-type MessageAppeDTO struct {
-	ClientMsgId    string `json:"clientMsgId"`      // 客户端消息ID（用于ACK去重）
-	SendId         string `json:"sendId"`           // 发送者ID
-	SenderUsername string `json:"senderUsername"`   // 发送者用户名
-	Avatar         string `json:"avatar"`           // 会话头像/发送者头像
-	RecvId         string `json:"recvId,omitempty"` // 接收者ID（单聊是用户ID，群聊是群ID）
-	ConversationID string `json:"conversation"`
-	DisplayName    string `json:"displayName"`
-	MessageId      string `json:"messageId"`
-	Status         string `json:"status"`
-	Seq            int64  `json:"seq"`
-	ConvType       int    `json:"convType"` // 会话类型（单聊/群聊）
-	CType          int    `json:"cType"`    // 消息类型（文本/图片/视频等）
-	Content        string `json:"content"`  // 消息内容
-	SendTime       int64  `json:"sendTime"`
-	VideoId        string `json:"videoId"`
-	VideoTime      *int64 `json:"videoTime"` // 视频时长（毫秒，可选）
-	MediaURL       string `json:"mediaUrl,omitempty"`
-	ThumbURL       string `json:"thumbUrl,omitempty"`
-	AttachmentId   string `json:"attachmentId,omitempty"`
-	FileId         string `json:"fileId,omitempty"`
-	FileName       string `json:"fileName,omitempty"`
-	FileSize       int64  `json:"fileSize,omitempty"`
-	MimeType       string `json:"mimeType,omitempty"`
-	Width          int    `json:"width,omitempty"`
-	Height         int    `json:"height,omitempty"`
-	DurationMs     *int64 `json:"durationMs,omitempty"`
-	StickerId      string `json:"stickerId,omitempty"`
-	PackId         string `json:"packId,omitempty"`
+type SendMessageDTO struct {
+	ClientMessageID  string
+	SenderID         string
+	ReceiverID       string
+	ConversationID   string
+	ConversationType int
+	Type             int
+	Content          string
+	VideoID          string
+	VideoTime        *int64
+	AttachmentID     string
+	FileID           string
+	FileName         string
+	FileSize         int64
+	MimeType         string
+	Width            int
+	Height           int
+	DurationMs       *int64
+	StickerID        string
+	PackID           string
+}
+
+type MessageAckDTO struct {
+	ClientMessageID string
+	ConversationID  string
+	MessageID       string
+	Seq             int64
+	AttachmentID    string
+	SendTime        int64
+	Status          string
+}
+
+type MessageDTO struct {
+	MessageID       string
+	ConversationID  string
+	SenderID        string
+	ClientMessageID *string
+	Seq             int64
+	Type            int
+	Content         string
+	VideoID         string
+	VideoTime       *int64
+	Status          int8
+	SendTime        int64
+
+	AttachmentID string
+	Width        int
+	Height       int
+	DurationMs   *int64
+	StickerID    string
+	PackID       string
 }
 
 type DanmakuDTO struct {
-	MessageId string `json:"messageId"`
-	SenderId  string `json:"senderId"`
-	Content   string `json:"content"`
-	Seq       int64  `json:"seq"`
-	TimeMs    int64  `json:"timeMs"`
-	SendTime  int64  `json:"sendTime"`
+	MessageID string
+	SenderID  string
+	Content   string
+	Seq       int64
+	TimeMs    int64
+	SendTime  int64
 }
 
 type RoomVideoHistoryDTO struct {
-	VideoId        string `json:"videoId"`
-	FileName       string `json:"fileName"`
-	LatestSendTime int64  `json:"latestSendTime"`
-	VideoTime      *int64 `json:"videoTime,omitempty"`
-	MessageCount   int64  `json:"messageCount"`
+	VideoID        string
+	FileName       string
+	LatestSendTime int64
+	VideoTime      *int64
+	MessageCount   int64
 }
 
-func toMessagesAppDTO(ms []*messageentity.Message) []MessageAppeDTO {
+func toMessageDTOs(ms []*messageentity.Message) []MessageDTO {
 	if len(ms) == 0 {
 		return nil
 	}
 
-	res := make([]MessageAppeDTO, 0, len(ms))
+	res := make([]MessageDTO, 0, len(ms))
 	for _, m := range ms {
 		if m == nil {
 			continue
 		}
 
-		res = append(res, MessageAppeDTO{
-			SendId:         m.SendId,
+		item := MessageDTO{
+			MessageID:      m.MessageId,
 			ConversationID: m.ConversationId,
-			MessageId:      m.MessageId,
+			SenderID:       m.SenderId,
 			Seq:            m.Seq,
-			CType:          int(m.Type),
+			Type:           int(m.Type),
 			Content:        m.Content,
-			SendTime:       m.SendTime,
-			VideoId:        m.VideoId,
+			VideoID:        m.VideoId,
 			VideoTime:      m.VideoTime,
-		})
+			Status:         int8(m.Status),
+			SendTime:       m.SendTime,
+		}
+		if m.ClientMsgId != nil {
+			clientMsgID := *m.ClientMsgId
+			item.ClientMessageID = &clientMsgID
+		}
+		res = append(res, item)
 	}
 
 	return res

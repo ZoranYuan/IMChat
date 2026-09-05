@@ -24,6 +24,16 @@ type MultipartUploadMeta struct {
 	Status          string `json:"status"`
 }
 
+type AttachmentAccess struct {
+	AttachmentID string
+	FileName     string
+	ContentType  string
+	Size         int64
+	MediaURL     string
+	ThumbURL     string
+	ExpiresAt    int64
+}
+
 type FileCache interface {
 	Set(ctx context.Context, file *fileentity.File, ttl time.Duration) error
 	Get(ctx context.Context, fileId string) (*fileentity.File, error)
@@ -42,4 +52,6 @@ type FileCache interface {
 	SetFileIDByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string, fileId string, ttl time.Duration) error
 	GetFileIDByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (string, error)
 	RenewFileCompleteLock(ctx context.Context, uploadId string, token string, ttl time.Duration) (bool, error)
+	GetAttachmentAccessBatch(ctx context.Context, attachmentIDs []string) (map[string]*AttachmentAccess, error)
+	SetAttachmentAccessBatch(ctx context.Context, values []*AttachmentAccess, ttl time.Duration) error
 }

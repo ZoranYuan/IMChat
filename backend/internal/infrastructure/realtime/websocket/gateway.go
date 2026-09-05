@@ -129,6 +129,10 @@ func (g *Gateway) Unregister(session *Session) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	sessionID := session.SessionID()
+	// 同一个登录 session 可能在旧连接尚未完成清理时建立新连接。如果当前索引已经指向新 Session，旧 Session 不能继续注销这个 ID，否则会误删新连接及其房间索引。
+	if current := g.sessions[sessionID]; current != session {
+		return
+	}
 	delete(g.sessions, sessionID)
 	ids := g.userSessions[session.UserID()]
 	delete(ids, sessionID)

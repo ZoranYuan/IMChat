@@ -8,10 +8,10 @@ import (
 )
 
 type FriendRequestHandler struct {
-	delivery realtimeport.Delivery
+	delivery realtimeport.UserDelivery
 }
 
-func NewFriendRequestHandler(delivery realtimeport.Delivery) eventbus.Handler {
+func NewFriendRequestHandler(delivery realtimeport.UserDelivery) eventbus.Handler {
 	return &FriendRequestHandler{delivery: delivery}
 }
 

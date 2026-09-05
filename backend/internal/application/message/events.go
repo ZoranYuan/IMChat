@@ -1,11 +1,11 @@
 package message
 
 type MessageSendEvent struct {
-	MessageId      string
-	ConversationId string
+	MessageID      string
+	ConversationID string
 
-	SendId string
-	RecvId string
+	SenderID   string
+	ReceiverID string
 
 	Seq  int64
 	Type int

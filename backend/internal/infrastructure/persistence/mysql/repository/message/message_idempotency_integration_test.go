@@ -31,7 +31,7 @@ func testMessage(id, clientID string) *messageentity.Message {
 	return &messageentity.Message{
 		MessageId:      id,
 		ConversationId: "idempotency-test-conversation",
-		SendId:         "idempotency-test-sender",
+		SenderId:       "idempotency-test-sender",
 		ClientMsgId:    &clientID,
 		Seq:            1,
 		Type:           messagevo.Text,

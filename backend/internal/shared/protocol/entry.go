@@ -93,15 +93,18 @@ type RoomMemberChangedEvent struct {
 type MessageEvent struct {
 	MessageId      string   `json:"messageId"`
 	ConversationId string   `json:"conversationId"`
-	SendId         string   `json:"sendId"`
+	SenderId       string   `json:"senderId"`
 	SenderUsername string   `json:"senderUsername"`
 	RecvId         string   `json:"recvId"`
 	Seq            int64    `json:"seq"`
 	ConvType       ConvType `json:"convType"`
 	CType          int      `json:"cType"`
 	Content        string   `json:"content"`
+	VideoId        string   `json:"videoId,omitempty"`
+	VideoTime      *int64   `json:"videoTime,omitempty"`
 	SendTime       int64    `json:"sendTime"`
 	ClientMsgId    string   `json:"clientMsgId"`
+	Status         int8     `json:"status"`
 	AttachmentId   string   `json:"attachmentId,omitempty"`
 	Width          int      `json:"width,omitempty"`
 	Height         int      `json:"height,omitempty"`
@@ -109,7 +112,6 @@ type MessageEvent struct {
 	StickerId      string   `json:"stickerId,omitempty"`
 	PackId         string   `json:"packId,omitempty"`
 	HasVideoTime   bool     `json:"hasVideoTime,omitempty"`
-	VideoTime      *int64   `json:"videoTime,omitempty"`
 }
 
 type WSErrorEvent struct {

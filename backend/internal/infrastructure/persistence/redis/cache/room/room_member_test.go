@@ -1,6 +1,7 @@
 package room
 
 import (
+	"IM_backend/configs"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"context"
@@ -20,7 +21,11 @@ func newRoomMemberCacheTest(t *testing.T) (*RoomMemberCache, *redis.Client, *min
 		_ = client.Close()
 		server.Close()
 	})
-	return NewRoomMemberCache(client), client, server
+	return NewRoomMemberCache(client, configs.MessageConfig{
+		RoomMemberStateTTLSeconds:    3600,
+		RoomMemberNegativeTTLSeconds: 120,
+		RoomMemberIDsTTLSeconds:      1800,
+	}), client, server
 }
 
 func memberState(version int64, status roomvo.RoomUserStatus) *roomcache.MemberState {

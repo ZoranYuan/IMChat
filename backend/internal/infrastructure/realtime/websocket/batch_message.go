@@ -260,7 +260,7 @@ func (a *BatchMessageAccumulator) Append(
 		return nil, err
 	}
 
-	var reason FlushReason
+	var reason FlushReason = FlushReasonUnknown
 
 	switch {
 	case policy == AppendPolicyFlush:

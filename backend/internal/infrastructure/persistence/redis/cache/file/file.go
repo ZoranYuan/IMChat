@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -34,6 +35,77 @@ func (c *FileCache) Get(ctx context.Context, fileId string) (*fileentity.File, e
 		return nil, nil
 	}
 	return &file, nil
+}
+
+func (c *FileCache) GetAttachmentAccessBatch(ctx context.Context, attachmentIDs []string) (map[string]*filecache.AttachmentAccess, error) {
+	result := make(map[string]*filecache.AttachmentAccess, len(attachmentIDs))
+	if len(attachmentIDs) == 0 {
+		return result, nil
+	}
+
+	pipe := c.store.Client().Pipeline()
+	commands := make(map[string]*redis.MapStringStringCmd, len(attachmentIDs))
+	for _, attachmentID := range attachmentIDs {
+		if attachmentID == "" {
+			continue
+		}
+		commands[attachmentID] = pipe.HGetAll(ctx, AttachmentAccessKey(attachmentID))
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Unix()
+	for attachmentID, command := range commands {
+		fields, err := command.Result()
+		if err != nil || len(fields) == 0 {
+			continue
+		}
+		size, err := strconv.ParseInt(fields["size"], 10, 64)
+		if err != nil {
+			continue
+		}
+		expiresAt, err := strconv.ParseInt(fields["expiresAt"], 10, 64)
+		if err != nil || expiresAt <= now || fields["mediaUrl"] == "" {
+			continue
+		}
+		result[attachmentID] = &filecache.AttachmentAccess{
+			AttachmentID: attachmentID,
+			FileName:     fields["fileName"],
+			ContentType:  fields["contentType"],
+			Size:         size,
+			MediaURL:     fields["mediaUrl"],
+			ThumbURL:     fields["thumbUrl"],
+			ExpiresAt:    expiresAt,
+		}
+	}
+	return result, nil
+}
+
+func (c *FileCache) SetAttachmentAccessBatch(ctx context.Context, values []*filecache.AttachmentAccess, ttl time.Duration) error {
+	if len(values) == 0 || ttl <= 0 {
+		return nil
+	}
+
+	pipe := c.store.Client().Pipeline()
+	for _, value := range values {
+		if value == nil || value.AttachmentID == "" || value.MediaURL == "" {
+			continue
+		}
+		key := AttachmentAccessKey(value.AttachmentID)
+		pipe.HSet(ctx, key, map[string]interface{}{
+			"attachmentId": value.AttachmentID,
+			"fileName":     value.FileName,
+			"contentType":  value.ContentType,
+			"size":         strconv.FormatInt(value.Size, 10),
+			"mediaUrl":     value.MediaURL,
+			"thumbUrl":     value.ThumbURL,
+			"expiresAt":    strconv.FormatInt(value.ExpiresAt, 10),
+		})
+		pipe.Expire(ctx, key, ttl)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 func (c *FileCache) Delete(ctx context.Context, fileId string) error {

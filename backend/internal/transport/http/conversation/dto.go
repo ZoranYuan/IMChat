@@ -4,89 +4,87 @@ import (
 	conversationapp "IM_backend/internal/application/conversation"
 )
 
-type PeerUserRes struct {
-	UserId   string `json:"userId"`
-	UserName string `json:"userName"`
-	NickName string `json:"nickName"`
-	Remark   string `json:"remark"`
-	Avatar   string `json:"avatar"`
+type PeerUserResponse struct {
+	UserID    string `json:"userId"`
+	Username  string `json:"userName"`
+	Nickname  string `json:"nickName"`
+	Remark    string `json:"remark"`
+	AvatarURL string `json:"avatar"`
 }
 
-type RoomRes struct {
-	RoomId      string `json:"roomId"`
+type RoomResponse struct {
+	RoomID      string `json:"roomId"`
 	RoomName    string `json:"roomName"`
-	Avatar      string `json:"avatar"`
+	AvatarURL   string `json:"avatar"`
 	Description string `json:"description,omitempty"`
 	MemberCount int    `json:"memberCount,omitempty"`
 }
 
-type LatestMessageRes struct {
-	MessageId      string `json:"messageId"`
-	ConversationId string `json:"conversationId"`
-	SenderId       string `json:"senderId"`
+type LatestMessageResponse struct {
+	MessageID      string `json:"messageId"`
+	ConversationID string `json:"conversationId"`
+	SenderID       string `json:"senderId"`
 	Seq            int64  `json:"seq"`
-	ConvType       int8   `json:"convType"`
-	CType          int8   `json:"cType"`
+	Type           int8   `json:"cType"`
 	Content        string `json:"content"`
 	SendTime       int64  `json:"sendTime"`
 }
 
-type ConversationItemRes struct {
-	ConversationId string            `json:"conversationId"`
-	ConvType       int8              `json:"convType"`
-	TargetId       string            `json:"targetId"`
-	DisplayName    string            `json:"displayName"`
-	Avatar         string            `json:"avatar"`
-	Unread         int64             `json:"unread"`
-	LastReadSeq    int64             `json:"lastReadSeq"`
-	LatestSeq      int64             `json:"latestSeq"`
-	LastMessage    *LatestMessageRes `json:"lastMessage,omitempty"`
-	PeerUser       *PeerUserRes      `json:"peerUser,omitempty"`
-	Room           *RoomRes          `json:"room,omitempty"`
-	IsMuted        bool              `json:"isMuted"`
+type ConversationItemResponse struct {
+	ConversationID   string                 `json:"conversationId"`
+	ConversationType int8                   `json:"convType"`
+	TargetID         string                 `json:"targetId"`
+	DisplayName      string                 `json:"displayName"`
+	AvatarURL        string                 `json:"avatar"`
+	Unread           int64                  `json:"unread"`
+	LastReadSeq      int64                  `json:"lastReadSeq"`
+	LatestSeq        int64                  `json:"latestSeq"`
+	LastMessage      *LatestMessageResponse `json:"lastMessage,omitempty"`
+	PeerUser         *PeerUserResponse      `json:"peerUser,omitempty"`
+	Room             *RoomResponse          `json:"room,omitempty"`
+	IsMuted          bool                   `json:"isMuted"`
 }
 
-func toUserConversationsRes(items []conversationapp.ConversationItemDTO) []ConversationItemRes {
-	res := make([]ConversationItemRes, 0, len(items))
+func toConversationResponses(items []conversationapp.ConversationItemDTO) []ConversationItemResponse {
+	res := make([]ConversationItemResponse, 0, len(items))
 	for _, item := range items {
-		resItem := ConversationItemRes{
-			ConversationId: item.ConversationId,
-			ConvType:       item.ConvType,
-			TargetId:       item.TargetId,
-			DisplayName:    item.DisplayName,
-			Avatar:         item.Avatar,
-			Unread:         item.Unread,
-			LastReadSeq:    item.LastReadSeq,
-			LatestSeq:      item.LatestSeq,
-			IsMuted:        item.IsMuted,
+		resItem := ConversationItemResponse{
+			ConversationID:   item.ConversationID,
+			ConversationType: item.ConversationType,
+			TargetID:         item.TargetID,
+			DisplayName:      item.DisplayName,
+			AvatarURL:        item.AvatarURL,
+			Unread:           item.Unread,
+			LastReadSeq:      item.LastReadSeq,
+			LatestSeq:        item.LatestSeq,
+			IsMuted:          item.IsMuted,
 		}
 
 		if item.LastMessage != nil {
-			resItem.LastMessage = &LatestMessageRes{
-				MessageId:      item.LastMessage.MessageId,
-				ConversationId: item.LastMessage.ConversationId,
-				SenderId:       item.LastMessage.SenderId,
+			resItem.LastMessage = &LatestMessageResponse{
+				MessageID:      item.LastMessage.MessageID,
+				ConversationID: item.LastMessage.ConversationID,
+				SenderID:       item.LastMessage.SenderID,
 				Seq:            item.LastMessage.Seq,
-				ConvType:       item.LastMessage.ConvType,
-				CType:          int8(item.LastMessage.CType),
+				Type:           int8(item.LastMessage.Type),
 				Content:        item.LastMessage.Content,
 				SendTime:       item.LastMessage.SendTime,
 			}
 		}
 		if item.PeerUser != nil {
-			resItem.PeerUser = &PeerUserRes{
-				UserId:   item.PeerUser.UserId,
-				UserName: item.PeerUser.UserName,
-				NickName: item.PeerUser.NickName,
-				Remark:   item.PeerUser.Remark,
-				Avatar:   item.PeerUser.Avatar,
+			resItem.PeerUser = &PeerUserResponse{
+				UserID:    item.PeerUser.UserID,
+				Username:  item.PeerUser.Username,
+				Nickname:  item.PeerUser.Nickname,
+				Remark:    item.PeerUser.Remark,
+				AvatarURL: item.PeerUser.AvatarURL,
 			}
 		}
 		if item.Room != nil {
-			resItem.Room = &RoomRes{
-				RoomId:      item.Room.RoomId,
+			resItem.Room = &RoomResponse{
+				RoomID:      item.Room.RoomID,
 				RoomName:    item.Room.RoomName,
-				Avatar:      item.Room.Avatar,
+				AvatarURL:   item.Room.AvatarURL,
 				Description: item.Room.Description,
 				MemberCount: item.Room.MemberCount,
 			}

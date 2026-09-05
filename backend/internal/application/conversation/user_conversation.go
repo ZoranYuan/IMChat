@@ -41,7 +41,7 @@ func NewUserConvApplication(
 	}
 }
 
-func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, userId string) ([]ConversationItemDTO, error) {
+func (uc *UserConvApplication) GetUserConversationsByUserID(ctx context.Context, userId string) ([]ConversationItemDTO, error) {
 	if userId == "" {
 		return nil, ErrEmptyUserId
 	}
@@ -81,10 +81,13 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 
 		switch conv.Convtype {
 		case conversationvo.PrivateChat:
-			peerID := conv.UserId1
-			if peerID == userId {
+			var peerID string
+			if conv.UserId1 == userId {
 				peerID = conv.UserId2
+			} else {
+				peerID = conv.UserId1
 			}
+
 			if peerID != "" {
 				if _, ok := privateSeen[peerID]; !ok {
 					privateSeen[peerID] = struct{}{}
@@ -114,11 +117,11 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 			continue
 		}
 		messageByConversationID[msg.ConversationId] = LatestMessageDTO{
-			MessageId:      msg.MessageId,
-			ConversationId: msg.ConversationId,
-			SenderId:       msg.SendId,
+			MessageID:      msg.MessageId,
+			ConversationID: msg.ConversationId,
+			SenderID:       msg.SenderId,
 			Seq:            msg.Seq,
-			CType:          msg.Type,
+			Type:           msg.Type,
 			Content:        msg.Content,
 			SendTime:       msg.SendTime,
 		}
@@ -132,10 +135,10 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 		}
 		for _, user := range users {
 			userByID[user.UserId] = PeerUserDTO{
-				UserId:   user.UserId,
-				UserName: user.UserName,
-				NickName: user.NickName,
-				Avatar:   user.Avatar,
+				UserID:    user.UserId,
+				Username:  user.UserName,
+				Nickname:  user.NickName,
+				AvatarURL: user.Avatar,
 			}
 		}
 	}
@@ -147,9 +150,9 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 			continue
 		}
 		roomByID[roomID] = RoomDTO{
-			RoomId:      room.RoomId,
+			RoomID:      room.RoomId,
 			RoomName:    room.RoomName,
-			Avatar:      room.Avatar,
+			AvatarURL:   room.Avatar,
 			Description: room.Description,
 			MemberCount: room.MemberCount,
 		}
@@ -177,16 +180,15 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 		}
 
 		item := ConversationItemDTO{
-			ConversationId: userConv.ConversationId,
-			ConvType:       int8(conv.Convtype),
-			IsMuted:        userConv.IsMuted,
-			Unread:         unreadCount(userConv.LastReadSeq, conv.LatestSeq),
-			LastReadSeq:    userConv.LastReadSeq,
-			LatestSeq:      conv.LatestSeq,
+			ConversationID:   userConv.ConversationId,
+			ConversationType: int8(conv.Convtype),
+			IsMuted:          userConv.IsMuted,
+			Unread:           unreadCount(userConv.LastReadSeq, conv.LatestSeq),
+			LastReadSeq:      userConv.LastReadSeq,
+			LatestSeq:        conv.LatestSeq,
 		}
 
 		if latestMessage, ok := messageByConversationID[userConv.ConversationId]; ok {
-			latestMessage.ConvType = item.ConvType
 			copy := latestMessage
 			item.LastMessage = &copy
 		}
@@ -197,11 +199,11 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 			if peerID == userId {
 				peerID = conv.UserId2
 			}
-			item.TargetId = peerID
+			item.TargetID = peerID
 
 			peerUser := userByID[peerID]
 
-			if peer, ok := peerFriendRelations[peerUser.UserId]; !ok {
+			if peer, ok := peerFriendRelations[peerUser.UserID]; !ok {
 				continue
 			} else {
 				peerUser.Remark = peer.Remarks
@@ -210,26 +212,26 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 			item.PeerUser = &peerUser
 			item.DisplayName = peerUser.Remark
 			if item.DisplayName == "" {
-				item.DisplayName = peerUser.NickName
+				item.DisplayName = peerUser.Nickname
 			}
 			if item.DisplayName == "" {
-				item.DisplayName = peerUser.UserName
+				item.DisplayName = peerUser.Username
 			}
-			item.Avatar = peerUser.Avatar
+			item.AvatarURL = peerUser.AvatarURL
 			if item.DisplayName == "" {
-				item.DisplayName = "好友 " + peerUser.UserName
+				item.DisplayName = "好友 " + peerUser.Username
 			}
 
 		case conversationvo.RoomChat:
-			item.TargetId = conv.RoomId
+			item.TargetID = conv.RoomId
 			if room, ok := roomByID[conv.RoomId]; ok {
 				roomCopy := room
 				item.Room = &roomCopy
 				item.DisplayName = room.RoomName
-				item.Avatar = room.Avatar
+				item.AvatarURL = room.AvatarURL
 			}
 			if item.DisplayName == "" {
-				item.DisplayName = "房间 " + item.TargetId
+				item.DisplayName = "房间 " + item.TargetID
 			}
 		}
 
@@ -249,7 +251,7 @@ func (uc *UserConvApplication) GetUserConversationsById(ctx context.Context, use
 		if leftTime != rightTime {
 			return leftTime > rightTime
 		}
-		return items[i].ConversationId > items[j].ConversationId
+		return items[i].ConversationID > items[j].ConversationID
 	})
 
 	return items, nil

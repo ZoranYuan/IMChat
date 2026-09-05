@@ -27,26 +27,26 @@ func (fh *FriendRequestHandle) Create(c *gin.Context) {
 		return
 	}
 
-	var newFriendRequest FriendRequestReq
+	var newFriendRequest FriendRequestRequest
 	if err := c.ShouldBindJSON(&newFriendRequest); err != nil {
 		log.Println("解析好友申请参数失败：", err)
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
 
-	friendRequestApp, err := fh.app.CreateFriendRequest(userId, newFriendRequest.ToUserId, newFriendRequest.Message)
+	friendRequestApp, err := fh.app.CreateFriendRequest(userId, newFriendRequest.ToUserID, newFriendRequest.Message)
 
 	if err != nil {
 		c.JSON(http.StatusConflict, response.Error(http.StatusBadRequest, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(&FriendRequestRes{
-		RequestId:       friendRequestApp.RequestId,
-		FromUserId:      friendRequestApp.FromUserId,
+	c.JSON(http.StatusOK, response.Success(&FriendRequestResponse{
+		RequestID:       friendRequestApp.RequestID,
+		FromUserID:      friendRequestApp.FromUserID,
 		FromUsername:    friendRequestApp.FromUsername,
 		FromDisplayName: friendRequestApp.FromDisplayName,
-		ToUserId:        friendRequestApp.ToUserId,
+		ToUserID:        friendRequestApp.ToUserID,
 		Message:         friendRequestApp.Message,
 		Status:          friendRequestApp.Status,
 		ApplyTime:       friendRequestApp.ApplyTime,
@@ -54,7 +54,7 @@ func (fh *FriendRequestHandle) Create(c *gin.Context) {
 }
 
 func (fh *FriendRequestHandle) OperateRequest(c *gin.Context) {
-	var res OperateRequestReq
+	var res OperateRequestRequest
 
 	userId := c.GetString("userId")
 	if userId == "" {
@@ -73,9 +73,9 @@ func (fh *FriendRequestHandle) OperateRequest(c *gin.Context) {
 
 	var err error
 	if res.Action == ActionAccept {
-		err = fh.app.Accept(res.RequestId, userId, res.FromUserId)
+		err = fh.app.Accept(res.RequestID, userId, res.FromUserID)
 	} else {
-		err = fh.app.Refuse(res.RequestId, userId)
+		err = fh.app.Refuse(res.RequestID, userId)
 	}
 
 	if err != nil {
@@ -100,14 +100,14 @@ func (fh *FriendRequestHandle) List(c *gin.Context) {
 		return
 	}
 
-	res := make([]FriendRequestRes, 0, len(requestListApp))
+	res := make([]FriendRequestResponse, 0, len(requestListApp))
 	for _, r := range requestListApp {
-		res = append(res, FriendRequestRes{
-			RequestId:       r.RequestId,
-			FromUserId:      r.FromUserId,
+		res = append(res, FriendRequestResponse{
+			RequestID:       r.RequestID,
+			FromUserID:      r.FromUserID,
 			FromUsername:    r.FromUsername,
 			FromDisplayName: r.FromDisplayName,
-			ToUserId:        r.ToUserId,
+			ToUserID:        r.ToUserID,
 			Message:         r.Message,
 			Status:          r.Status,
 			ApplyTime:       r.ApplyTime,

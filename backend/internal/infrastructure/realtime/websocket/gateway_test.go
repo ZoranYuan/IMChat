@@ -68,6 +68,31 @@ func TestGatewayUnregisterRemovesOnlineRoomMembership(t *testing.T) {
 	}
 }
 
+func TestGatewayStaleUnregisterDoesNotRemoveReplacement(t *testing.T) {
+	gateway := NewGateway()
+	oldSession := newGatewayTestSession(t, "u1", "s1")
+	newSession := newGatewayTestSession(t, "u1", "s1")
+
+	gateway.mu.Lock()
+	gateway.registerLocked(oldSession)
+	gateway.registerLocked(newSession)
+	gateway.mu.Unlock()
+	gateway.BindOnlineRooms(newSession, []string{"room1"})
+
+	// 旧连接晚于新连接退出时，不能清理新连接的索引。
+	gateway.Unregister(oldSession)
+
+	gateway.mu.RLock()
+	current := gateway.sessions["s1"]
+	gateway.mu.RUnlock()
+	if current != newSession {
+		t.Fatalf("stale session should not unregister replacement, current=%p replacement=%p", current, newSession)
+	}
+	if got := len(gateway.sessionsForRoom("room1")); got != 1 {
+		t.Fatalf("replacement session should remain in online room index, got=%d", got)
+	}
+}
+
 func TestGatewayRedisDeliveryWaitsForSubscription(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})

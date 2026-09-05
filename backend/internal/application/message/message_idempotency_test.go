@@ -15,13 +15,13 @@ func TestSameClientMessage(t *testing.T) {
 		VideoTime:      &videoTime,
 	}
 
-	dto := MessageAppeDTO{
-		SendId:    "u1",
-		RecvId:    "u2",
-		ConvType:  1,
-		CType:     int(messagevo.Text),
-		Content:   "hello",
-		VideoTime: &videoTime,
+	dto := SendMessageDTO{
+		SenderID:         "u1",
+		ReceiverID:       "u2",
+		ConversationType: 1,
+		Type:             int(messagevo.Text),
+		Content:          "hello",
+		VideoTime:        &videoTime,
 	}
 	if !sameClientMessage(dto, existing, "") {
 		t.Fatal("相同客户端消息应被识别为重复请求")
@@ -34,11 +34,11 @@ func TestSameClientMessage(t *testing.T) {
 }
 
 func TestMessageRequestHashIncludesFileIdentity(t *testing.T) {
-	base := MessageAppeDTO{
+	base := SendMessageDTO{
 		ConversationID: "u1_u2",
-		CType:          int(messagevo.Image),
+		Type:           int(messagevo.Image),
 		Content:        "photo.png",
-		FileId:         "file-1",
+		FileID:         "file-1",
 		Width:          100,
 		Height:         100,
 	}
@@ -48,7 +48,7 @@ func TestMessageRequestHashIncludesFileIdentity(t *testing.T) {
 		t.Fatalf("生成第一条消息摘要失败：%v", err)
 	}
 
-	base.FileId = "file-2"
+	base.FileID = "file-2"
 	second, err := buildMessageRequestHash(base)
 	if err != nil {
 		t.Fatalf("生成第二条消息摘要失败：%v", err)

@@ -24,13 +24,13 @@ func (h *Handle) InitDirectUpload(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
 		return
 	}
-	var req DirectUploadInitReq
+	var req DirectUploadInitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
 	dto, err := h.app.InitDirectUpload(c.Request.Context(), fileapp.DirectUploadInitDTO{
-		UploaderId:  userId,
+		UploaderID:  userId,
 		FileName:    req.FileName,
 		ContentType: req.ContentType,
 		Size:        req.Size,
@@ -53,7 +53,7 @@ func (h *Handle) InitDirectUpload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "初始化上传失败"))
 		return
 	}
-	c.JSON(http.StatusOK, response.Success(toDirectUploadInitRes(dto)))
+	c.JSON(http.StatusOK, response.Success(toDirectUploadInitResponse(dto)))
 }
 
 func (h *Handle) CompleteDirectUpload(c *gin.Context) {
@@ -86,7 +86,7 @@ func (h *Handle) CompleteDirectUpload(c *gin.Context) {
 		}
 		return
 	}
-	c.JSON(http.StatusOK, response.Success(toFileRes(dto)))
+	c.JSON(http.StatusOK, response.Success(toFileResponse(dto)))
 }
 
 func (h *Handle) InitMultipartUpload(c *gin.Context) {
@@ -96,14 +96,14 @@ func (h *Handle) InitMultipartUpload(c *gin.Context) {
 		return
 	}
 
-	var req MultipartInitReq
+	var req MultipartInitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
 
 	dto, err := h.app.InitMultipartUpload(c.Request.Context(), fileapp.MultipartInitDTO{
-		UploaderId:  userId,
+		UploaderID:  userId,
 		FileName:    req.FileName,
 		ContentType: req.ContentType,
 		Size:        req.Size,
@@ -129,7 +129,7 @@ func (h *Handle) InitMultipartUpload(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(toMultipartInitRes(dto)))
+	c.JSON(http.StatusOK, response.Success(toMultipartInitResponse(dto)))
 }
 
 func (h *Handle) PresignMultipartParts(c *gin.Context) {
@@ -143,7 +143,7 @@ func (h *Handle) PresignMultipartParts(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
-	var req MultipartPartsPresignReq
+	var req MultipartPartsPresignRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "分片参数错误"))
 		return
@@ -158,9 +158,9 @@ func (h *Handle) PresignMultipartParts(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "分片上传任务无效"))
 		return
 	}
-	res := make([]MultipartPartURLRes, 0, len(dtos))
+	res := make([]MultipartPartURLResponse, 0, len(dtos))
 	for _, dto := range dtos {
-		res = append(res, MultipartPartURLRes{UploadId: dto.UploadId, PartNumber: dto.PartNumber, URL: dto.URL})
+		res = append(res, MultipartPartURLResponse{UploadID: dto.UploadID, PartNumber: dto.PartNumber, URL: dto.URL})
 	}
 	c.JSON(http.StatusOK, response.Success(res))
 }
@@ -198,7 +198,7 @@ func (h *Handle) CompleteMultipartUpload(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(toFileRes(appDTO)))
+	c.JSON(http.StatusOK, response.Success(toFileResponse(appDTO)))
 }
 
 func (h *Handle) GetAttachmentAccessURL(c *gin.Context) {
@@ -230,5 +230,32 @@ func (h *Handle) GetAttachmentAccessURL(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(toAttachmentAccessURLRes(dto)))
+	c.JSON(http.StatusOK, response.Success(toAttachmentAccessURLResponse(dto)))
+}
+
+func (h *Handle) GetAttachmentAccessURLs(c *gin.Context) {
+	userId := c.GetString("userId")
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		return
+	}
+
+	var req AttachmentAccessURLsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+
+	dtos, err := h.app.GetAttachmentAccessURLs(c.Request.Context(), userId, req.AttachmentIDs)
+	if err != nil {
+		if errors.Is(err, fileapp.ErrUploadUnauthorized) {
+			c.JSON(http.StatusForbidden, response.Error(http.StatusForbidden, "无权访问该附件"))
+			return
+		}
+		log.Println("批量获取附件访问地址失败：", err)
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取附件失败"))
+		return
+	}
+
+	c.JSON(http.StatusOK, response.Success(toAttachmentAccessURLsResponse(dtos)))
 }

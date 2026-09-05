@@ -63,21 +63,17 @@ message MessageReadAckEvent {
 message MessageEvent {
   string message_id      = 1;
   string conversation_id = 2;
-  string send_id         = 3;
-  string recv_id         = 4;
+  string sender_id       = 3;
   int64  seq             = 5;
-  int32  conv_type       = 6;
   int32  c_type          = 7;
   string content         = 8;
   int64  send_time       = 9;
-  string sender_username = 10;
   string client_msg_id   = 11;
-	int32  width           = 18;
-  int32  height          = 19;
-  int64  duration_ms     = 20;
-  string sticker_id      = 21;
-  string pack_id         = 22;
-  bool   has_video_time  = 23;
-  int64  video_time      = 24;
+  string video_id        = 12;
+  optional int64 video_time = 13;
+  int32  status          = 14;
   string attachment_id   = 25;
+
+  // 路由、用户展示以及媒体子表字段不属于消息推送本体。
+  reserved 4, 6, 10, 18 to 24;
 }

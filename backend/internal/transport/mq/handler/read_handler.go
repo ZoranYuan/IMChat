@@ -9,10 +9,10 @@ import (
 )
 
 type ReadHandler struct {
-	delivery realtimeport.Delivery
+	delivery realtimeport.UserDelivery
 }
 
-func NewReadHandler(delivery realtimeport.Delivery) eventbus.Handler {
+func NewReadHandler(delivery realtimeport.UserDelivery) eventbus.Handler {
 	return &ReadHandler{delivery: delivery}
 }
 

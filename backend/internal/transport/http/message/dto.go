@@ -4,130 +4,126 @@ import (
 	messageapp "IM_backend/internal/application/message"
 )
 
-type MessageHistoryReq struct {
-	ConversationId string `form:"conversationId" binding:"required"`
-	ConvType       *int   `form:"convType"`
+type MessageHistoryRequest struct {
+	ConversationID string `form:"conversationId" binding:"required"`
 	Cursor         int64  `form:"cursor"`
 	Limit          int    `form:"limit"`
 }
 
-type MessageSyncReq struct {
-	ConversationId string `form:"conversationId" binding:"required"`
+type MessageSyncRequest struct {
+	ConversationID string `form:"conversationId" binding:"required"`
 	AfterSeq       int64  `form:"afterSeq"`
-	Limit          int    `form:"limit"`
 }
 
-type DanmakuReq struct {
-	RoomId    string `form:"roomId" binding:"required"`
-	VideoId   string `form:"videoId" binding:"required"`
+type MessageSeqsRequest struct {
+	ConversationID string `form:"conversationId" binding:"required"`
+	Seqs           string `form:"seqs" binding:"required"`
+}
+
+type DanmakuRequest struct {
+	RoomID    string `form:"roomId" binding:"required"`
+	VideoID   string `form:"videoId" binding:"required"`
 	StartTime int64  `form:"startTime"`
 	EndTime   int64  `form:"endTime"`
 	Limit     int    `form:"limit"`
 }
 
-type RoomVideoHistoryReq struct {
-	RoomId string `form:"roomId" binding:"required"`
+type RoomVideoHistoryRequest struct {
+	RoomID string `form:"roomId" binding:"required"`
 	Limit  int    `form:"limit"`
 }
 
-type Message struct {
-	MessageId      string `json:"messageId"`
-	SenderId       string `json:"senderId"`
-	SenderUsername string `json:"senderUsername"`
-	Seq            int64  `json:"seq"`
-	ConvType       int    `json:"convType"` // 单聊/群聊
-	CType          int    `json:"cType"`    // 消息类型（文本/图片等）
-	Content        string `json:"content"`
-	SendTime       int64  `json:"sendTime"`
-	VideoId        string `json:"videoId,omitempty"`
-	VideoTime      *int64 `json:"videoTime,omitempty"`
-	AttachmentId   string `json:"attachmentId,omitempty"`
-	FileName       string `json:"fileName,omitempty"`
-	FileSize       int64  `json:"fileSize,omitempty"`
-	Width          int    `json:"width,omitempty"`
-	Height         int    `json:"height,omitempty"`
-	DurationMs     *int64 `json:"durationMs,omitempty"`
-	StickerId      string `json:"stickerId,omitempty"`
-	PackId         string `json:"packId,omitempty"`
+type MessageResponse struct {
+	MessageID       string  `json:"messageId"`
+	ConversationID  string  `json:"conversationId"`
+	SenderID        string  `json:"senderId"`
+	ClientMessageID *string `json:"clientMsgId,omitempty"`
+	Seq             int64   `json:"seq"`
+	Type            int     `json:"cType"`
+	Content         string  `json:"content"`
+	VideoID         string  `json:"videoId,omitempty"`
+	VideoTime       *int64  `json:"videoTime,omitempty"`
+	Status          int8    `json:"status"`
+	SendTime        int64   `json:"sendTime"`
+	AttachmentID    string  `json:"attachmentId,omitempty"`
 }
 
-type MessageHistoryRes struct {
-	Messages   []Message `json:"messages"`
-	NextCursor int64     `json:"nextCursor"`
-	HasMore    bool      `json:"hasMore"`
+type MessageHistoryResponse struct {
+	Messages   []MessageResponse `json:"messages"`
+	NextCursor int64             `json:"nextCursor"`
+	HasMore    bool              `json:"hasMore"`
 }
 
-type MessageSyncRes struct {
-	Messages []Message `json:"messages"`
-	NextSeq  int64     `json:"nextSeq"`
-	HasMore  bool      `json:"hasMore"`
+type MessageSyncResponse struct {
+	Messages []MessageResponse `json:"messages"`
 }
 
-type Danmaku struct {
-	MessageId string `json:"messageId"`
-	SenderId  string `json:"senderId"`
+type MessageSeqsResponse struct {
+	Messages []MessageResponse `json:"messages"`
+}
+
+type DanmakuResponse struct {
+	MessageID string `json:"messageId"`
+	SenderID  string `json:"senderId"`
 	Content   string `json:"content"`
 	Seq       int64  `json:"seq"`
 	TimeMs    int64  `json:"timeMs"`
 	SendTime  int64  `json:"sendTime"`
 }
 
-type DanmakuRes struct {
-	Items []Danmaku `json:"items"`
+type DanmakuListResponse struct {
+	Items []DanmakuResponse `json:"items"`
 }
 
-type RoomVideoHistoryItem struct {
-	VideoId        string `json:"videoId"`
+type RoomVideoHistoryResponseItem struct {
+	VideoID        string `json:"videoId"`
 	FileName       string `json:"fileName"`
 	LatestSendTime int64  `json:"latestSendTime"`
 	VideoTime      *int64 `json:"videoTime,omitempty"`
 	MessageCount   int64  `json:"messageCount"`
 }
 
-type RoomVideoHistoryRes struct {
-	Items []RoomVideoHistoryItem `json:"items"`
+type RoomVideoHistoryResponse struct {
+	Items []RoomVideoHistoryResponseItem `json:"items"`
 }
 
-func toHistoryMessageRes(messages []messageapp.MessageAppeDTO, nextCursor int64, hashMore bool) (res MessageHistoryRes) {
-	ms := toMessagesRes(messages)
+func toHistoryMessageResponse(messages []messageapp.MessageDTO, nextCursor int64, hasMore bool) (res MessageHistoryResponse) {
+	ms := toMessageResponses(messages)
 
 	res.Messages = ms
-	res.HasMore = hashMore
+	res.HasMore = hasMore
 	res.NextCursor = nextCursor
 
 	return
 }
 
-func toSyncMessageRes(messages []messageapp.MessageAppeDTO, nextSeq int64, hashMore bool) (res MessageSyncRes) {
-	res.Messages = toMessagesRes(messages)
-	res.HasMore = hashMore
-	res.NextSeq = nextSeq
+func toSyncMessageResponse(messages []messageapp.MessageDTO) (res MessageSyncResponse) {
+	res.Messages = toMessageResponses(messages)
 	return
 }
 
-func toMessagesRes(messages []messageapp.MessageAppeDTO) []Message {
-	ms := make([]Message, 0, len(messages))
+func toMessageSeqsResponse(messages []messageapp.MessageDTO) (res MessageSeqsResponse) {
+	res.Messages = toMessageResponses(messages)
+	return
+}
+
+func toMessageResponses(messages []messageapp.MessageDTO) []MessageResponse {
+	ms := make([]MessageResponse, 0, len(messages))
 
 	for _, m := range messages {
-		message := Message{
-			MessageId:      m.MessageId,
-			SenderId:       m.SendId,
-			SenderUsername: m.SenderUsername,
-			Seq:            m.Seq,
-			ConvType:       m.ConvType,
-			CType:          m.CType,
-			Content:        m.Content,
-			SendTime:       m.SendTime,
-			VideoId:        m.VideoId,
-			VideoTime:      m.VideoTime,
-			AttachmentId:   m.AttachmentId,
-			FileName:       m.FileName,
-			FileSize:       m.FileSize,
-			Width:          m.Width,
-			Height:         m.Height,
-			DurationMs:     m.DurationMs,
-			StickerId:      m.StickerId,
-			PackId:         m.PackId,
+		message := MessageResponse{
+			MessageID:       m.MessageID,
+			ConversationID:  m.ConversationID,
+			SenderID:        m.SenderID,
+			ClientMessageID: m.ClientMessageID,
+			Seq:             m.Seq,
+			Type:            m.Type,
+			Content:         m.Content,
+			VideoID:         m.VideoID,
+			VideoTime:       m.VideoTime,
+			Status:          m.Status,
+			SendTime:        m.SendTime,
+			AttachmentID:    m.AttachmentID,
 		}
 
 		ms = append(ms, message)
@@ -136,12 +132,12 @@ func toMessagesRes(messages []messageapp.MessageAppeDTO) []Message {
 	return ms
 }
 
-func toDanmakuRes(items []messageapp.DanmakuDTO) (res DanmakuRes) {
-	res.Items = make([]Danmaku, 0, len(items))
+func toDanmakuResponse(items []messageapp.DanmakuDTO) (res DanmakuListResponse) {
+	res.Items = make([]DanmakuResponse, 0, len(items))
 	for _, item := range items {
-		res.Items = append(res.Items, Danmaku{
-			MessageId: item.MessageId,
-			SenderId:  item.SenderId,
+		res.Items = append(res.Items, DanmakuResponse{
+			MessageID: item.MessageID,
+			SenderID:  item.SenderID,
 			Content:   item.Content,
 			Seq:       item.Seq,
 			TimeMs:    item.TimeMs,
@@ -151,11 +147,11 @@ func toDanmakuRes(items []messageapp.DanmakuDTO) (res DanmakuRes) {
 	return res
 }
 
-func toRoomVideoHistoryRes(items []messageapp.RoomVideoHistoryDTO) (res RoomVideoHistoryRes) {
-	res.Items = make([]RoomVideoHistoryItem, 0, len(items))
+func toRoomVideoHistoryResponse(items []messageapp.RoomVideoHistoryDTO) (res RoomVideoHistoryResponse) {
+	res.Items = make([]RoomVideoHistoryResponseItem, 0, len(items))
 	for _, item := range items {
-		res.Items = append(res.Items, RoomVideoHistoryItem{
-			VideoId:        item.VideoId,
+		res.Items = append(res.Items, RoomVideoHistoryResponseItem{
+			VideoID:        item.VideoID,
 			FileName:       item.FileName,
 			LatestSendTime: item.LatestSendTime,
 			VideoTime:      item.VideoTime,

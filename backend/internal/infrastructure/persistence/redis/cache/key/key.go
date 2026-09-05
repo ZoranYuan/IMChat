@@ -17,6 +17,10 @@ func Build(parts ...string) string {
 	return strings.Join(items, ":")
 }
 
+func ActivateLevelKey(roomId string) string {
+	return Build("room", "activity", roomId)
+}
+
 func AuthRefreshToken(token string) string {
 	return Build("auth", "token", "refresh", token)
 }
@@ -57,6 +61,6 @@ func RoomMember(roomID, userID string) string {
 	return Build("room", roomID, "member", userID)
 }
 
-func MessageDedup(sendID, clientMsgId string) string {
-	return Build("msg", "dedup", sendID, clientMsgId)
+func MessageDedup(senderID, clientMsgId string) string {
+	return Build("msg", "dedup", senderID, clientMsgId)
 }

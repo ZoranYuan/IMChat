@@ -3,36 +3,36 @@ package room
 import roomentity "IM_backend/internal/domain/room/entity"
 
 type RoomAppDTO struct {
-	RoomId      string
-	OwnerUserId string
+	RoomID      string
+	OwnerUserID string
 	Description string
 	RoomName    string
 	Status      int
 	UserRole    int
-	Avatar      string
+	AvatarURL   string
 	MemberCount int
 	MaxMembers  int
 	InviteCode  string
 }
 
 type RoomUserDTO struct {
-	UserId    string
-	RoomId    string
+	UserID    string
+	RoomID    string
 	Role      int
 	Status    int
-	MuteUtil  *int64 // 禁言到什么时候（时间戳）
+	MuteUntil *int64 // 禁言到什么时候（时间戳）
 	JoinTime  int64
 	LeaveTime *int64
 }
 
 func toRoomAppDTO(r *roomentity.Room, inviteCode string) *RoomAppDTO {
 	return &RoomAppDTO{
-		RoomId:      r.RoomId,
-		OwnerUserId: r.OwnerUserId,
+		RoomID:      r.RoomId,
+		OwnerUserID: r.OwnerUserId,
 		Description: r.Description,
 		RoomName:    r.RoomName,
 		Status:      int(r.Status),
-		Avatar:      r.Avatar,
+		AvatarURL:   r.Avatar,
 		MemberCount: r.MemberCount,
 		MaxMembers:  r.MaxMembers,
 		InviteCode:  inviteCode,
@@ -41,11 +41,11 @@ func toRoomAppDTO(r *roomentity.Room, inviteCode string) *RoomAppDTO {
 
 func toRoomUserDTO(r *roomentity.RoomUser) *RoomUserDTO {
 	return &RoomUserDTO{
-		UserId:    r.UserId,
-		RoomId:    r.RoomId,
+		UserID:    r.UserId,
+		RoomID:    r.RoomId,
 		Role:      int(r.Role),
 		Status:    int(r.Status),
-		MuteUtil:  r.MuteUtil,
+		MuteUntil: r.MuteUtil,
 		JoinTime:  r.JoinTime,
 		LeaveTime: r.LeaveTime,
 	}

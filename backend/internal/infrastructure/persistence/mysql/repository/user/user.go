@@ -4,6 +4,7 @@ import (
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
 	userentity "IM_backend/internal/domain/user/entity"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
+	"context"
 	"errors"
 	"time"
 
@@ -59,6 +60,32 @@ func (ur *UserRepository) FindByUserID(userId string) (*userentity.User, error) 
 		}
 		return nil, err
 	}
+	domain := toDomain(user)
+	return &domain, nil
+}
+
+func (ur *UserRepository) UpdateUserProfile(ctx context.Context,
+	userId string,
+	updates map[string]any) (*userentity.User, error) {
+	result := ur.db.WithContext(ctx).
+		Model(&model.User{}).
+		Where("user_id = ?", userId).
+		Updates(updates)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	var user model.User
+	if err := ur.db.WithContext(ctx).
+		Where("user_id = ?", userId).
+		First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, userentity.ErrUserNotFound
+		}
+		return nil, err
+	}
+
 	domain := toDomain(user)
 	return &domain, nil
 }

@@ -25,3 +25,7 @@ func FileCompleteLockKey(uploadId string) string {
 func ActiveUploadKey(uploaderId string, fileHash string) string {
 	return "im:file:multipart:hash:" + uploaderId + ":" + fileHash
 }
+
+func AttachmentAccessKey(attachmentID string) string {
+	return cachekey.Build("attachment", "access", attachmentID)
+}

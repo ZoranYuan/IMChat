@@ -120,6 +120,8 @@ func (w *OutboxWorker) dispatchOne(ctx context.Context, item *outboxport.Entry) 
 	}); err != nil {
 		return w.markRetry(ctx, item, err.Error())
 	}
+
+	// 将消息发送
 	return w.outboxRepo.MarkSent(ctx, item.ID, item.LockToken, time.Now())
 }
 

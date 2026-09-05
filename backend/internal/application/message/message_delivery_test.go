@@ -1,6 +1,7 @@
 package message
 
 import (
+	"IM_backend/configs"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	roomentity "IM_backend/internal/domain/room/entity"
@@ -112,6 +113,15 @@ type deliveryRoomMemberCacheStub struct {
 	cached  bool
 }
 
+func testMessageConfig() configs.MessageConfig {
+	return configs.MessageConfig{
+		RoomRealtimeFanoutLimit:           500,
+		LargeRoomNoticeLingerMilliseconds: 200,
+		LargeRoomNoticeShardCount:         16,
+		LargeRoomNoticeMaxPending:         100000,
+	}
+}
+
 func (stub *deliveryRoomMemberCacheStub) GetMember(context.Context, string, string) (*roomcache.MemberState, bool, error) {
 	return nil, false, nil
 }
@@ -151,7 +161,7 @@ func TestDeliveryDeliversPrivateMessageToReceiver(t *testing.T) {
 	eventPayload, _ := json.Marshal(event)
 	envelope := protocol.Envelope{From: "u1", To: "u2", Payload: eventPayload}
 	realtime := &recordingRealtimeDelivery{}
-	delivery := NewDelivery(realtime, nil, nil, nil, DeliveryOptions{})
+	delivery := NewMessageDelivery(realtime, nil, nil, nil, nil, testMessageConfig())
 	defer delivery.Close(context.Background())
 
 	err := delivery.Deliver(context.Background(), protocol.EventTypeSendMessage, "c1", envelope, event)
@@ -172,16 +182,17 @@ func TestDeliveryDeliversSmallRoomMessageToMemberUsers(t *testing.T) {
 	envelope := protocol.Envelope{From: "u1", To: "room1", Payload: eventPayload}
 	realtime := &recordingRealtimeDelivery{}
 	roomUsers := &deliveryRoomUserRepositoryStub{members: []string{"u1", "u2", "u3"}}
-	delivery := NewDelivery(
+	delivery := NewMessageDelivery(
 		realtime,
 		&deliveryRoomRepositoryStub{room: &roomentity.Room{
 			RoomId:      "room1",
 			Status:      roomvo.Normal,
 			MemberCount: 3,
 		}},
+		nil,
 		roomUsers,
 		&deliveryRoomMemberCacheStub{},
-		DeliveryOptions{RoomRealtimeFanoutLimit: 500},
+		testMessageConfig(),
 	)
 	defer delivery.Close(context.Background())
 
@@ -206,16 +217,17 @@ func TestDeliveryDeliversNoticeForLargeRoom(t *testing.T) {
 	envelope := protocol.Envelope{From: "u1", To: "room1", Payload: eventPayload}
 	realtime := &recordingRealtimeDelivery{}
 	roomUsers := &deliveryRoomUserRepositoryStub{members: []string{"u1", "u2"}}
-	delivery := NewDelivery(
+	delivery := NewMessageDelivery(
 		realtime,
 		&deliveryRoomRepositoryStub{room: &roomentity.Room{
 			RoomId:      "room1",
 			Status:      roomvo.Normal,
 			MemberCount: 501,
 		}},
+		nil,
 		roomUsers,
 		&deliveryRoomMemberCacheStub{},
-		DeliveryOptions{RoomRealtimeFanoutLimit: 500},
+		testMessageConfig(),
 	)
 	defer delivery.Close(context.Background())
 
@@ -248,16 +260,21 @@ func TestDeliveryDeliversNoticeForLargeRoom(t *testing.T) {
 func TestDeliveryCoalescesLargeRoomNoticeToLatestSeq(t *testing.T) {
 	realtime := &recordingRealtimeDelivery{}
 	roomUsers := &deliveryRoomUserRepositoryStub{members: []string{"u1", "u2"}}
-	delivery := NewDelivery(
+	delivery := NewMessageDelivery(
 		realtime,
 		&deliveryRoomRepositoryStub{room: &roomentity.Room{
 			RoomId:      "room1",
 			Status:      roomvo.Normal,
 			MemberCount: 501,
 		}},
+		nil,
 		roomUsers,
 		&deliveryRoomMemberCacheStub{},
-		DeliveryOptions{RoomRealtimeFanoutLimit: 500, LargeRoomNoticeLingerMilliseconds: 1000},
+		func() configs.MessageConfig {
+			config := testMessageConfig()
+			config.LargeRoomNoticeLingerMilliseconds = 1000
+			return config
+		}(),
 	)
 	defer delivery.Close(context.Background())
 

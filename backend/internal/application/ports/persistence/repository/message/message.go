@@ -8,7 +8,7 @@ import (
 type MessageRepository interface {
 	CreateNewMessages(ctx context.Context, msgs []*messageentity.Message) error
 	CreateNewMessage(ctx context.Context, msg *messageentity.Message) error
-	FindByClientMsgID(ctx context.Context, sendID, clientMsgID string) (*messageentity.Message, error)
+	FindByClientMsgID(ctx context.Context, senderID, clientMsgID string) (*messageentity.Message, error)
 
 	GetHistoryMessage(
 		ctx context.Context,
@@ -21,7 +21,12 @@ type MessageRepository interface {
 		ctx context.Context,
 		conversationId string,
 		afterSeq int64,
-		limit int,
+	) ([]*messageentity.Message, error)
+
+	ListBySeqs(
+		ctx context.Context,
+		conversationId string,
+		seqs []int64,
 	) ([]*messageentity.Message, error)
 
 	GetMessagesBySendTime(

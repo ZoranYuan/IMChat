@@ -38,12 +38,9 @@ func TestSyncMessagesRequiresConversationID(t *testing.T) {
 	}
 }
 
-func TestSyncMessageResponseCarriesCursor(t *testing.T) {
-	result := toSyncMessageRes([]messageapp.MessageAppeDTO{{MessageId: "m1", Seq: 11}}, 11, true)
-	if len(result.Messages) != 1 || result.Messages[0].MessageId != "m1" {
+func TestSyncMessageResponseCarriesMessages(t *testing.T) {
+	result := toSyncMessageResponse([]messageapp.MessageDTO{{MessageID: "m1", Seq: 11}})
+	if len(result.Messages) != 1 || result.Messages[0].MessageID != "m1" {
 		t.Fatalf("message mapping failed: %+v", result)
-	}
-	if result.NextSeq != 11 || !result.HasMore {
-		t.Fatalf("cursor mapping failed: %+v", result)
 	}
 }

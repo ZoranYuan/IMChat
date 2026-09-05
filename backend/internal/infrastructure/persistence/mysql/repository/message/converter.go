@@ -14,7 +14,7 @@ func toMessageDomain(m *model.Message) *messageentity.Message {
 	return &messageentity.Message{
 		MessageId:      m.MessageId,
 		ConversationId: m.ConversationId,
-		SendId:         m.SendId,
+		SenderId:       m.SenderId,
 		ClientMsgId:    m.ClientMsgId,
 		RequestHash:    m.RequestHash,
 		Seq:            m.Seq,
@@ -35,7 +35,7 @@ func toMessageModel(d *messageentity.Message) *model.Message {
 	return &model.Message{
 		MessageId:      d.MessageId,
 		ConversationId: d.ConversationId,
-		SendId:         d.SendId,
+		SenderId:       d.SenderId,
 		ClientMsgId:    d.ClientMsgId,
 		RequestHash:    d.RequestHash,
 		Seq:            d.Seq,

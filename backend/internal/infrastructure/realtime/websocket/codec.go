@@ -9,6 +9,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// EncodePayload 按事件类型将后端 JSON 事件编码为对应的 WebSocket protobuf payload。
+// 未配置 protobuf 映射的事件保持原始 payload，保证非消息事件可以继续透传。
 func EncodePayload(eventType string, payload []byte) ([]byte, error) {
 	switch eventType {
 	case string(protocol.EventTypeSendMessage):
@@ -40,6 +42,7 @@ func EncodePayload(eventType string, payload []byte) ([]byte, error) {
 	}
 }
 
+// messageAckToPB 将内部 ACK 事件编码为前端使用的 protobuf 消息。
 func messageAckToPB(event protocol.MessageAckEvent) *wspb.MessageAck {
 	return &wspb.MessageAck{
 		ClientMsgId:    event.ClientMsgId,
@@ -53,10 +56,13 @@ func messageAckToPB(event protocol.MessageAckEvent) *wspb.MessageAck {
 	}
 }
 
+// messageReadAckEventToPB 将内部已读事件编码为前端使用的 protobuf 消息。
 func messageReadAckEventToPB(event protocol.MessageReadAckEvent) *wspb.MessageReadAckEvent {
 	return &wspb.MessageReadAckEvent{UserId: event.UserId, ConversationId: event.ConversationId, LastReadSeq: event.LastReadSeq, ConvType: int32(event.ConvType), SenderId: event.SenderId, Avatar: event.Avatar}
 }
 
+// roomMessageNoticeToPB 将大群轻量通知编码为 protobuf。
+// 通知只携带会话和序号，客户端随后通过同步接口拉取消息详情。
 func roomMessageNoticeToPB(event protocol.MessageNotifyEvent) *wspb.RoomMessageNotice {
 	return &wspb.RoomMessageNotice{
 		ConversationId: event.ConversationId,
@@ -65,21 +71,21 @@ func roomMessageNoticeToPB(event protocol.MessageNotifyEvent) *wspb.RoomMessageN
 	}
 }
 
+// messageEventToPB 将内部消息事件映射为只包含消息本体的 WebSocket 推送对象。
+// Kafka 投递所需的路由字段仍保留在内部事件中，但不会进入前端协议。
 func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
-	var videoTime, duration int64
-	if event.VideoTime != nil {
-		videoTime = *event.VideoTime
-	}
-	if event.DurationMs != nil {
-		duration = *event.DurationMs
-	}
 	return &wspb.MessageEvent{
-		MessageId: event.MessageId, ConversationId: event.ConversationId, SendId: event.SendId,
-		SenderUsername: event.SenderUsername, RecvId: event.RecvId, Seq: event.Seq,
-		ConvType: int32(event.ConvType), CType: int32(event.CType), Content: event.Content,
-		SendTime: event.SendTime, ClientMsgId: event.ClientMsgId,
-		Width: int32(event.Width), Height: int32(event.Height),
-		DurationMs: duration, StickerId: event.StickerId, PackId: event.PackId,
-		HasVideoTime: event.HasVideoTime, VideoTime: videoTime, AttachmentId: event.AttachmentId,
+		MessageId:      event.MessageId,
+		ConversationId: event.ConversationId,
+		SenderId:       event.SenderId,
+		Seq:            event.Seq,
+		CType:          int32(event.CType),
+		Content:        event.Content,
+		SendTime:       event.SendTime,
+		ClientMsgId:    event.ClientMsgId,
+		VideoId:        event.VideoId,
+		VideoTime:      event.VideoTime,
+		Status:         int32(event.Status),
+		AttachmentId:   event.AttachmentId,
 	}
 }

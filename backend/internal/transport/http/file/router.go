@@ -18,5 +18,6 @@ func RegisterRoutes(r gin.IRoutes, h *Handle, limiter *middleware.LimitMiddlewar
 	r.POST("/multipart/init", limiter.ByIP("file_upload_init", policy), h.InitMultipartUpload)
 	r.POST("/multipart/:uploadId/parts/presign", limiter.ByIP("file_upload_presign", policy), h.PresignMultipartParts)
 	r.POST("/multipart/:uploadId/complete", limiter.ByIP("file_upload_complete", policy), h.CompleteMultipartUpload)
+	r.POST("/attachments/access-urls", limiter.ByIP("file_attachment_access_urls", policy), h.GetAttachmentAccessURLs)
 	r.GET("/attachments/:attachmentId/access-url", h.GetAttachmentAccessURL)
 }

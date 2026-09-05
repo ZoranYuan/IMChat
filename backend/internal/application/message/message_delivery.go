@@ -1,6 +1,7 @@
 package message
 
 import (
+	"IM_backend/configs"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	"IM_backend/internal/application/ports/realtime"
@@ -33,49 +34,54 @@ type LargeRoomNoticeCoalescerOptions struct {
 	MaxPending int
 }
 
-type DeliveryOptions struct {
-	RoomRealtimeFanoutLimit           int
-	LargeRoomNoticeLingerMilliseconds int
-	LargeRoomNoticeShardCount         int
-	LargeRoomNoticeMaxPending         int
-}
-
-type Delivery struct {
-	realtime           realtime.RoomDelivery
+type MessageDelivery struct {
+	realtime           realtime.RealtimeDelivery
 	roomMemberCache    roomcache.RoomMemberCache
+	roomCache          roomcache.RoomCache
 	roomRepository     roomrepo.RoomRepository
 	roomUserRepository roomrepo.RoomUserRepository
-	options            DeliveryOptions
+	config             configs.MessageConfig
 	noticeCoalescer    *largeRoomNoticeCoalescer
 	singleflight       singleflight.Group
 }
 
-func NewDelivery(
-	delivery realtime.RoomDelivery,
+func NewMessageDelivery(
+	delivery realtime.RealtimeDelivery,
 	roomRepository roomrepo.RoomRepository,
+	roomCache roomcache.RoomCache,
 	roomUserRepository roomrepo.RoomUserRepository,
 	roomMemberCache roomcache.RoomMemberCache,
-	options DeliveryOptions,
-) *Delivery {
-	if options.RoomRealtimeFanoutLimit <= 0 {
-		options.RoomRealtimeFanoutLimit = defaultRoomRealtimeFanoutLimit
+	config configs.MessageConfig,
+) *MessageDelivery {
+	if config.RoomRealtimeFanoutLimit <= 0 {
+		config.RoomRealtimeFanoutLimit = defaultRoomRealtimeFanoutLimit
+	}
+	if config.LargeRoomNoticeLingerMilliseconds <= 0 {
+		config.LargeRoomNoticeLingerMilliseconds = int(defaultLargeRoomNoticeLinger / time.Millisecond)
+	}
+	if config.LargeRoomNoticeShardCount <= 0 {
+		config.LargeRoomNoticeShardCount = defaultLargeRoomNoticeShards
+	}
+	if config.LargeRoomNoticeMaxPending <= 0 {
+		config.LargeRoomNoticeMaxPending = defaultLargeRoomNoticeMax
 	}
 
-	return &Delivery{
+	return &MessageDelivery{
 		realtime:           delivery,
 		roomRepository:     roomRepository,
 		roomUserRepository: roomUserRepository,
 		roomMemberCache:    roomMemberCache,
-		options:            options,
+		roomCache:          roomCache,
+		config:             config,
 		noticeCoalescer: newLargeRoomNoticeCoalescer(delivery, LargeRoomNoticeCoalescerOptions{
-			Linger:     time.Duration(options.LargeRoomNoticeLingerMilliseconds) * time.Millisecond,
-			ShardCount: options.LargeRoomNoticeShardCount,
-			MaxPending: options.LargeRoomNoticeMaxPending,
+			Linger:     time.Duration(config.LargeRoomNoticeLingerMilliseconds) * time.Millisecond,
+			ShardCount: config.LargeRoomNoticeShardCount,
+			MaxPending: config.LargeRoomNoticeMaxPending,
 		}),
 	}
 }
 
-func (delivery *Delivery) Deliver(
+func (delivery *MessageDelivery) Deliver(
 	ctx context.Context,
 	eventType string,
 	conversationID string,
@@ -92,14 +98,14 @@ func (delivery *Delivery) Deliver(
 	}
 }
 
-func (delivery *Delivery) deliverPrivateMessage(
+func (delivery *MessageDelivery) deliverPrivateMessage(
 	eventType string,
 	envelope protocol.Envelope,
 ) error {
 	return delivery.realtime.DeliverToUser(eventType, envelope.To, envelope.Payload)
 }
 
-func (delivery *Delivery) deliverRoomMessage(
+func (delivery *MessageDelivery) deliverRoomMessage(
 	ctx context.Context,
 	eventType string,
 	roomID string,
@@ -114,8 +120,48 @@ func (delivery *Delivery) deliverRoomMessage(
 		return roomentity.ErrRoomNotFound
 	}
 
-	if room.MemberCount > delivery.options.RoomRealtimeFanoutLimit {
+	// 弹幕走独立的按视频时间查询接口，不参与普通消息同步缓存和活跃群判断。
+	activityLevel := roomcache.RoomActivityNormal
+	if delivery.roomCache != nil && !event.HasVideoTime {
+		if err := delivery.roomCache.RecordActivity(ctx, roomID); err != nil {
+			log.Printf("记录房间活跃度失败: room=%s err=%v", roomID, err)
+		} else {
+			level, err := delivery.roomCache.ActivateLevel(ctx, roomID)
+			if err != nil {
+				log.Printf("读取房间活跃度失败: room=%s err=%v", roomID, err)
+			} else {
+				activityLevel = level
+			}
+		}
+	}
+
+	// 成员数是硬阈值；消息频率达到 ACTIVE 后也切换为 PULL。
+	// WARN 提前把消息写入 seq ZSET，为客户端稍后拉取预热数据。
+	hardPull := room.MemberCount > delivery.config.RoomRealtimeFanoutLimit
+	activePull := activityLevel == roomcache.RoomActivityActive
+	if hardPull || activePull {
+		if delivery.roomCache != nil && !event.HasVideoTime {
+			if err := delivery.roomCache.AppendRecentMessageSeq(ctx, roomID, event); err != nil {
+				log.Printf(
+					"写入房间近期消息缓存失败: room=%s seq=%d err=%v",
+					roomID,
+					event.Seq,
+					err,
+				)
+			}
+		}
 		return delivery.deliverLargeRoomNotice(roomID, envelope, event)
+	}
+
+	if activityLevel == roomcache.RoomActivityWarn && delivery.roomCache != nil && !event.HasVideoTime {
+		if err := delivery.roomCache.AppendRecentMessageSeq(ctx, roomID, event); err != nil {
+			log.Printf(
+				"写入房间近期消息缓存失败: room=%s seq=%d err=%v",
+				roomID,
+				event.Seq,
+				err,
+			)
+		}
 	}
 
 	members, err := delivery.roomMembers(ctx, roomID)
@@ -125,7 +171,7 @@ func (delivery *Delivery) deliverRoomMessage(
 	return delivery.deliverSmallRoomMessage(eventType, members, envelope)
 }
 
-func (delivery *Delivery) deliverSmallRoomMessage(
+func (delivery *MessageDelivery) deliverSmallRoomMessage(
 	eventType string,
 	members []string,
 	envelope protocol.Envelope,
@@ -142,7 +188,7 @@ func (delivery *Delivery) deliverSmallRoomMessage(
 }
 
 // 当房间需要进行轻量推送
-func (delivery *Delivery) deliverLargeRoomNotice(
+func (delivery *MessageDelivery) deliverLargeRoomNotice(
 	roomID string,
 	envelope protocol.Envelope,
 	event protocol.MessageEvent,
@@ -155,7 +201,7 @@ func (delivery *Delivery) deliverLargeRoomNotice(
 	})
 }
 
-func (delivery *Delivery) roomMembers(ctx context.Context, roomID string) ([]string, error) {
+func (delivery *MessageDelivery) roomMembers(ctx context.Context, roomID string) ([]string, error) {
 	if delivery.roomMemberCache != nil {
 		members, found, err := delivery.roomMemberCache.GetMemberIDs(ctx, roomID)
 		if err != nil {
@@ -184,11 +230,11 @@ func (delivery *Delivery) roomMembers(ctx context.Context, roomID string) ([]str
 	return result.([]string), nil
 }
 
-func (delivery *Delivery) Close(ctx context.Context) {
+func (delivery *MessageDelivery) Close(ctx context.Context) {
 	delivery.noticeCoalescer.close(ctx)
 }
 
-func (delivery *Delivery) FlushLargeRoomNotices(ctx context.Context) {
+func (delivery *MessageDelivery) FlushLargeRoomNotices(ctx context.Context) {
 	delivery.noticeCoalescer.flushAll(ctx)
 }
 
@@ -200,7 +246,7 @@ type largeRoomNotice struct {
 }
 
 type largeRoomNoticeCoalescer struct {
-	delivery realtime.RoomDelivery
+	delivery realtime.RoomMemberDelivery
 	shards   []*largeRoomNoticeShard
 	done     chan struct{}
 	once     sync.Once
@@ -215,7 +261,7 @@ type largeRoomNoticeShard struct {
 }
 
 func newLargeRoomNoticeCoalescer(
-	delivery realtime.RoomDelivery,
+	delivery realtime.RoomMemberDelivery,
 	options LargeRoomNoticeCoalescerOptions,
 ) *largeRoomNoticeCoalescer {
 	if options.Linger <= 0 {
@@ -250,6 +296,7 @@ func newLargeRoomNoticeCoalescer(
 	return coalescer
 }
 
+// 根据 roomID 进行 notice 的合并
 func (coalescer *largeRoomNoticeCoalescer) enqueue(notice largeRoomNotice) error {
 	if coalescer == nil {
 		return nil
@@ -295,6 +342,8 @@ func (shard *largeRoomNoticeShard) put(key string, notice largeRoomNotice) error
 	if !exists && len(shard.pending) >= shard.maxPending {
 		return ErrLargeRoomNoticeCoalescerFull
 	}
+
+	// 只保留最大的 seq
 	if exists && current.Seq >= notice.Seq {
 		return nil
 	}

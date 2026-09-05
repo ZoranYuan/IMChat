@@ -19,6 +19,7 @@ var (
 	ErrNotRoomMember = roomentity.ErrMemberNotFound
 
 	ErrConversationSequenceUpdate = errors.New("更新会话序列失败")
+	ErrTooManySeqs                = errors.New("一次查询的消息序号过多")
 
 	ErrForbidden = errors.New("无权发送消息")
 

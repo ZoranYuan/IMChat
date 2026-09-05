@@ -35,14 +35,14 @@ func (rh *RoomHandle) Create(c *gin.Context) {
 		return
 	}
 
-	var req CreateRoomReq
+	var req CreateRoomRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
 
 	ctx := c.Request.Context()
-	roomApp, err := rh.app.Create(ctx, userId, req.RoomName, req.Avatar, req.Description)
+	roomApp, err := rh.app.Create(ctx, userId, req.RoomName, req.AvatarURL, req.Description)
 
 	if err != nil {
 		if errors.Is(err, roomapp.ErrInviteCodeUnavailable) {
@@ -53,11 +53,11 @@ func (rh *RoomHandle) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(CreateRoomRes{
-		RoomId:      roomApp.RoomId,
+	c.JSON(http.StatusOK, response.Success(CreateRoomResponse{
+		RoomID:      roomApp.RoomID,
 		Description: roomApp.Description,
 		RoomName:    roomApp.RoomName,
-		Avatar:      roomApp.Avatar,
+		AvatarURL:   roomApp.AvatarURL,
 		MemberCount: roomApp.MemberCount,
 		InviteCode:  roomApp.InviteCode,
 	}))
@@ -102,7 +102,7 @@ func (rh *RoomHandle) Join(c *gin.Context) {
 		return
 	}
 
-	var req JoinRoomReq
+	var req JoinRoomRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
@@ -120,10 +120,10 @@ func (rh *RoomHandle) Join(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(JoinRoomRes{
-		RoomId:      roomApp.RoomId,
+	c.JSON(http.StatusOK, response.Success(JoinRoomResponse{
+		RoomID:      roomApp.RoomID,
 		RoomName:    roomApp.RoomName,
-		Avatar:      roomApp.Avatar,
+		AvatarURL:   roomApp.AvatarURL,
 		MemberCount: roomApp.MemberCount,
 		Role:        roomUserApp.Role,
 		JoinTime:    roomUserApp.JoinTime,

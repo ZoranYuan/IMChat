@@ -4,33 +4,33 @@ import (
 	friendapp "IM_backend/internal/application/friend"
 )
 
-type FriendItemRes struct {
-	FriendUserId   string `json:"friendUserId"`
-	FriendUsername string `json:"friendUsername"`
-	FriendAvatar   string `json:"friendAvatar"`
-	Status         int    `json:"status"`
-	DisplayName    string `json:"displayName"`
+type FriendItemResponse struct {
+	FriendUserID    string `json:"friendUserId"`
+	FriendUsername  string `json:"friendUsername"`
+	FriendAvatarURL string `json:"friendAvatar"`
+	Status          int    `json:"status"`
+	DisplayName     string `json:"displayName"`
 }
 
-func toFriendListRes(f []friendapp.FriendAppDTO) []FriendItemRes {
-	var res = make([]FriendItemRes, 0, len(f))
+func toFriendListResponse(f []friendapp.FriendAppDTO) []FriendItemResponse {
+	var res = make([]FriendItemResponse, 0, len(f))
 
 	for _, i := range f {
 		var displayName string
 		if i.Remarks != "" {
 			displayName = i.Remarks
-		} else if i.FriendNickName != "" {
-			displayName = i.FriendNickName
+		} else if i.FriendNickname != "" {
+			displayName = i.FriendNickname
 		} else {
-			displayName = i.FriendUserName
+			displayName = i.FriendUsername
 		}
 
-		res = append(res, FriendItemRes{
-			FriendUserId:   i.FriendUserId,
-			FriendUsername: i.FriendUserName,
-			FriendAvatar:   i.FriendAvatar,
-			DisplayName:    displayName,
-			Status:         i.Status,
+		res = append(res, FriendItemResponse{
+			FriendUserID:    i.FriendUserID,
+			FriendUsername:  i.FriendUsername,
+			FriendAvatarURL: i.FriendAvatarURL,
+			DisplayName:     displayName,
+			Status:          i.Status,
 		})
 	}
 

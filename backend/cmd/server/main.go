@@ -103,8 +103,8 @@ func main() {
 	realtimeGateway.KeepAlive(ctx, cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
 
 	authCache := authcache.NewAuthCache(redisClient)
-	roomCache := roomcache.NewRoomCache(redisClient)
-	roomMemberCache := roomcache.NewRoomMemberCache(redisClient)
+	roomCache := roomcache.NewRoomCache(redisClient, cfg.Message)
+	roomMemberCache := roomcache.NewRoomMemberCache(redisClient, cfg.Message)
 	fileCache := filecache.NewFileCache(redisClient)
 	friendCache := friendcache.NewFriendCache(redisClient)
 	messageCache := messagecache.NewMessageCache(redisClient)
@@ -166,6 +166,7 @@ func main() {
 		MultipartTTL:             time.Duration(cfg.Storage.MinIO.MultipartTTL) * time.Second,
 		CacheTTL:                 time.Duration(cfg.Storage.MinIO.CacheTTLSeconds) * time.Second,
 		URLTTL:                   time.Duration(cfg.Storage.MinIO.URLTTLSeconds) * time.Second,
+		AttachmentAccessCacheTTL: time.Duration(cfg.Cache.AttachmentAccess.TTLSeconds) * time.Second,
 		PartURLTTL:               time.Duration(cfg.Storage.MinIO.PartURLTTLSeconds) * time.Second,
 		DirectUploadURLTTL:       time.Duration(cfg.Storage.MinIO.DirectUploadURLTTLSeconds) * time.Second,
 		DirectUploadMaxSize:      cfg.Storage.MinIO.DirectUploadMaxSizeBytes,
@@ -174,6 +175,8 @@ func main() {
 		MaxFileSize:              cfg.Storage.MinIO.MaxFileSizeBytes,
 		MaxMultipartParts:        cfg.Storage.MinIO.MaxMultipartParts,
 	}, fileRepository, fileUploadRepository, messageAttachmentsRepository, fileCache, objectStorage, idGenerator, txManager)
+
+	// file 清除 worker
 	multipartCleanupWorker := filecleanup.NewWorker(
 		txManager,
 		fileUploadRepository,
@@ -203,7 +206,7 @@ func main() {
 	userApp := userapp.NewUserApplication(userRepository, userapp.Options{
 		AccessTokenTTL:  time.Duration(cfg.JWT.AccessExpireMinutes) * time.Minute,
 		RefreshTokenTTL: time.Duration(cfg.JWT.RefreshExpireHours) * time.Hour,
-	}, authCache, tokenIssuer, idGenerator, passwordHasher)
+	}, userCache, authCache, tokenIssuer, idGenerator, passwordHasher, txManager)
 	userHandle := userhttp.NewUserHandle(
 		userApp,
 		time.Duration(cfg.JWT.AccessExpireMinutes)*time.Minute,
@@ -245,17 +248,13 @@ func main() {
 	)
 	roomHandle := roomhttp.NewRoomHandle(roomApp)
 
-	messageDelivery := messageapp.NewDelivery(
+	messageDelivery := messageapp.NewMessageDelivery(
 		realtimeGateway,
 		roomRepository,
+		roomCache,
 		roomUserRepository,
 		roomMemberCache,
-		messageapp.DeliveryOptions{
-			RoomRealtimeFanoutLimit:           cfg.Message.RoomRealtimeFanoutLimit,
-			LargeRoomNoticeLingerMilliseconds: cfg.Message.LargeRoomNoticeLingerMilliseconds,
-			LargeRoomNoticeShardCount:         cfg.Message.LargeRoomNoticeShardCount,
-			LargeRoomNoticeMaxPending:         cfg.Message.LargeRoomNoticeMaxPending,
-		},
+		cfg.Message,
 	)
 	defer messageDelivery.Close(context.Background())
 	messageSendHandler := mqhandler.NewMessageHandler(messageDelivery)
@@ -294,6 +293,7 @@ func main() {
 		log.Fatal("创建消息消费组失败：", err)
 	}
 
+	// message 消费 worker
 	consumerDone := make(chan struct{})
 	go func() {
 		defer close(consumerDone)
@@ -310,6 +310,7 @@ func main() {
 		cfg.Outbox,
 	)
 
+	// outbox worker
 	outboxDone := make(chan struct{})
 	go func() {
 		defer close(outboxDone)
@@ -320,6 +321,7 @@ func main() {
 		friendCache,
 		messageCache,
 		roomMemberCache,
+		roomCache,
 		userCache,
 		txManager,
 		userConversationRepository,

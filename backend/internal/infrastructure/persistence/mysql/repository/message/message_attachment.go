@@ -52,13 +52,18 @@ func (m *MessageAttachmentRepository) Create(ctx context.Context, item *messagee
 	return m.db.WithContext(ctx).Create(toMessageAttachmentModel(item)).Error
 }
 
-func (m *MessageAttachmentRepository) BatchGetByMessageIDs(ctx context.Context, messageIds []string) (map[string]*messageentity.MessageAttachment, error) {
+func (m *MessageAttachmentRepository) BatchGetByMessageIDs(ctx context.Context, messageIds []string, isActivate bool) (map[string]*messageentity.MessageAttachment, error) {
 	if len(messageIds) == 0 {
 		return map[string]*messageentity.MessageAttachment{}, nil
 	}
 
+	query := m.db.WithContext(ctx).Where("message_id IN (?)", messageIds)
+	if isActivate {
+		query = query.Where("expire_at > ?", time.Now().UnixMilli())
+	}
+
 	var rows []model.MessageAttachment
-	if err := m.db.WithContext(ctx).Where("message_id IN (?)", messageIds).Find(&rows).Error; err != nil {
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, err
 	}
 
@@ -69,21 +74,38 @@ func (m *MessageAttachmentRepository) BatchGetByMessageIDs(ctx context.Context, 
 	return result, nil
 }
 
+func (m *MessageAttachmentRepository) FindUserAccessAttachments(ctx context.Context, userId string, attachmentIds []string) (map[string]*messageentity.MessageAttachment, error) {
+	result := make(map[string]*messageentity.MessageAttachment, len(attachmentIds))
+	if userId == "" || len(attachmentIds) == 0 {
+		return result, nil
+	}
+
+	var rows []model.MessageAttachment
+	err := m.db.WithContext(ctx).
+		Table("message_attachments AS ma").
+		Select("ma.*").
+		Joins("JOIN user_conversations AS uc ON uc.conversation_id = ma.conversation_id").
+		Where("uc.user_id = ? AND ma.attachment_id IN (?) AND ma.expire_at > ?", userId, attachmentIds, time.Now().UnixMilli()).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range rows {
+		attachment := toMessageAttachmentDomain(&rows[i])
+		result[attachment.AttachmentId] = attachment
+	}
+	return result, nil
+}
+
 func (m *MessageAttachmentRepository) CanUserAccessAttachment(ctx context.Context, userId string, attachmentId string) (bool, error) {
-	var exists bool
-	err := m.db.WithContext(ctx).Raw(`
-			SELECT EXISTS (
-					SELECT 1
-					FROM message_attachments AS ma
-					JOIN user_conversations AS uc
-						ON uc.conversation_id = ma.conversation_id
-						AND uc.user_id = ?
-					WHERE ma.attachment_id = ?
-						AND ma.expire_at > ?
-					LIMIT 1
-			)
-        `, userId, attachmentId, time.Now().UnixMilli()).Scan(&exists).Error
-	return exists, err
+	var count int64
+	err := m.db.WithContext(ctx).
+		Table("message_attachments AS ma").
+		Joins("JOIN user_conversations AS uc ON uc.conversation_id = ma.conversation_id").
+		Where("uc.user_id = ? AND ma.attachment_id = ? AND ma.expire_at > ?", userId, attachmentId, time.Now().UnixMilli()).
+		Count(&count).Error
+	return count > 0, err
 }
 
 func (m *MessageAttachmentRepository) FindUserAccessAttachment(ctx context.Context, userId string, attachmentId string) (*messageentity.MessageAttachment, error) {
@@ -91,10 +113,8 @@ func (m *MessageAttachmentRepository) FindUserAccessAttachment(ctx context.Conte
 	err := m.db.WithContext(ctx).
 		Table("message_attachments AS ma").
 		Select("ma.*").
-		Joins(`JOIN user_conversations AS uc
-			ON uc.conversation_id = ma.conversation_id
-			AND uc.user_id = ?`, userId).
-		Where("ma.attachment_id = ? AND ma.expire_at > ?", attachmentId, time.Now().UnixMilli()).
+		Joins("JOIN user_conversations AS uc ON uc.conversation_id = ma.conversation_id").
+		Where("uc.user_id = ? AND ma.attachment_id = ? AND ma.expire_at > ?", userId, attachmentId, time.Now().UnixMilli()).
 		Limit(1).
 		Scan(&row).Error
 	if err != nil {

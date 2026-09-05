@@ -35,17 +35,19 @@ func (r *TopicRouter) TopicFor(eventName string) (string, error) {
 	if r == nil {
 		return "", ErrTopicNotMapped
 	}
-	if strings.HasSuffix(eventName, ".dlq") {
-		baseTopic, err := r.TopicFor(strings.TrimSuffix(eventName, ".dlq"))
-		if err != nil {
-			return "", err
-		}
-		return baseTopic + ".dlq", nil
-	}
-	topic, ok := r.eventToTopic[eventName]
+
+	isDLQ := strings.HasSuffix(eventName, ".dlq")
+	baseEventName := strings.TrimSuffix(eventName, ".dlq")
+
+	topic, ok := r.eventToTopic[baseEventName]
 	if !ok {
 		return "", ErrTopicNotMapped
 	}
+
+	if isDLQ {
+		topic += ".dlq"
+	}
+
 	return topic, nil
 }
 

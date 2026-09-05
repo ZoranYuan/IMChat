@@ -6,10 +6,13 @@ import (
 	wspb "IM_backend/internal/transport/ws/pb"
 )
 
+// encodeWebSocketPayload 将业务事件交给统一的 WebSocket protobuf 编码器处理。
 func encodeWebSocketPayload(op string, payload []byte) ([]byte, error) {
 	return realtimews.EncodePayload(op, payload)
 }
 
+// messageReqFromPB 将 WebSocket 层的 protobuf 请求转换为业务层发送请求。
+// 请求中的接收方、会话类型和文件标识等控制字段只用于服务端处理，不属于推送消息本体。
 func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
 	var videoTime *int64
 	if pb.GetHasVideoTime() {
@@ -37,6 +40,7 @@ func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
 	}
 }
 
+// messageAckToPB 将业务层生成的消息 ACK 转换为 WebSocket protobuf 响应。
 func messageAckToPB(event protocol.MessageAckEvent) *wspb.MessageAck {
 	return &wspb.MessageAck{
 		ClientMsgId:  event.ClientMsgId,
@@ -48,6 +52,7 @@ func messageAckToPB(event protocol.MessageAckEvent) *wspb.MessageAck {
 	}
 }
 
+// messageReadAckEventToPB 将已读回执事件转换为 WebSocket protobuf 响应。
 func messageReadAckEventToPB(event protocol.MessageReadAckEvent) *wspb.MessageReadAckEvent {
 	return &wspb.MessageReadAckEvent{
 		UserId:         event.UserId,
@@ -59,35 +64,21 @@ func messageReadAckEventToPB(event protocol.MessageReadAckEvent) *wspb.MessageRe
 	}
 }
 
+// messageEventToPB 将内部消息事件转换为只包含消息本体字段的 WebSocket 推送对象。
+// 内部事件中的路由、用户展示和媒体子表字段不会通过 MessageEvent 下发给前端。
 func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
-	var videoTime int64
-	if event.VideoTime != nil {
-		videoTime = *event.VideoTime
-	}
 	return &wspb.MessageEvent{
 		MessageId:      event.MessageId,
 		ConversationId: event.ConversationId,
-		SendId:         event.SendId,
-		SenderUsername: event.SenderUsername,
-		RecvId:         event.RecvId,
+		SenderId:       event.SenderId,
 		Seq:            event.Seq,
-		ConvType:       int32(event.ConvType),
 		CType:          int32(event.CType),
 		Content:        event.Content,
 		SendTime:       event.SendTime,
 		ClientMsgId:    event.ClientMsgId,
-		Width:          int32(event.Width),
-		Height:         int32(event.Height),
-		DurationMs: func() int64 {
-			if event.DurationMs != nil {
-				return *event.DurationMs
-			}
-			return 0
-		}(),
-		StickerId:    event.StickerId,
-		PackId:       event.PackId,
-		HasVideoTime: event.HasVideoTime,
-		VideoTime:    videoTime,
-		AttachmentId: event.AttachmentId,
+		VideoId:        event.VideoId,
+		VideoTime:      event.VideoTime,
+		Status:         int32(event.Status),
+		AttachmentId:   event.AttachmentId,
 	}
 }

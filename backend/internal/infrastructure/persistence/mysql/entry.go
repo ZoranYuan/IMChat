@@ -62,7 +62,6 @@ func Migrate(db *gorm.DB) error {
 	if err := prepareMessageSequenceIndex(db); err != nil {
 		return err
 	}
-
 	if err := db.AutoMigrate(
 		&model.User{},
 		&model.OutboxRecord{},

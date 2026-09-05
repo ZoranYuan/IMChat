@@ -10,8 +10,8 @@ import (
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 
-	"gorm.io/gorm"
 	"errors"
+	"gorm.io/gorm"
 )
 
 type MessageRepository struct {
@@ -43,14 +43,14 @@ func (r *MessageRepository) CreateNewMessage(ctx context.Context, msg *messageen
 
 func (r *MessageRepository) FindByClientMsgID(
 	ctx context.Context,
-	sendID, clientMsgID string,
+	senderID, clientMsgID string,
 ) (*messageentity.Message, error) {
-	if sendID == "" || clientMsgID == "" {
+	if senderID == "" || clientMsgID == "" {
 		return nil, nil
 	}
 	var m model.Message
 	err := r.db.WithContext(ctx).
-		Where("send_id = ? AND client_msg_id = ?", sendID, clientMsgID).
+		Where("sender_id = ? AND client_msg_id = ?", senderID, clientMsgID).
 		First(&m).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -118,14 +118,38 @@ func (r *MessageRepository) ListAfterSeq(
 	ctx context.Context,
 	conversationId string,
 	afterSeq int64,
-	limit int,
 ) ([]*messageentity.Message, error) {
 	var models []*model.Message
 
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Where("conversation_id = ? AND seq > ? AND (video_id = '' OR video_id IS NULL)", conversationId, afterSeq).
+		Order("seq ASC")
+	err := query.Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*messageentity.Message, 0, len(models))
+	for _, m := range models {
+		result = append(result, toMessageDomain(m))
+	}
+
+	return result, nil
+}
+
+func (r *MessageRepository) ListBySeqs(
+	ctx context.Context,
+	conversationId string,
+	seqs []int64,
+) ([]*messageentity.Message, error) {
+	if conversationId == "" || len(seqs) == 0 {
+		return []*messageentity.Message{}, nil
+	}
+
+	var models []*model.Message
+	err := r.db.WithContext(ctx).
+		Where("conversation_id = ? AND seq IN ? AND (video_id = '' OR video_id IS NULL)", conversationId, seqs).
 		Order("seq ASC").
-		Limit(limit).
 		Find(&models).Error
 	if err != nil {
 		return nil, err
@@ -291,7 +315,7 @@ func (r *MessageRepository) ListDistinctSendersBySeqRange(
 	var userIds []string
 	query := r.db.WithContext(ctx).
 		Model(&model.Message{}).
-		Distinct("send_id").
+		Distinct("sender_id").
 		Where(
 			"conversation_id = ? AND seq > ? AND seq <= ?",
 			conversationId,
@@ -300,10 +324,10 @@ func (r *MessageRepository) ListDistinctSendersBySeqRange(
 		)
 
 	if excludeUserId != "" {
-		query = query.Where("send_id <> ?", excludeUserId)
+		query = query.Where("sender_id <> ?", excludeUserId)
 	}
 
-	if err := query.Pluck("send_id", &userIds).Error; err != nil {
+	if err := query.Pluck("sender_id", &userIds).Error; err != nil {
 		return nil, err
 	}
 

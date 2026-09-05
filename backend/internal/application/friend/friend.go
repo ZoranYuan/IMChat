@@ -67,12 +67,12 @@ func (fa *FriendApplication) GetUserFriendList(userId string) ([]FriendAppDTO, e
 			continue
 		}
 		friendListApp = append(friendListApp, FriendAppDTO{
-			FriendUserId:   friend.FriendUserId,
-			FriendAvatar:   user.avatar,
-			FriendUserName: user.userName,
-			FriendNickName: user.nickName,
-			Status:         int(friend.Status),
-			Remarks:        friend.Remarks,
+			FriendUserID:    friend.FriendUserId,
+			FriendAvatarURL: user.avatar,
+			FriendUsername:  user.userName,
+			FriendNickname:  user.nickName,
+			Status:          int(friend.Status),
+			Remarks:         friend.Remarks,
 		})
 	}
 

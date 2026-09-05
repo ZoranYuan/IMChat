@@ -3,7 +3,7 @@ package model
 type Message struct {
 	MessageId      string  `gorm:"size:32;primaryKey" json:"messageId"`
 	ConversationId string  `gorm:"size:64;not null;index:idx_conv_seq,priority:1;uniqueIndex:uk_message_conv_seq,priority:1" json:"conversationId"`
-	SendId         string  `gorm:"size:32;not null;index:idx_sender;uniqueIndex:uq_sender_client_msg,priority:1" json:"sendId"`
+	SenderId       string  `gorm:"size:32;not null;index:idx_sender;uniqueIndex:uq_sender_client_msg,priority:1" json:"senderId"`
 	ClientMsgId    *string `gorm:"size:64;uniqueIndex:uq_sender_client_msg,priority:2" json:"clientMsgId,omitempty"`
 	RequestHash    string  `gorm:"size:64;default:'';index" json:"-"`
 

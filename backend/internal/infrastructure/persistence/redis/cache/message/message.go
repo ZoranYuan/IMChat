@@ -22,22 +22,20 @@ func NewMessageCache(client *redis.Client) *MessageCache {
 
 func (c *MessageCache) SetDedupEntry(
 	ctx context.Context,
-	sendID,
-	clientMsgID, messageID, requestHash string,
+	senderID,
+	clientMsgID string,
+	entry messagecache.DedupEntry,
 	ttl time.Duration,
 ) (bool, error) {
-	value, err := json.Marshal(messagecache.DedupEntry{
-		MessageID:   messageID,
-		RequestHash: requestHash,
-	})
+	value, err := json.Marshal(entry)
 	if err != nil {
 		return false, err
 	}
-	return c.store.SetNXString(ctx, MessageDedupKey(sendID, clientMsgID), string(value), ttl)
+	return c.store.SetNXString(ctx, MessageDedupKey(senderID, clientMsgID), string(value), ttl)
 }
 
-func (c *MessageCache) GetDedupEntry(ctx context.Context, sendID, clientMsgID string) (messagecache.DedupEntry, error) {
-	value, err := c.store.GetString(ctx, MessageDedupKey(sendID, clientMsgID))
+func (c *MessageCache) GetDedupEntry(ctx context.Context, senderID, clientMsgID string) (messagecache.DedupEntry, error) {
+	value, err := c.store.GetString(ctx, MessageDedupKey(senderID, clientMsgID))
 	if err != nil || value == "" {
 		return messagecache.DedupEntry{}, err
 	}

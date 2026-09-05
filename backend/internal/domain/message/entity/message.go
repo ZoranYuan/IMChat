@@ -12,7 +12,7 @@ var ErrClientMessageConflict = errors.New("客户端消息标识对应的内容�
 type Message struct {
 	MessageId      string
 	ConversationId string
-	SendId         string
+	SenderId       string
 	ClientMsgId    *string
 	RequestHash    string
 	Seq            int64
@@ -28,7 +28,7 @@ type Message struct {
 func NewMessage(
 	messageId,
 	conversationId,
-	sendId string,
+	senderId string,
 	seq int64,
 	cType messagevo.CType,
 	content string,
@@ -44,7 +44,7 @@ func NewMessage(
 		VideoId:        videoId,
 		VideoTime:      videoTime,
 		Status:         messagevo.Normal,
-		SendId:         sendId,
+		SenderId:       senderId,
 		SendTime:       time.Now().UnixMilli(),
 	}
 }

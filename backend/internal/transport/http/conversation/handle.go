@@ -27,7 +27,7 @@ func (h *UserConversationHandle) GetUserConversations(c *gin.Context) {
 		return
 	}
 
-	convs, err := h.app.GetUserConversationsById(c, userId)
+	convs, err := h.app.GetUserConversationsByUserID(c, userId)
 
 	if err != nil {
 		log.Println("用户会话获取失败", err)
@@ -35,5 +35,5 @@ func (h *UserConversationHandle) GetUserConversations(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(toUserConversationsRes(convs)))
+	c.JSON(http.StatusOK, response.Success(toConversationResponses(convs)))
 }

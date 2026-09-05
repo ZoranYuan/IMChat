@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
 )
@@ -169,35 +168,36 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 
 	req := messageReqFromPB(&pb)
 
-	messageApp, err := wh.app.HandleSendMessage(ctx, messageapp.MessageAppeDTO{
-		SendId:      session.UserID(),
-		ClientMsgId: req.ClientMsgId,
-		RecvId:      req.RecvId,
-		ConvType:    req.ConvType,
-		CType:       req.CType,
-		Content:     req.Content,
-		FileId:      req.FileId,
-		Width:       req.Width,
-		Height:      req.Height,
-		DurationMs:  req.DurationMs,
-		StickerId:   req.StickerId,
-		PackId:      req.PackId,
-		VideoTime:   req.VideoTime,
+	messageApp, err := wh.app.HandleSendMessage(ctx, messageapp.SendMessageDTO{
+		SenderID:         session.UserID(),
+		ClientMessageID:  req.ClientMsgId,
+		ReceiverID:       req.RecvId,
+		ConversationType: req.ConvType,
+		Type:             req.CType,
+		Content:          req.Content,
+		FileID:           req.FileId,
+		Width:            req.Width,
+		Height:           req.Height,
+		DurationMs:       req.DurationMs,
+		StickerID:        req.StickerId,
+		PackID:           req.PackId,
+		VideoTime:        req.VideoTime,
 	})
 
 	if messageApp == nil {
-		messageApp = &messageapp.MessageAppeDTO{
-			ClientMsgId: req.ClientMsgId,
-			Status:      string(protocol.AckStatusFailed),
+		messageApp = &messageapp.MessageAckDTO{
+			ClientMessageID: req.ClientMsgId,
+			Status:          string(protocol.AckStatusFailed),
 		}
 	}
 
 	var ackEvent *protocol.MessageAckEvent = &protocol.MessageAckEvent{
-		ClientMsgId:    messageApp.ClientMsgId,
-		MessageId:      messageApp.MessageId,
+		ClientMsgId:    messageApp.ClientMessageID,
+		MessageId:      messageApp.MessageID,
 		ConversationId: messageApp.ConversationID,
 		Seq:            messageApp.Seq,
-		AttachmentId:   messageApp.AttachmentId,
+		AttachmentId:   messageApp.AttachmentID,
+		SendTime:       messageApp.SendTime,
 		Status:         protocol.AckStatus(messageApp.Status),
 	}
 
@@ -227,6 +227,7 @@ func (wh *WSHandler) handleClientClosed(session *realtimews.Session) {
 func (wh *WSHandler) checkOrigin(r *http.Request) bool {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 
+	// 生产模式下直接返回成功
 	if wh.config.App.Env == "development" {
 		return true
 	}
@@ -264,7 +265,7 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 		platform = c.GetHeader("X-Platform")
 	}
 
-	sessionId := uuid.NewString()
+	sessionId := strings.TrimSpace(c.GetString("sessionId"))
 	identity, err := realtimews.NewSessionIdentity(
 		userId,
 		deviceID,
@@ -284,6 +285,7 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 		return
 	}
 
+	// 服务升级
 	conn, err := wh.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "网络异常，无法连接服务器"))

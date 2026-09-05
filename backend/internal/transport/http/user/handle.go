@@ -35,7 +35,7 @@ func NewUserHandle(app *userapp.UserApplication, accessTTL, refreshTTL time.Dura
 }
 
 func (uh *UserHandle) Login(c *gin.Context) {
-	var req = UserLoginReq{}
+	var req = UserLoginRequest{}
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -49,26 +49,7 @@ func (uh *UserHandle) Login(c *gin.Context) {
 		return
 	}
 
-	var (
-		userApp *userapp.UserAppDTO
-		err     error
-	)
-
-	switch req.LoginType {
-	case int(uservo.PhoneType):
-		if req.Phone == "" || req.Password == "" {
-			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
-			return
-		}
-
-		userApp, err = uh.app.LoginWithPhone(req.Phone, req.Password)
-	case int(uservo.WxType):
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "暂不支持该登录方式"))
-		return
-	default:
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
-		return
-	}
+	userApp, err := uh.app.Login(req.Account, req.Password)
 
 	if err != nil {
 		switch {
@@ -76,7 +57,7 @@ func (uh *UserHandle) Login(c *gin.Context) {
 			c.JSON(http.StatusNotFound, response.Error(http.StatusNotFound, err.Error()))
 		case errors.Is(err, userapp.ErrIncorrectPassword):
 			c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, err.Error()))
-		case errors.Is(err, userapp.ErrInvalidPhoneNumber), errors.Is(err, userapp.ErrPasswordMismatch):
+		case errors.Is(err, userapp.ErrInvalidLoginAccount), errors.Is(err, userapp.ErrInvalidPhoneNumber), errors.Is(err, userapp.ErrPasswordMismatch):
 			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
 		default:
 			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "登录失败"))
@@ -84,12 +65,12 @@ func (uh *UserHandle) Login(c *gin.Context) {
 		return
 	}
 
-	var res = UserSessionRes{
-		UserId:   userApp.UserId,
-		UserName: userApp.UserName,
-		NickName: userApp.NickName,
-		Phone:    userApp.Phone,
-		Avatar:   userApp.Avatar,
+	var res = UserProfileResponse{
+		UserID:    userApp.UserID,
+		Username:  userApp.Username,
+		Nickname:  userApp.Nickname,
+		Phone:     userApp.Phone,
+		AvatarURL: userApp.AvatarURL,
 	}
 
 	c.SetSameSite(http.SameSiteLaxMode)
@@ -131,11 +112,11 @@ func (uh *UserHandle) Refresh(c *gin.Context) {
 	}
 	c.SetSameSite(http.SameSiteLaxMode)
 	uh.setTokenCookies(c, userApp)
-	c.JSON(http.StatusOK, response.Success(UserSessionRes{UserId: userApp.UserId, UserName: userApp.UserName, NickName: userApp.NickName, Phone: userApp.Phone, Avatar: userApp.Avatar}))
+	c.JSON(http.StatusOK, response.Success(UserProfileResponse{UserID: userApp.UserID, Username: userApp.Username, Nickname: userApp.Nickname, Phone: userApp.Phone, AvatarURL: userApp.AvatarURL}))
 }
 
 func (uh *UserHandle) Register(c *gin.Context) {
-	var req = UserRegisterReq{}
+	var req = UserRegisterRequest{}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "请求参数错误"))
@@ -174,12 +155,12 @@ func (uh *UserHandle) Register(c *gin.Context) {
 		return
 	}
 
-	var res = UserRegisterRes{
-		UserId:   userApp.UserId,
-		UserName: userApp.UserName,
-		NickName: userApp.NickName,
-		Phone:    userApp.Phone,
-		Avatar:   userApp.Avatar,
+	var res = UserProfileResponse{
+		UserID:    userApp.UserID,
+		Username:  userApp.Username,
+		Nickname:  userApp.Nickname,
+		Phone:     userApp.Phone,
+		AvatarURL: userApp.AvatarURL,
 	}
 
 	c.JSON(http.StatusOK, response.Success(res))
@@ -216,11 +197,11 @@ func (uh *UserHandle) GetUserByID(c *gin.Context) {
 		return
 	}
 
-	var userRes = UserInfoRes{
-		UserId:   userApp.UserId,
-		UserName: userApp.UserName,
-		NickName: userApp.NickName,
-		Avatar:   userApp.Avatar,
+	var userRes = UserProfileResponse{
+		UserID:    userApp.UserID,
+		Username:  userApp.Username,
+		Nickname:  userApp.Nickname,
+		AvatarURL: userApp.AvatarURL,
 	}
 
 	c.JSON(http.StatusOK, response.Success(userRes))
@@ -240,10 +221,44 @@ func (uh *UserHandle) ResolveUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(UserInfoRes{
-		UserId:   userApp.UserId,
-		UserName: userApp.UserName,
-		NickName: userApp.NickName,
-		Avatar:   userApp.Avatar,
+	c.JSON(http.StatusOK, response.Success(UserProfileResponse{
+		UserID:    userApp.UserID,
+		Username:  userApp.Username,
+		Nickname:  userApp.Nickname,
+		AvatarURL: userApp.AvatarURL,
+	}))
+}
+
+func (uh *UserHandle) UpdateUserProfile(c *gin.Context) {
+	userId := c.GetString("userId")
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "请先登录"))
+		return
+	}
+
+	var updateUserProfileReq UpdateUserProfileRequest
+	if err := c.ShouldBindJSON(&updateUserProfileReq); err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
+		return
+	}
+	updatedUser, err := uh.app.UpdateUserProfile(c.Request.Context(), userId, updateUserProfileReq.AvatarURL, updateUserProfileReq.Nickname, updateUserProfileReq.Username)
+	if err != nil {
+		switch {
+		case errors.Is(err, userapp.ErrNoProfileFields):
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+		case errors.Is(err, userapp.ErrUserNotFound):
+			c.JSON(http.StatusNotFound, response.Error(http.StatusNotFound, err.Error()))
+		default:
+			log.Println("修改用户资料失败：", err)
+			c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "修改用户资料失败"))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response.Success(UserProfileResponse{
+		UserID:    updatedUser.UserID,
+		Username:  updatedUser.Username,
+		Nickname:  updatedUser.Nickname,
+		AvatarURL: updatedUser.AvatarURL,
 	}))
 }

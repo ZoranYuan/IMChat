@@ -100,7 +100,7 @@ func (fa *RequestApplication) createNewFriendRequest(
 		return nil, fmt.Errorf("创建好友申请提醒失败：%w", err)
 	}
 
-	dto := toDTO(record)
+	dto := toFriendRequestDTO(record)
 	return &dto, nil
 }
 
@@ -164,7 +164,7 @@ func (fa *RequestApplication) reRequest(
 		return nil, fmt.Errorf("创建好友申请提醒失败：%w", err)
 	}
 
-	dto := toDTO(record)
+	dto := toFriendRequestDTO(record)
 	return &dto, nil
 }
 
@@ -224,7 +224,7 @@ func (fa *RequestApplication) CreateFriendRequest(
 		if err := fa.acceptFriendRequest(reverse, userID); err != nil {
 			return nil, err
 		}
-		dto := toDTO(reverse)
+		dto := toFriendRequestDTO(reverse)
 		return &dto, nil
 	}
 
@@ -370,7 +370,7 @@ func (fa *RequestApplication) acceptFriendRequest(
 		messages = append(messages, []*messageentity.Message{{
 			MessageId:      greetMessageId,
 			ConversationId: convId,
-			SendId:         record.FromUserId,
+			SenderId:       record.FromUserId,
 			Seq:            1,
 			Type:           messagevo.Text,
 			Content:        record.Message,
@@ -379,7 +379,7 @@ func (fa *RequestApplication) acceptFriendRequest(
 		}, {
 			MessageId:      greetReplyMessageId,
 			ConversationId: convId,
-			SendId:         record.ToUserId,
+			SenderId:       record.ToUserId,
 			Seq:            2,
 			Type:           messagevo.Text,
 			Content:        "我们已经是好友了，开始聊天吧~",
@@ -396,7 +396,7 @@ func (fa *RequestApplication) acceptFriendRequest(
 		messages = append(messages, &messageentity.Message{
 			MessageId:      greetMessageId,
 			ConversationId: convId,
-			SendId:         record.ToUserId,
+			SenderId:       record.ToUserId,
 			Seq:            1,
 			Type:           messagevo.Text,
 			Content:        "我们已经是好友了，开始聊天吧~",
@@ -484,13 +484,13 @@ func (fa *RequestApplication) createInitialMessageOutboxes(
 			continue
 		}
 		receiverID := record.FromUserId
-		if message.SendId == record.FromUserId {
+		if message.SenderId == record.FromUserId {
 			receiverID = record.ToUserId
 		}
 		eventPayload, err := json.Marshal(protocol.MessageEvent{
 			MessageId:      message.MessageId,
 			ConversationId: conversation.ConversationId,
-			SendId:         message.SendId,
+			SenderId:       message.SenderId,
 			RecvId:         receiverID,
 			Seq:            message.Seq,
 			ConvType:       protocol.PrivateChat,
@@ -502,7 +502,7 @@ func (fa *RequestApplication) createInitialMessageOutboxes(
 			return err
 		}
 		envelope, err := json.Marshal(protocol.Envelope{
-			From:    message.SendId,
+			From:    message.SenderId,
 			To:      receiverID,
 			Payload: eventPayload,
 		})
@@ -528,7 +528,7 @@ func (fa *RequestApplication) ListFriendRequestsByUserID(userId string) ([]Frien
 
 	friendRequestDTOs := make([]FriendRequestDTO, 0, len(records))
 	for _, r := range records {
-		dto := toDTO(r)
+		dto := toFriendRequestDTO(r)
 		user, err := fa.userRepository.FindByUserID(r.FromUserId)
 		if err == nil && user != nil {
 			dto.FromUsername = user.UserName

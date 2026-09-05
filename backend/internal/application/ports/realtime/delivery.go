@@ -1,12 +1,16 @@
 package realtime
 
-type Delivery interface {
+type UserDelivery interface {
 	DeliverToUser(eventType, userID string, payload []byte) error
 }
 
-type RoomDelivery interface {
-	Delivery
+type RoomMemberDelivery interface {
 	DeliverToOnlineRoomMembers(eventType, roomID string, payload []byte, excludeUserID string) error
+}
+
+type RealtimeDelivery interface {
+	UserDelivery
+	RoomMemberDelivery
 }
 
 type RoomPresence interface {

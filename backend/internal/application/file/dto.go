@@ -2,10 +2,10 @@ package file
 
 import fileentity "IM_backend/internal/domain/file/entity"
 
-func toDTO(file *fileentity.File) *FileDTO {
+func toFileDTO(file *fileentity.File) *FileDTO {
 	return &FileDTO{
-		FileId:      file.FileId,
-		UploaderId:  file.UploaderId,
+		FileID:      file.FileId,
+		UploaderID:  file.UploaderId,
 		FileName:    file.FileName,
 		ContentType: file.ContentType,
 		Size:        file.Size,
@@ -14,7 +14,7 @@ func toDTO(file *fileentity.File) *FileDTO {
 }
 
 type DirectUploadInitDTO struct {
-	UploaderId  string
+	UploaderID  string
 	FileName    string
 	ContentType string
 	Size        int64
@@ -22,15 +22,15 @@ type DirectUploadInitDTO struct {
 }
 
 type DirectUploadInitResDTO struct {
-	UploadId  string `json:"uploadId"`
-	FileId    string `json:"fileId"`
-	Status    string `json:"status"`
-	URL       string `json:"url,omitempty"`
-	ExpiresAt int64  `json:"expiresAt,omitempty"`
+	UploadID  string
+	FileID    string
+	Status    string
+	URL       string
+	ExpiresAt int64
 }
 
 type MultipartInitDTO struct {
-	UploaderId  string
+	UploaderID  string
 	FileName    string
 	ContentType string
 	Size        int64
@@ -40,32 +40,33 @@ type MultipartInitDTO struct {
 }
 
 type MultipartInitResDTO struct {
-	UploadId      string `json:"uploadId"`
-	FileId        string `json:"fileId"`
-	Status        string `json:"status"`
-	UploadedParts []int  `json:"uploadedParts"`
+	UploadID      string
+	FileID        string
+	Status        string
+	UploadedParts []int
 }
 
 type MultipartPartURLDTO struct {
-	UploadId   string `json:"uploadId"`
-	PartNumber int    `json:"partNumber"`
-	URL        string `json:"url"`
+	UploadID   string
+	PartNumber int
+	URL        string
 }
 
 type AttachmentAccessURLDTO struct {
-	AttachmentId string `json:"attachmentId"`
-	FileName     string `json:"fileName"`
-	ContentType  string `json:"contentType"`
-	Size         int64  `json:"size"`
-	URL          string `json:"url"`
-	ExpiresAt    int64  `json:"expiresAt"`
+	AttachmentID string
+	FileName     string
+	ContentType  string
+	Size         int64
+	MediaURL     string
+	ThumbURL     string
+	ExpiresAt    int64
 }
 
 type FileDTO struct {
-	FileId      string `json:"fileId"`
-	UploaderId  string `json:"uploaderId"`
-	FileName    string `json:"fileName"`
-	ContentType string `json:"contentType"`
-	Size        int64  `json:"size"`
-	CreatedAt   int64  `json:"createdAt"`
+	FileID      string
+	UploaderID  string
+	FileName    string
+	ContentType string
+	Size        int64
+	CreatedAt   int64
 }

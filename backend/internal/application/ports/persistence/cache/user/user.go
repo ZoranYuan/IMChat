@@ -31,9 +31,21 @@ type UserCache interface {
 		ttl time.Duration,
 	) error
 
+	SetUserProfiles(
+		ctx context.Context,
+		profiles []*UserProfile,
+		ttl time.Duration,
+	) error
+
 	SetUserProfileNotFound(
 		ctx context.Context,
 		userId string,
+		ttl time.Duration,
+	) error
+
+	SetUserProfilesNotFound(
+		ctx context.Context,
+		userIds []string,
 		ttl time.Duration,
 	) error
 

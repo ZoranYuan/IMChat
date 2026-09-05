@@ -22,10 +22,18 @@ func RegisterRoutes(ug *gin.RouterGroup, uh *UserHandle, auth *middleware.AuthMi
 		"register",
 		limiterPolicy,
 	), uh.Register)
+	ug.POST("/register", limter.ByIP(
+		"register",
+		limiterPolicy,
+	), uh.Register)
 	ug.POST("/refresh", limter.ByIP("refresh", limiterPolicy), uh.Refresh)
 
 	ug.Use(auth.JWTAuthMiddleware())
 	ug.GET("/resolve", uh.ResolveUser)
+	ug.PATCH("/me", limter.ByIP(
+		"register",
+		limiterPolicy,
+	), uh.UpdateUserProfile)
 	ug.GET("/:userId", uh.GetUserByID)
 	ug.POST("/logout", uh.Logout)
 }

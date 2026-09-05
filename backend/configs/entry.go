@@ -33,7 +33,12 @@ type UserProfile struct {
 }
 
 type CacheConfig struct {
-	UserProfile UserProfile `yaml:"user_profile"`
+	UserProfile      UserProfile            `yaml:"user_profile"`
+	AttachmentAccess AttachmentAccessConfig `yaml:"attachment_access"`
+}
+
+type AttachmentAccessConfig struct {
+	TTLSeconds int `yaml:"ttl_seconds"`
 }
 
 type KafkaConfig struct {
@@ -139,10 +144,16 @@ type MessageConfig struct {
 	LargeRoomNoticeLingerMilliseconds int   `yaml:"large_room_notice_linger_milliseconds"`
 	LargeRoomNoticeShardCount         int   `yaml:"large_room_notice_shard_count"`
 	LargeRoomNoticeMaxPending         int   `yaml:"large_room_notice_max_pending"`
+	RoomActivityWindowSeconds         int   `yaml:"room_activity_window_seconds"`
+	RoomActivityBucketSeconds         int   `yaml:"room_activity_bucket_seconds"`
+	RoomActivityKeyTTLSeconds         int   `yaml:"room_activity_key_ttl_seconds"`
+	RoomActivityWarnMessages          int   `yaml:"room_activity_warn_messages"`
+	RoomActivityActiveMessages        int   `yaml:"room_activity_active_messages"`
+	RoomMemberStateTTLSeconds         int   `yaml:"room_member_state_ttl_seconds"`
+	RoomMemberNegativeTTLSeconds      int   `yaml:"room_member_negative_ttl_seconds"`
+	RoomMemberIDsTTLSeconds           int   `yaml:"room_member_ids_ttl_seconds"`
 	HistoryDefaultLimit               int   `yaml:"history_default_limit"`
 	HistoryMaxLimit                   int   `yaml:"history_max_limit"`
-	SyncDefaultLimit                  int   `yaml:"sync_default_limit"`
-	SyncMaxLimit                      int   `yaml:"sync_max_limit"`
 	MaxTextRunes                      int   `yaml:"max_text_runes"`
 	MaxWidth                          int   `yaml:"max_width"`
 	MaxHeight                         int   `yaml:"max_height"`
@@ -302,6 +313,11 @@ func (c Config) Validate() error {
 		c.WebSocket.WriteWaitSeconds <= 0 || c.WebSocket.PongWaitSeconds <= 0 ||
 		c.WebSocket.PingPeriodSeconds <= 0 || c.WebSocket.PingPeriodSeconds >= c.WebSocket.PongWaitSeconds {
 		return fmt.Errorf("WebSocket 配置无效")
+	}
+	if c.Message.RoomMemberStateTTLSeconds <= 0 ||
+		c.Message.RoomMemberNegativeTTLSeconds <= 0 ||
+		c.Message.RoomMemberIDsTTLSeconds <= 0 {
+		return fmt.Errorf("房间成员缓存 TTL 配置无效")
 	}
 	if strings.EqualFold(c.App.Env, "production") {
 		if len(c.JWT.Secret) < 32 || c.JWT.Secret == "U2FsdGVkX19anQGSRtiUwgRLpWV333jI4xjlCF32dek=" {
