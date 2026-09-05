@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import { ensureChatAuth, hasChatAuth } from "../stores/chat.js";
+import { ensureChatAuth, hasChatAuth } from "../modules/chat/chatStore.js";
 import ChatView from "../views/ChatView.vue";
 import LoginView from "../views/LoginView.vue";
 

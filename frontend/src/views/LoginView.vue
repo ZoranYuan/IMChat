@@ -2,7 +2,7 @@
 import { Eye, EyeOff, Globe2, LockKeyhole, MessageCircle, Phone, QrCode } from "@lucide/vue";
 import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { useChatStore } from "../stores/chat.js";
+import { useChatStore } from "../modules/chat/chatStore.js";
 import { messageTips } from "../utils/messageTips.js";
 
 const route = useRoute();
@@ -19,7 +19,7 @@ const title = computed(() => mode.value === "login" ? "欢迎回来" : "创建�
 const validate = () => {
   errors.account = mode.value === "register"
     ? (/^1\d{10}$/.test(form.account) ? "" : "注册请输入 11 位手机号")
-    : (/^1\d{10}$/.test(form.account) ? "" : "请输入 11 位手机号");
+    : (form.account.trim() ? "" : "请输入手机号或用户名");
   errors.password = form.password.length >= 6 ? "" : "密码至少需要 6 位";
   errors.reconfirmPassword = mode.value === "register" && form.reconfirmPassword !== form.password ? "两次输入的密码不一致" : "";
   errors.submit = "";
@@ -97,11 +97,13 @@ watch(mode, () => {
 
       <form class="mt-6.25 grid gap-4.25" @submit.prevent="submit">
         <label class="grid gap-2 text-sm">
-          <span class="text-xs font-semibold text-[#514c61]">手机号</span>
+              <span class="text-xs font-semibold text-[#514c61]">{{ mode === "register" ? "手机号" : "手机号或用户名" }}</span>
           <div :class="{ 'border-[#e39aaa]!': errors.account }"
             class="flex min-h-12.5 items-center gap-2.5 rounded-[11px] border border-[#e9e5f2] bg-white px-3.25 text-[#aaa5b7] transition-[border-color,box-shadow] duration-150 focus-within:border-[#a493ff] focus-within:ring-4 focus-within:ring-[rgba(91,53,245,0.09)]">
             <Phone :size="18" />
-            <input v-model.trim="form.account" inputmode="tel" autocomplete="tel" maxlength="11" placeholder="请输入手机号"
+            <input v-model.trim="form.account" :inputmode="mode === 'register' ? 'tel' : 'text'"
+              :autocomplete="mode === 'register' ? 'tel' : 'username'" :maxlength="mode === 'register' ? 11 : 64"
+              :placeholder="mode === 'register' ? '请输入手机号' : '请输入手机号或用户名'"
               :aria-invalid="Boolean(errors.account)"
               class="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#19152d] outline-0 placeholder:text-[#b4b0bc]" />
           </div>

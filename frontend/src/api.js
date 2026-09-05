@@ -93,11 +93,9 @@ http.interceptors.response.use(
   },
 );
 
-// 后端当前只实现 loginType=1（手机号）登录，不接受 userName 字段。
-export const loginUser = ({ account, phone, password }) =>
+export const loginUser = ({ account, password }) =>
   http.post("/users/login", {
-    loginType: 1,
-    phone: (account || phone || "").trim(),
+    account: (account || "").trim(),
     password,
   });
 
@@ -114,6 +112,14 @@ export const logoutUser = () => http.post("/users/logout");
 export const refreshSession = () => refreshAccessToken();
 
 export const getUser = (userId) => http.get(`/users/${userId}`);
+
+export const updateUserProfile = ({ username, nickName, avatar }) => {
+  const payload = {};
+  if (username !== undefined) payload.username = username;
+  if (nickName !== undefined) payload.nickName = nickName;
+  if (avatar !== undefined) payload.avatar = avatar;
+  return http.patch("/users/me", payload);
+};
 
 export const resolveUser = (keyword) =>
   http.get("/users/resolve", { params: { keyword } });
@@ -144,9 +150,17 @@ export const getMessageHistory = (conversationId, cursor = 0, limit = 30) =>
     params: { conversationId, cursor, limit },
   });
 
-export const syncMessages = (conversationId, afterSeq = 0, limit = 50) =>
-  http.get("/messages/sync", {
-    params: { conversationId, afterSeq, limit },
+export const syncMessages = (conversationId, afterSeq = 0) =>
+	http.get("/messages/sync", {
+		params: {
+			conversationId,
+			afterSeq,
+		},
+	});
+
+export const getMessagesBySeqs = (conversationId, seqs = []) =>
+  http.get("/messages/seqs", {
+    params: { conversationId, seqs: seqs.join(",") },
   });
 
 export const getRoomVideoHistory = (roomId, limit = 20) =>
@@ -183,7 +197,9 @@ export const uploadMultipartPartToStorage = (url, chunk) =>
 export const completeMultipartUpload = (uploadId) =>
   http.post(`/files/multipart/${uploadId}/complete`);
 
-export const getAttachmentAccessURL = (attachmentId) =>
-  http.get(`/files/attachments/${attachmentId}/access-url`);
+export const getAttachmentAccessURLs = (attachmentIds = []) =>
+	http.post("/files/attachments/access-urls", {
+		attachmentIds,
+	});
 
 export default http;

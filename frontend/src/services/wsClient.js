@@ -9,6 +9,7 @@ const payloadTypes = {
 
 const DEVICE_ID_KEY = "im_device_id";
 
+/** 获取或创建当前浏览器设备标识，用于 WebSocket 连接参数。 */
 const getDeviceId = () => {
   try {
     const existing = window.localStorage.getItem(DEVICE_ID_KEY);
@@ -22,6 +23,7 @@ const getDeviceId = () => {
   }
 };
 
+/** 创建并管理当前用户的 WebSocket 连接、重连和业务帧分发。 */
 export function createWsClient(callbacks = {}) {
   let socket = null;
   let authenticated = false;
@@ -29,8 +31,10 @@ export function createWsClient(callbacks = {}) {
   let reconnectAttempts = 0;
   let manualClose = false;
 
+  /** 向上层报告连接状态变化。 */
   const notifyState = (state) => callbacks.onStateChange?.(state);
 
+  /** 根据当前页面协议和设备标识生成 WebSocket 地址。 */
   const buildUrl = () => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams({
@@ -40,6 +44,7 @@ export function createWsClient(callbacks = {}) {
     return `${protocol}//${window.location.host}/api/v1/ws?${params.toString()}`;
   };
 
+  /** 解码单个业务帧，并分发给消息、ACK、已读或大群通知回调。 */
   const dispatchApplicationFrame = (frame) => {
     const payloadType = payloadTypes[frame.op];
     if (!payloadType) {
@@ -53,6 +58,7 @@ export function createWsClient(callbacks = {}) {
     if (frame.op === "room_msg_notice") callbacks.onRoomMessageNotice?.(payload);
   };
 
+  /** 处理浏览器 WebSocket 事件，兼容单帧和服务端批量帧。 */
   const dispatchFrame = (event) => {
     try {
       const frame = decodeFrame(event.data);
@@ -68,6 +74,7 @@ export function createWsClient(callbacks = {}) {
     }
   };
 
+  /** 建立一条新的 WebSocket 连接，并注册连接生命周期回调。 */
   const open = () => {
     if (!authenticated || typeof window === "undefined") return;
     window.clearTimeout(reconnectTimer);
@@ -97,12 +104,21 @@ export function createWsClient(callbacks = {}) {
     };
   };
 
+  /** 在认证状态允许时启动连接；重复调用不会创建重复连接。 */
   const connect = (nextAuthenticated = true) => {
-    authenticated = Boolean(nextAuthenticated);
+    const nextState = Boolean(nextAuthenticated);
+    if (
+      authenticated === nextState
+      && socket
+      && (socket.readyState === 0 || socket.readyState === 1)
+    ) return;
+
+    authenticated = nextState;
     manualClose = false;
     open();
   };
 
+  /** 主动关闭连接并取消自动重连。 */
   const disconnect = () => {
     manualClose = true;
     authenticated = false;
@@ -115,6 +131,7 @@ export function createWsClient(callbacks = {}) {
     notifyState("disconnected");
   };
 
+  /** 将业务请求编码后发送；连接未打开时返回 false。 */
   const send = (op, typeName, payload) => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
     socket.send(encodeFrame(op, typeName, payload));

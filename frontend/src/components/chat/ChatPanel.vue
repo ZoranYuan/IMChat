@@ -1,7 +1,7 @@
 <script setup>
 import { ArrowLeft, FileText, Image as ImageIcon, Info, LoaderCircle, MoreHorizontal, Paperclip, Pause, Play, Send, Users, Video, X } from "@lucide/vue";
 import { nextTick, ref, watch } from "vue";
-import { MessageType } from "../../constants/message.js";
+import { MessageType, messageViewType } from "../../constants/message.js";
 import { UploadStatus } from "../../constants/upload.js";
 
 const props = defineProps({
@@ -55,6 +55,21 @@ const handleEnter = (event) => {
 };
 
 const isMine = (message) => message.senderId === (props.currentUser.userId || props.currentUser.id);
+const isGroup = (conversation) => conversation?.convType === 2;
+const conversationDisplayName = (conversation) => conversation?.displayName || "未命名会话";
+const memberCount = (conversation) => conversation?.room?.memberCount || 0;
+const displayType = (message) => messageViewType(message.cType);
+const senderName = (message) => message.senderUsername || message.senderId || "成员";
+const messageTime = (message) => {
+  if (!message?.sendTime) return "";
+  const date = new Date(Number(message.sendTime));
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+};
+const messageKey = (message) => message.messageId || message.clientMsgId || `${message.conversationId}:${message.seq}`;
 const isUploadVisible = () => ![
   UploadStatus.IDLE,
   UploadStatus.COMPLETED,
@@ -97,7 +112,7 @@ const stopComposerResize = (event) => {
   }
 };
 
-watch(() => props.conversation?.id, scrollToBottom);
+watch(() => props.conversation?.conversationId, scrollToBottom);
 watch(() => props.messages.length, scrollToBottom);
 </script>
 
@@ -109,14 +124,14 @@ watch(() => props.messages.length, scrollToBottom);
     <template v-if="conversation">
       <header class="flex min-h-16 flex-none items-center gap-3 border-b border-[#edf1f7] bg-white px-[22px] max-[767px]:px-4">
         <button v-if="mobile" class="grid size-9 place-items-center rounded-lg bg-transparent text-[#667085] hover:bg-[#f3f6fb]" type="button" title="返回" @click="$emit('back')"><ArrowLeft :size="21" /></button>
-        <span class="grid size-[42px] flex-none place-items-center overflow-hidden rounded-full bg-gradient-to-br from-[#9a7bff] to-[#5b35f5] text-sm font-bold text-white shadow-[0_10px_22px_rgba(91,53,245,0.2)]" :style="{ backgroundColor: conversation.avatarColor }">
-          <img v-if="conversation.avatar" class="size-full object-cover" :src="conversation.avatar" :alt="conversation.name" />
-          <Users v-else-if="conversation.type === 'group'" :size="18" />
-          <span v-else>{{ conversation.name.slice(0, 1) }}</span>
+        <span :class="isGroup(conversation) ? 'bg-[#6d4aff]' : 'bg-[#8b72d6]'" class="grid size-[42px] flex-none place-items-center overflow-hidden rounded-full text-sm font-bold text-white shadow-[0_10px_22px_rgba(91,53,245,0.2)]">
+          <img v-if="conversation.avatar" class="size-full object-cover" :src="conversation.avatar" :alt="conversationDisplayName(conversation)" />
+          <Users v-else-if="isGroup(conversation)" :size="18" />
+          <span v-else>{{ conversationDisplayName(conversation).slice(0, 1) }}</span>
         </span>
         <div class="min-w-0 flex-1">
-          <h2 class="truncate text-[15px] font-extrabold text-[#111827]">{{ conversation.name }}</h2>
-          <p class="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#8a98ac]"><i v-if="conversation.type !== 'group'" :class="conversation.online ? 'bg-[#62c894]' : 'bg-[#b9c2cf]'" class="size-1.5 rounded-full"></i>{{ conversation.type === 'group' ? `${conversation.memberCount} 位成员` : conversation.online ? "在线" : "离线" }}</p>
+          <h2 class="truncate text-[15px] font-extrabold text-[#111827]">{{ conversationDisplayName(conversation) }}</h2>
+          <p class="mt-0.5 flex items-center gap-1.5 text-[11px] text-[#8a98ac]">{{ isGroup(conversation) ? `${memberCount(conversation)} 位成员` : "私聊" }}</p>
         </div>
         <div class="flex items-center gap-1">
           <button class="grid size-9 place-items-center rounded-lg bg-transparent text-[#667085] hover:bg-[#f3efff] hover:text-[#5b35f5]" type="button" title="会话详情" @click="$emit('details')"><Info v-if="!mobile" :size="19" /><MoreHorizontal v-else :size="20" /></button>
@@ -128,17 +143,17 @@ watch(() => props.messages.length, scrollToBottom);
         <div v-if="loading && !messages.length" class="flex min-h-40 flex-col items-center justify-center gap-2 text-xs text-[#8a98ac]"><LoaderCircle class="animate-spin" :size="22" /><span>正在加载消息</span></div>
         <div v-else-if="!messages.length" class="flex min-h-40 flex-col items-center justify-center gap-1 text-center text-sm text-[#8a98ac]"><span>还没有消息</span><small class="text-xs text-[#a8b1be]">发送一条消息开始聊天</small></div>
 
-        <article v-for="(message, index) in messages" :key="message.id" :class="message.type === 'system' ? 'justify-center' : isMine(message) ? 'flex-row-reverse' : 'flex-row'" class="mx-auto mb-[18px] flex w-full max-w-[780px] items-start gap-3 min-[1500px]:max-w-[840px]">
-          <template v-if="message.type === 'system'"><span class="rounded-full bg-[#eef2f8] px-3 py-1 text-[11px] text-[#8a98ac]">{{ message.content }}</span></template>
+        <article v-for="message in messages" :key="messageKey(message)" :class="displayType(message) === 'system' ? 'justify-center' : isMine(message) ? 'flex-row-reverse' : 'flex-row'" class="mx-auto mb-[18px] flex w-full max-w-[780px] items-start gap-3 min-[1500px]:max-w-[840px]">
+          <template v-if="displayType(message) === 'system'"><span class="rounded-full bg-[#eef2f8] px-3 py-1 text-[11px] text-[#8a98ac]">{{ message.content }}</span></template>
           <template v-else>
-            <span class="grid size-[34px] flex-none place-items-center overflow-hidden rounded-full text-xs font-bold text-white shadow-[0_6px_16px_rgba(37,52,86,0.08)]" :style="{ backgroundColor: message.avatarColor }">{{ (message.senderName || "成员").slice(0, 1) }}</span>
+            <span class="grid size-[34px] flex-none place-items-center overflow-hidden rounded-full text-xs font-bold text-white shadow-[0_6px_16px_rgba(37,52,86,0.08)]" :style="{ backgroundColor: isMine(message) ? '#5b35f5' : '#8b72d6' }">{{ senderName(message).slice(0, 1) }}</span>
             <div :class="isMine(message) ? 'items-end' : 'items-start'" class="flex max-w-[min(78%,560px)] flex-col gap-[7px] max-[767px]:max-w-[84%]">
-              <span v-if="conversation.type === 'group' && !isMine(message)" class="text-xs text-[#8b98aa]">{{ message.senderName }}</span>
-              <div v-if="message.type === 'file'" class="flex w-fit max-w-full items-center gap-3 rounded-xl bg-white px-3.5 py-3 shadow-[0_10px_28px_rgba(91,53,245,0.08)]"><FileText class="flex-none text-[#5b35f5]" :size="25" /><span class="grid min-w-0 gap-1"><strong class="truncate text-[13px] text-[#1f2937]">{{ message.fileName || message.content }}</strong><small class="text-xs text-[#8a98aa]">{{ fileSizeText(message.fileSize) }}</small></span></div>
-              <a v-else-if="message.type === 'image' || message.type === 'sticker'" class="block max-w-full overflow-hidden rounded-xl" :href="message.mediaUrl" target="_blank" rel="noreferrer"><img class="max-h-[280px] max-w-full rounded-xl object-cover" :src="message.thumbUrl || message.mediaUrl" :alt="message.fileName || (message.type === 'sticker' ? '表情包' : '聊天图片')" /></a>
-              <div v-else-if="message.type === 'video'" class="overflow-hidden rounded-xl bg-white shadow-[0_10px_28px_rgba(91,53,245,0.08)]"><video class="max-h-[280px] max-w-full" :src="message.mediaUrl" controls preload="metadata"></video><span class="block px-3 py-2 text-xs text-[#667085]">{{ message.fileName }}</span></div>
+              <span v-if="isGroup(conversation) && !isMine(message)" class="text-xs text-[#8b98aa]">{{ senderName(message) }}</span>
+              <div v-if="displayType(message) === 'file'" class="flex w-fit max-w-full items-center gap-3 rounded-xl bg-white px-3.5 py-3 shadow-[0_10px_28px_rgba(91,53,245,0.08)]"><FileText class="flex-none text-[#5b35f5]" :size="25" /><span class="grid min-w-0 gap-1"><strong class="truncate text-[13px] text-[#1f2937]">{{ message.fileName || message.content }}</strong><small class="text-xs text-[#8a98aa]">{{ fileSizeText(message.fileSize) }}</small></span></div>
+              <a v-else-if="displayType(message) === 'image' || displayType(message) === 'sticker'" class="block max-w-full overflow-hidden rounded-xl" :href="message.mediaUrl" target="_blank" rel="noreferrer"><img class="max-h-[280px] max-w-full rounded-xl object-cover" :src="message.thumbUrl || message.mediaUrl" :alt="message.fileName || (displayType(message) === 'sticker' ? '表情包' : '聊天图片')" /></a>
+              <div v-else-if="displayType(message) === 'video'" class="overflow-hidden rounded-xl bg-white shadow-[0_10px_28px_rgba(91,53,245,0.08)]"><video class="max-h-[280px] max-w-full" :src="message.mediaUrl" controls preload="metadata"></video><span class="block px-3 py-2 text-xs text-[#667085]">{{ message.fileName }}</span></div>
               <div v-else :class="isMine(message) ? 'rounded-[14px_6px_14px_14px] bg-[#e4dcff] text-[#3c2c72]' : 'rounded-[6px_14px_14px_14px] bg-white text-[#293548]'" class="w-fit max-w-full px-4 py-3 text-[13px] leading-[1.7] shadow-[0_10px_28px_rgba(91,53,245,0.08)]">{{ message.content }}</div>
-              <span class="flex items-center gap-1 text-[11px] text-[#9aa6b7]"><time>{{ message.time }}</time><small v-if="isMine(message)">{{ message.status === 'sending' ? "发送中" : message.status === 'failed' ? "发送失败" : message.status === 'read' ? "已读" : "已发送" }}</small></span>
+              <span class="flex items-center gap-1 text-[11px] text-[#9aa6b7]"><time>{{ messageTime(message) }}</time><small v-if="isMine(message)">{{ message.status === 'sending' ? "发送中" : message.status === 'failed' ? "发送失败" : message.status === 'read' ? "已读" : "已发送" }}</small></span>
             </div>
           </template>
         </article>

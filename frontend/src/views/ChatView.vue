@@ -12,7 +12,7 @@ import ProfilePanel from "../components/chat/ProfilePanel.vue";
 import ConfirmDialog from "../components/common/ConfirmDialog.vue";
 import { useResponsive } from "../composables/useResponsive.js";
 import { MessageType } from "../constants/message.js";
-import { useChatStore } from "../stores/chat.js";
+import { useChatStore } from "../modules/chat/chatStore.js";
 import { messageTips } from "../utils/messageTips.js";
 
 const router = useRouter();
@@ -22,6 +22,7 @@ const { activeConversation, activeMessages } = storeToRefs(chatStore);
 const {
   state,
   loadWorkspace,
+  updateProfile,
   selectConversation,
   loadOlderMessages,
   sendMessage,
@@ -56,8 +57,6 @@ const initialize = async () => {
   loadError.value = "";
   try {
     await loadWorkspace();
-    if (state.activeConversationId) await selectConversation(state.activeConversationId);
-    sendReadAck();
   } catch (error) {
     loadError.value = error.message;
     messageTips.error({ title: "数据加载失败", message: error.message });
@@ -147,11 +146,15 @@ const submitRoom = async () => {
   }
 };
 
-const confirmClear = () => {
-  clearConversation(activeConversation.value.id);
-  clearConfirmOpen.value = false;
-  detailsOpen.value = false;
-  messageTips.success("本地聊天记录已清空");
+const confirmClear = async () => {
+  try {
+    await clearConversation(activeConversation.value.conversationId);
+    clearConfirmOpen.value = false;
+    detailsOpen.value = false;
+    messageTips.success("本地聊天记录已清空");
+  } catch (error) {
+    messageTips.error({ title: "清空失败", message: error.message });
+  }
 };
 
 const handleLogout = async () => {
@@ -190,7 +193,7 @@ onMounted(initialize);
         <ContactsPanel v-else-if="activeSection === 'contacts'" :contacts="state.contacts"
           :requests="state.friendRequests" @open-chat="handleContact" @handle-request="handleRequest"
           @add-friend="handleAddFriend" />
-        <ProfilePanel v-else :current-user="state.currentUser" @logout="handleLogout" />
+        <ProfilePanel v-else :current-user="state.currentUser" :save-profile="updateProfile" @logout="handleLogout" />
         <div v-if="loadError" class="absolute inset-x-3 top-3 z-10 grid gap-1 rounded-xl border border-[#f2cdd5] bg-[#fff5f7] p-3 text-[11px] text-[#c34d65]"><strong>暂时无法同步数据</strong><span>{{ loadError }}</span><button
             class="w-fit bg-transparent font-semibold text-[#5b35f5]" type="button" @click="initialize">重新加载</button></div>
       </aside>
