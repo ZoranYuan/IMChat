@@ -65,14 +65,14 @@
           }
         },
         {
-          "name": "用户登录（手机号）",
+          "name": "用户登录（手机号或用户名）",
           "request": {
             "method": "POST",
             "auth": { "type": "noauth" },
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone\": \"13800138000\",\n  \"password\": \"123456\",\n  \"loginType\": 1\n}",
+              "raw": "{\n  \"account\": \"13800138000\",\n  \"password\": \"123456\"\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/users/login"
@@ -300,8 +300,8 @@
           "name": "增量同步消息",
           "request": {
             "method": "GET",
-            "description": "返回 seq > afterSeq 的完整消息，按 seq 正序返回。",
-            "url": "{{baseUrl}}/messages/sync?conversationId={{conversationId}}&afterSeq=0&limit=50"
+            "description": "一次返回 afterSeq 之后的全部离线消息，按 seq 正序返回；服务端以会话当前最新序号为边界，该接口不分页。",
+            "url": "{{baseUrl}}/messages/sync?conversationId={{conversationId}}&afterSeq=0"
           }
         },
         {

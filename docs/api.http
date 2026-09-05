@@ -96,6 +96,11 @@ Authorization: {{token}}
 GET {{baseUrl}}/messages/history?conversationId={{conversationId}}&cursor=0&limit=20
 Authorization: {{token}}
 
+### 同步离线消息
+# 一次获取 afterSeq 之后的全部离线消息，不分页；服务端以会话当前最新序号为边界。
+GET {{baseUrl}}/messages/sync?conversationId={{conversationId}}&afterSeq=0
+Authorization: {{token}}
+
 ### WebSocket 握手
 GET http://localhost:8080/api/v1/ws
 Authorization: {{token}}

@@ -252,6 +252,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageHistoryResponse'
+  /messages/sync:
+    get:
+      tags: [Messages]
+      summary: Sync offline messages
+      description: >-
+        Returns all messages after `afterSeq` up to the conversation's current
+        latest sequence. This endpoint is for offline synchronization and is
+        not paginated.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: conversationId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: afterSeq
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageSyncResponse'
   /ws:
     get:
       tags: [WebSocket]
@@ -591,16 +619,51 @@ components:
       properties:
         messageId:
           type: string
+        conversationId:
+          type: string
         senderId:
+          type: string
+        clientMsgId:
           type: string
         seq:
           type: integer
           format: int64
-        convType:
-          type: integer
         cType:
           type: integer
         content:
+          type: string
+        videoId:
+          type: string
+        videoTime:
+          type: integer
+          format: int64
+        status:
+          type: integer
+        attachmentId:
+          type: string
+        fileId:
+          type: string
+        fileName:
+          type: string
+        fileSize:
+          type: integer
+          format: int64
+        mimeType:
+          type: string
+        mediaUrl:
+          type: string
+        thumbUrl:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        durationMs:
+          type: integer
+          format: int64
+        stickerId:
+          type: string
+        packId:
           type: string
         sendTime:
           type: integer
@@ -624,3 +687,17 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/MessageHistoryData'
+    MessageSyncData:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageItem'
+    MessageSyncResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MessageSyncData'

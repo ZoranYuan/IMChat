@@ -13,9 +13,9 @@
 | 好友申请提醒 | 申请事务写入 `outboxes`，Outbox -> Kafka -> `friend_request_created` -> 在线 WS | 只通知在线用户；无离线红点/未读持久化，Kafka 消费幂等未接入 | 高 |
 | 单聊消息 | WS 接收，鉴权/限流，事务写入 `messages`、会话最新 seq、发送者已读 seq、媒体子表和 Outbox | Kafka 投递成功后进程崩溃、尚未标记 sent 时会重复消费；Inbox 未接入导致副作用幂等缺失 | 高 |
 | 小群消息 | 校验房间成员；小群读取成员并逐个在线推送；会话/消息持久化 | 推送失败时 Kafka 重试可能造成已成功用户重复收取；没有面向客户端的消息去重协议说明 | 高 |
-| 大群消息 | `MemberCount > 500` 时跳过全员完整消息 fanout；按会话合并 seq，向在线成员推送轻量通知 | 轻量通知丢失后依赖客户端主动 `/messages/sync`；需要确认客户端长期保存 cursor，否则只能打开会话后补拉 | 高 |
+| 大群消息 | `MemberCount > 500` 时跳过全员完整消息 fanout；按会话合并 seq，向在线成员推送轻量通知 | 轻量通知丢失后依赖客户端主动 `/messages/sync`；客户端需要保存每个会话的 `lastReadSeq` | 高 |
 | 消息历史 | `/messages/history` 校验会话权限、游标分页、批量加载媒体扩展和文件元信息 | 预签名 URL 生成/缓存失败会直接影响历史返回；需补充大量消息、过期附件、文件不存在的测试 | 中 |
-| 离线同步 | `/messages/sync` 按 `conversationId + afterSeq` 拉取消息并返回 cursor | 没有全局同步游标/会话变更同步；客户端必须知道每个会话 cursor；好友申请、房间成员变化没有统一离线同步接口 | 高 |
+| 离线同步 | `/messages/sync` 按 `conversationId + afterSeq` 一次返回离线增量，不分页，服务端以会话当前最新序号为边界 | 没有全局同步游标/会话变更同步；好友申请、房间成员变化没有统一离线同步接口 | 高 |
 | 已读回执 | WS `msg_read_ack`；单调推进 `last_read_seq`；查询区间内不同发送者；写入 Outbox/MQ；在线通知发送者 | 只有最后水位，没有逐条已读记录；通知只覆盖在线用户；重复/乱序消费仍依赖 Inbox，但当前未接入 | 中 |
 | 文件直传 | 小文件后端接收并上传 MinIO；校验前端 hash；文件入库；数据库唯一键兜底；缓存回填；消息发送时校验 `fileId` | 文件入库失败后的 MinIO 清理是请求内补偿，清理失败只日志记录，没有异步重试/孤儿扫描 | 高 |
 | 文件分片上传 | `init -> file_uploads(uploading) -> Redis 元数据 -> 批量预签名 -> MinIO 分片 -> complete`；完成时事务写 `files` 并标记 `file_uploads.completed`；合并锁有续期；已接入过期清理 Worker、MinIO Abort、Redis 清理和失败重试 | `cleanup_failed` 任务需要告警和人工处理；仍需验证真实 MinIO 超时/中断场景 | 高 |

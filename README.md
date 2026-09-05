@@ -114,7 +114,7 @@ message WsBatch {
 |------|------|
 | `Envelope.From` | 发送方 userId，consumer 不用于路由 |
 | `Envelope.To` | 私聊时为接收方 userId，群聊时 consumer 自取成员列表 |
-| `Envelope.Payload` | `MessageEvent` JSON，含 messageId/seq/content/sendId 等 |
+| `Envelope.Payload` | `MessageEvent` JSON，含 messageId/seq/content/senderId 等 |
 | Kafka key | conversationId，保证同一会话消息有序 |
 
 ---
@@ -359,7 +359,7 @@ message MessageAck {
 message MessageEvent {
   string message_id = 1;
   string conversation_id = 2;
-  string send_id = 3;
+  string sender_id = 3;
   string recv_id = 4;
   int64 seq = 5;
   int32 conv_type = 6;
