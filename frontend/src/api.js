@@ -128,11 +128,11 @@ export const getFriends = () => http.get("/friends");
 
 export const getFriendRequests = () => http.get("/friend-requests");
 
-export const createFriendRequest = ({ toUserId, message }) =>
-  http.post("/friend-requests", { toUserId, message });
+export const createFriendRequest = ({ targetUserId, message }) =>
+  http.post("/friend-requests", { targetUserId, message });
 
-export const operateFriendRequest = ({ requestId, fromUserId, action }) =>
-  http.post("/friend-requests/actions", { requestId, fromUserId, action });
+export const operateFriendRequest = ({ requestId, action }) =>
+  http.post("/friend-requests/actions", { requestId, action });
 
 export const createRoom = ({ roomName, description = "", avatar = "" }) =>
   http.post("/rooms", { roomName, description, avatar });

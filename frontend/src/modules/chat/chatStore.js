@@ -469,8 +469,8 @@ export const useChatStore = defineStore("chat", () => {
       }));
       state.friendRequests = (requests || []).filter((item) => item.status === 1).map((item) => ({
         id: item.requestId,
-        fromUserId: item.fromUserId || "",
-        name: item.fromDisplayName || item.fromUsername || item.fromUserId || "新联系人",
+        applicantUserId: item.applicantUserId || "",
+        name: item.applicantNickName || "新联系人",
         note: item.message,
         time: formatTime(item.applyTime),
         avatarColor: "#8069a8",
@@ -648,7 +648,6 @@ export const useChatStore = defineStore("chat", () => {
   const handleFriendRequest = async (request, accepted) => {
     await operateFriendRequest({
       requestId: request.id,
-      fromUserId: request.fromUserId,
       action: accepted ? 1 : 2,
     });
     state.friendRequests = state.friendRequests.filter((item) => item.id !== request.id);

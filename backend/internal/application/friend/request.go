@@ -71,7 +71,7 @@ func NewRequestApplication(
 func (fa *RequestApplication) createNewFriendRequest(
 	ctx context.Context,
 	userID string,
-	toUserID string,
+	targetUserID string,
 	message string,
 	repository friendrequestrepo.FriendRequestRepository,
 	outboxRepository outboxport.Repository,
@@ -84,7 +84,7 @@ func (fa *RequestApplication) createNewFriendRequest(
 	request, err := friendrequestentity.NewFriendRequest(
 		requestID,
 		userID,
-		toUserID,
+		targetUserID,
 		message,
 	)
 	if err != nil {
@@ -101,6 +101,7 @@ func (fa *RequestApplication) createNewFriendRequest(
 	}
 
 	dto := toFriendRequestDTO(record)
+	fa.fillApplicantNickName(&dto)
 	return &dto, nil
 }
 
@@ -114,19 +115,19 @@ func (fa *RequestApplication) createFriendRequestOutbox(
 	}
 
 	payload, err := json.Marshal(protocol.FriendRequestCreatedEvent{
-		RequestId:  record.RequestId,
-		FromUserId: record.FromUserId,
-		ToUserId:   record.ToUserId,
-		Message:    record.Message,
-		ApplyTime:  record.ApplyTime,
+		RequestId:       record.RequestId,
+		ApplicantUserId: record.ApplicantUserId,
+		TargetUserId:    record.TargetUserId,
+		Message:         record.Message,
+		ApplyTime:       record.ApplyTime,
 	})
 	if err != nil {
 		return err
 	}
 
 	envelope, err := json.Marshal(protocol.Envelope{
-		From:    record.FromUserId,
-		To:      record.ToUserId,
+		From:    record.ApplicantUserId,
+		To:      record.TargetUserId,
 		Payload: payload,
 	})
 	if err != nil {
@@ -135,7 +136,7 @@ func (fa *RequestApplication) createFriendRequestOutbox(
 
 	return repository.Create(ctx, &outboxport.Entry{
 		EventType:  protocol.EventFriendRequestCreated,
-		MessageKey: record.ToUserId,
+		MessageKey: record.TargetUserId,
 		Payload:    envelope,
 	})
 }
@@ -165,18 +166,19 @@ func (fa *RequestApplication) reRequest(
 	}
 
 	dto := toFriendRequestDTO(record)
+	fa.fillApplicantNickName(&dto)
 	return &dto, nil
 }
 
 func validateFriendRequest(
-	fromUserID string,
-	toUserID string,
+	applicantUserID string,
+	targetUserID string,
 	message string,
 ) error {
-	if fromUserID == "" || toUserID == "" {
+	if applicantUserID == "" || targetUserID == "" {
 		return ErrEmptyUserId
 	}
-	if fromUserID == toUserID {
+	if applicantUserID == targetUserID {
 		return ErrSelfRequest
 	}
 	if utf8.RuneCountInString(message) > 200 {
@@ -187,14 +189,14 @@ func validateFriendRequest(
 
 func (fa *RequestApplication) CreateFriendRequest(
 	userID string,
-	toUserID string,
+	targetUserID string,
 	message string,
 ) (*FriendRequestDTO, error) {
-	if err := validateFriendRequest(userID, toUserID, message); err != nil {
+	if err := validateFriendRequest(userID, targetUserID, message); err != nil {
 		return nil, err
 	}
 
-	relation, err := fa.friendRepository.FindRelation(userID, toUserID)
+	relation, err := fa.friendRepository.FindRelation(userID, targetUserID)
 	if err != nil {
 		return nil, fmt.Errorf("查询好友关系失败：%w", err)
 	}
@@ -202,7 +204,7 @@ func (fa *RequestApplication) CreateFriendRequest(
 		return nil, ErrAlreadyFriends
 	}
 
-	user, err := fa.userRepository.FindByUserID(toUserID)
+	user, err := fa.userRepository.FindByUserID(targetUserID)
 	if err != nil {
 		return nil, fmt.Errorf("查询目标用户失败：%w", err)
 	}
@@ -210,7 +212,7 @@ func (fa *RequestApplication) CreateFriendRequest(
 		return nil, ErrUserNotFound
 	}
 
-	reverse, err := fa.friendRequestRepository.FindLatestRequest(toUserID, userID)
+	reverse, err := fa.friendRequestRepository.FindLatestRequest(targetUserID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("查询反向好友申请失败：%w", err)
 	}
@@ -225,12 +227,13 @@ func (fa *RequestApplication) CreateFriendRequest(
 			return nil, err
 		}
 		dto := toFriendRequestDTO(reverse)
+		fa.fillApplicantNickName(&dto)
 		return &dto, nil
 	}
 
 	record, err := fa.friendRequestRepository.FindLatestRequest(
 		userID,
-		toUserID,
+		targetUserID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("查询最新好友申请失败：%w", err)
@@ -245,7 +248,7 @@ func (fa *RequestApplication) CreateFriendRequest(
 			dto, err := fa.createNewFriendRequest(
 				ctx,
 				userID,
-				toUserID,
+				targetUserID,
 				message,
 				fa.friendRequestRepository.WithTx(tx),
 				fa.outboxRepository.WithTx(tx),
@@ -302,7 +305,7 @@ func (fa *RequestApplication) Refuse(requestId string, userId string) error {
 	return nil
 }
 
-func (fa *RequestApplication) Accept(requestId string, userId string, otherId string) error {
+func (fa *RequestApplication) Accept(requestId string, userId string) error {
 	record, err := fa.friendRequestRepository.FindByRequestID(requestId)
 
 	if err != nil {
@@ -328,13 +331,13 @@ func (fa *RequestApplication) acceptFriendRequest(
 	defer cancel()
 
 	// 初始化元信息
-	convId := conversationentity.GetConversationID(record.FromUserId, record.ToUserId, int(conversationvo.PrivateChat))
+	convId := conversationentity.GetConversationID(record.ApplicantUserId, record.TargetUserId, int(conversationvo.PrivateChat))
 
 	// 创建会话
 	conv := conversationentity.NewConversation(
 		convId,
-		record.FromUserId,
-		record.ToUserId,
+		record.ApplicantUserId,
+		record.TargetUserId,
 		int(conversationvo.PrivateChat),
 		0,
 		"",
@@ -348,7 +351,7 @@ func (fa *RequestApplication) acceptFriendRequest(
 	)
 
 	fromUserConv := conversationentity.BuildUserConversation(
-		record.FromUserId,
+		record.ApplicantUserId,
 		convId,
 		0,
 		uconvvo.PrivateChat,
@@ -370,7 +373,7 @@ func (fa *RequestApplication) acceptFriendRequest(
 		messages = append(messages, []*messageentity.Message{{
 			MessageId:      greetMessageId,
 			ConversationId: convId,
-			SenderId:       record.FromUserId,
+			SenderId:       record.ApplicantUserId,
 			Seq:            1,
 			Type:           messagevo.Text,
 			Content:        record.Message,
@@ -379,7 +382,7 @@ func (fa *RequestApplication) acceptFriendRequest(
 		}, {
 			MessageId:      greetReplyMessageId,
 			ConversationId: convId,
-			SenderId:       record.ToUserId,
+			SenderId:       record.TargetUserId,
 			Seq:            2,
 			Type:           messagevo.Text,
 			Content:        "我们已经是好友了，开始聊天吧~",
@@ -396,7 +399,7 @@ func (fa *RequestApplication) acceptFriendRequest(
 		messages = append(messages, &messageentity.Message{
 			MessageId:      greetMessageId,
 			ConversationId: convId,
-			SenderId:       record.ToUserId,
+			SenderId:       record.TargetUserId,
 			Seq:            1,
 			Type:           messagevo.Text,
 			Content:        "我们已经是好友了，开始聊天吧~",
@@ -419,13 +422,13 @@ func (fa *RequestApplication) acceptFriendRequest(
 
 		if err := fa.friendRepository.WithTx(tx).Create([]friendentity.Friend{
 			{
-				UserId:       record.FromUserId,
-				FriendUserId: record.ToUserId,
+				UserId:       record.ApplicantUserId,
+				FriendUserId: record.TargetUserId,
 				Status:       friendvo.Status(friendvo.Friend),
 			},
 			{
-				UserId:       record.ToUserId,
-				FriendUserId: record.FromUserId,
+				UserId:       record.TargetUserId,
+				FriendUserId: record.ApplicantUserId,
 				Status:       friendvo.Status(friendvo.Friend),
 			},
 		}); err != nil {
@@ -459,10 +462,10 @@ func (fa *RequestApplication) acceptFriendRequest(
 	}
 
 	state := &friendcache.RelationState{Status: friendvo.Friend}
-	if err := fa.friendCache.SetRelation(ctx, record.FromUserId, record.ToUserId, state); err != nil {
+	if err := fa.friendCache.SetRelation(ctx, record.ApplicantUserId, record.TargetUserId, state); err != nil {
 		log.Println("预热好友关系缓存失败：", err)
 	}
-	if err := fa.friendCache.SetRelation(ctx, record.ToUserId, record.FromUserId, state); err != nil {
+	if err := fa.friendCache.SetRelation(ctx, record.TargetUserId, record.ApplicantUserId, state); err != nil {
 		log.Println("预热反向好友关系缓存失败：", err)
 	}
 	return nil
@@ -483,9 +486,9 @@ func (fa *RequestApplication) createInitialMessageOutboxes(
 		if message == nil {
 			continue
 		}
-		receiverID := record.FromUserId
-		if message.SenderId == record.FromUserId {
-			receiverID = record.ToUserId
+		receiverID := record.ApplicantUserId
+		if message.SenderId == record.ApplicantUserId {
+			receiverID = record.TargetUserId
 		}
 		eventPayload, err := json.Marshal(protocol.MessageEvent{
 			MessageId:      message.MessageId,
@@ -529,17 +532,26 @@ func (fa *RequestApplication) ListFriendRequestsByUserID(userId string) ([]Frien
 	friendRequestDTOs := make([]FriendRequestDTO, 0, len(records))
 	for _, r := range records {
 		dto := toFriendRequestDTO(r)
-		user, err := fa.userRepository.FindByUserID(r.FromUserId)
-		if err == nil && user != nil {
-			dto.FromUsername = user.UserName
-			if user.NickName != "" {
-				dto.FromDisplayName = user.NickName
-			} else {
-				dto.FromDisplayName = user.UserName
-			}
-		}
+		fa.fillApplicantNickName(&dto)
 		friendRequestDTOs = append(friendRequestDTOs, dto)
 	}
 
 	return friendRequestDTOs, nil
+}
+
+// fillApplicantNickName 返回申请人的有效展示昵称；历史数据为空时使用手机号兜底。
+func (fa *RequestApplication) fillApplicantNickName(dto *FriendRequestDTO) {
+	if dto == nil || dto.ApplicantUserID == "" {
+		return
+	}
+
+	user, err := fa.userRepository.FindByUserID(dto.ApplicantUserID)
+	if err != nil || user == nil {
+		return
+	}
+
+	dto.ApplicantNickName = user.NickName
+	if dto.ApplicantNickName == "" {
+		dto.ApplicantNickName = string(user.Phone)
+	}
 }

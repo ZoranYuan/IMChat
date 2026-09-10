@@ -23,11 +23,11 @@ func (stub *friendRequestDeliveryStub) DeliverToUser(eventType, userID string, p
 
 func TestFriendRequestHandlerDeliversToTargetUser(t *testing.T) {
 	notification := protocol.FriendRequestCreatedEvent{
-		RequestId:  "r1",
-		FromUserId: "u1",
-		ToUserId:   "u2",
-		Message:    "hi",
-		ApplyTime:  123,
+		RequestId:       "r1",
+		ApplicantUserId: "u1",
+		TargetUserId:    "u2",
+		Message:         "hi",
+		ApplyTime:       123,
 	}
 	payload, _ := json.Marshal(notification)
 	envelope, _ := json.Marshal(protocol.Envelope{
@@ -54,7 +54,7 @@ func TestFriendRequestHandlerDeliversToTargetUser(t *testing.T) {
 	if err := json.Unmarshal(stub.payload, &got); err != nil {
 		t.Fatalf("解析投递载荷失败：%v", err)
 	}
-	if got.RequestId != notification.RequestId || got.FromUserId != notification.FromUserId {
+	if got.RequestId != notification.RequestId || got.ApplicantUserId != notification.ApplicantUserId {
 		t.Fatalf("投递载荷错误：got=%+v want=%+v", got, notification)
 	}
 }

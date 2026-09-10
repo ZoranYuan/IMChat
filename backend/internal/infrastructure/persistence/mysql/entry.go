@@ -52,6 +52,9 @@ func InitMysql(dns string) *gorm.DB {
 func Migrate(db *gorm.DB) error {
 	renameLegacyTables(db)
 	prepareFriendIndexes(db)
+	if err := prepareFriendRequestColumns(db); err != nil {
+		return err
+	}
 	prepareFriendRequestUniquePair(db)
 	prepareLegacyOutboxColumns(db)
 	prepareFileUploadColumns(db)
@@ -83,6 +86,9 @@ func Migrate(db *gorm.DB) error {
 	); err != nil {
 		return err
 	}
+	if err := backfillDefaultUserNicknames(db); err != nil {
+		return err
+	}
 	if db.Migrator().HasTable("files") {
 		if err := db.Exec("UPDATE files SET status = 'uploaded' WHERE status IS NULL OR status = ''").Error; err != nil {
 			return err
@@ -99,6 +105,20 @@ func Migrate(db *gorm.DB) error {
 	}
 	dropLegacyColumns(db)
 	return nil
+}
+
+func backfillDefaultUserNicknames(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.User{}) {
+		return nil
+	}
+
+	return db.Exec(`
+		UPDATE users
+		SET nick_name = phone
+		WHERE (nick_name IS NULL OR nick_name = '')
+		  AND phone IS NOT NULL
+		  AND phone <> ''
+	`).Error
 }
 
 func prepareMessageRequestHashColumn(db *gorm.DB) error {
@@ -405,8 +425,8 @@ func prepareFriendRequestUniquePair(db *gorm.DB) {
 		DELETE fr
 		FROM friend_requests fr
 		JOIN friend_requests newer
-		  ON newer.from_user_id = fr.from_user_id
-		 AND newer.to_user_id = fr.to_user_id
+		  ON newer.applicant_user_id = fr.applicant_user_id
+		 AND newer.target_user_id = fr.target_user_id
 		 AND (
 		     newer.created_at > fr.created_at
 		  OR (newer.created_at = fr.created_at AND newer.request_id > fr.request_id)
@@ -414,6 +434,27 @@ func prepareFriendRequestUniquePair(db *gorm.DB) {
 	`).Error; err != nil {
 		log.Printf("清理重复 friend_requests 失败：%v", err)
 	}
+}
+
+func prepareFriendRequestColumns(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.FriendRequest{}) {
+		return nil
+	}
+
+	if db.Migrator().HasColumn(&model.FriendRequest{}, "from_user_id") &&
+		!db.Migrator().HasColumn(&model.FriendRequest{}, "applicant_user_id") {
+		if err := db.Migrator().RenameColumn(&model.FriendRequest{}, "from_user_id", "applicant_user_id"); err != nil {
+			return err
+		}
+	}
+	if db.Migrator().HasColumn(&model.FriendRequest{}, "to_user_id") &&
+		!db.Migrator().HasColumn(&model.FriendRequest{}, "target_user_id") {
+		if err := db.Migrator().RenameColumn(&model.FriendRequest{}, "to_user_id", "target_user_id"); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func dropLegacyColumns(db *gorm.DB) {

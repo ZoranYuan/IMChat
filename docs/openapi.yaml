@@ -406,9 +406,9 @@ components:
                 $ref: '#/components/schemas/FriendItem'
     FriendRequestCreateRequest:
       type: object
-      required: [toUserId, message]
+      required: [targetUserId, message]
       properties:
-        toUserId:
+        targetUserId:
           type: string
         message:
           type: string
@@ -417,7 +417,9 @@ components:
       properties:
         requestId:
           type: string
-        toUserId:
+        applicantUserId:
+          type: string
+        applicantNickName:
           type: string
         message:
           type: string

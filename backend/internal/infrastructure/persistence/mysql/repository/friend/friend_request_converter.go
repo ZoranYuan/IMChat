@@ -8,22 +8,22 @@ import (
 
 func requestToDomain(m model.FriendRequest) *friendentity.FriendRequest {
 	return &friendentity.FriendRequest{
-		FromUserId: m.FromUserId,
-		ToUserId:   m.ToUserId,
-		RequestId:  m.RequestId,
-		Message:    m.Message,
-		Status:     friendvo.RequestStatus(m.Status),
-		ApplyTime:  m.ApplyTime,
+		ApplicantUserId: m.ApplicantUserId,
+		TargetUserId:    m.TargetUserId,
+		RequestId:       m.RequestId,
+		Message:         m.Message,
+		Status:          friendvo.RequestStatus(m.Status),
+		ApplyTime:       m.ApplyTime,
 	}
 }
 
 func requestToModel(e *friendentity.FriendRequest) model.FriendRequest {
 	return model.FriendRequest{
-		FromUserId: e.FromUserId,
-		RequestId:  e.RequestId,
-		ToUserId:   e.ToUserId,
-		Message:    e.Message,
-		Status:     int(e.Status),
-		ApplyTime:  e.ApplyTime,
+		ApplicantUserId: e.ApplicantUserId,
+		RequestId:       e.RequestId,
+		TargetUserId:    e.TargetUserId,
+		Message:         e.Message,
+		Status:          int(e.Status),
+		ApplyTime:       e.ApplyTime,
 	}
 }

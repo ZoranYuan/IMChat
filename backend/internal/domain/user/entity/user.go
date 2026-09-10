@@ -33,6 +33,7 @@ func RegisterWithPhone(phone uservo.Phone, password uservo.Password) (*User, err
 		Status:      uservo.StatusActivate,
 		Password:    password,
 		UserName:    string(phone),
+		NickName:    string(phone),
 		OnLineTime:  time.Now(),
 		OffLineTime: nil,
 	}

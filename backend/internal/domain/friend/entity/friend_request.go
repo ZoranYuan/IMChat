@@ -6,34 +6,34 @@ import (
 )
 
 type FriendRequest struct {
-	RequestId  string                 `json:"requestId"`
-	FromUserId string                 `json:"fromUserId"`
-	ToUserId   string                 `json:"toUserId"`
-	Status     friendvo.RequestStatus `json:"status"`
-	Message    string                 `json:"message"` // 可选留言
-	ApplyTime  int64                  `json:"applyTime"`
+	RequestId       string                 `json:"requestId"`
+	ApplicantUserId string                 `json:"applicantUserId"`
+	TargetUserId    string                 `json:"targetUserId"`
+	Status          friendvo.RequestStatus `json:"status"`
+	Message         string                 `json:"message"` // 可选留言
+	ApplyTime       int64                  `json:"applyTime"`
 }
 
-func NewFriendRequest(reqId, fromUserId, toUserId, message string) (*FriendRequest, error) {
+func NewFriendRequest(reqId, applicantUserId, targetUserId, message string) (*FriendRequest, error) {
 	// TODO 对 message 做一些额外的处理
-	if fromUserId == toUserId {
+	if applicantUserId == targetUserId {
 		return nil, ErrSelfRequest
 	}
 
 	var newFriendRequest = &FriendRequest{
-		FromUserId: fromUserId,
-		RequestId:  reqId,
-		ToUserId:   toUserId,
-		Message:    message,
-		Status:     friendvo.Pending,
-		ApplyTime:  time.Now().UnixMilli(),
+		ApplicantUserId: applicantUserId,
+		RequestId:       reqId,
+		TargetUserId:    targetUserId,
+		Message:         message,
+		Status:          friendvo.Pending,
+		ApplyTime:       time.Now().UnixMilli(),
 	}
 
 	return newFriendRequest, nil
 }
 
 func (fq *FriendRequest) ReRequest(newRequestId string, message string) error {
-	if fq.FromUserId == fq.ToUserId {
+	if fq.ApplicantUserId == fq.TargetUserId {
 		return ErrSelfRequest
 	}
 
@@ -63,7 +63,7 @@ func (fq *FriendRequest) Accept(userId string) error {
 		return ErrDuplicateRequestOperation
 	}
 
-	if fq.ToUserId != userId {
+	if fq.TargetUserId != userId {
 		return ErrInvalidRequestOperation
 	}
 
@@ -78,7 +78,7 @@ func (fq *FriendRequest) Refuse(userId string) error {
 		return ErrDuplicateRequestOperation
 	}
 
-	if fq.ToUserId != userId {
+	if fq.TargetUserId != userId {
 		return ErrInvalidRequestOperation
 	}
 

@@ -57,11 +57,11 @@ type MessageReadCommittedEvent struct {
 }
 
 type FriendRequestCreatedEvent struct {
-	RequestId  string `json:"requestId"`
-	FromUserId string `json:"fromUserId"`
-	ToUserId   string `json:"toUserId"`
-	Message    string `json:"message,omitempty"`
-	ApplyTime  int64  `json:"applyTime"`
+	RequestId       string `json:"requestId"`
+	ApplicantUserId string `json:"applicantUserId"`
+	TargetUserId    string `json:"targetUserId"`
+	Message         string `json:"message,omitempty"`
+	ApplyTime       int64  `json:"applyTime"`
 }
 
 type MessageAckEvent struct {

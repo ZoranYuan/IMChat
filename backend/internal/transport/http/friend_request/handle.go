@@ -34,7 +34,7 @@ func (fh *FriendRequestHandle) Create(c *gin.Context) {
 		return
 	}
 
-	friendRequestApp, err := fh.app.CreateFriendRequest(userId, newFriendRequest.ToUserID, newFriendRequest.Message)
+	friendRequestApp, err := fh.app.CreateFriendRequest(userId, newFriendRequest.TargetUserID, newFriendRequest.Message)
 
 	if err != nil {
 		c.JSON(http.StatusConflict, response.Error(http.StatusBadRequest, err.Error()))
@@ -42,14 +42,12 @@ func (fh *FriendRequestHandle) Create(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response.Success(&FriendRequestResponse{
-		RequestID:       friendRequestApp.RequestID,
-		FromUserID:      friendRequestApp.FromUserID,
-		FromUsername:    friendRequestApp.FromUsername,
-		FromDisplayName: friendRequestApp.FromDisplayName,
-		ToUserID:        friendRequestApp.ToUserID,
-		Message:         friendRequestApp.Message,
-		Status:          friendRequestApp.Status,
-		ApplyTime:       friendRequestApp.ApplyTime,
+		RequestID:         friendRequestApp.RequestID,
+		ApplicantUserID:   friendRequestApp.ApplicantUserID,
+		ApplicantNickName: friendRequestApp.ApplicantNickName,
+		Message:           friendRequestApp.Message,
+		Status:            friendRequestApp.Status,
+		ApplyTime:         friendRequestApp.ApplyTime,
 	}))
 }
 
@@ -73,7 +71,7 @@ func (fh *FriendRequestHandle) OperateRequest(c *gin.Context) {
 
 	var err error
 	if res.Action == ActionAccept {
-		err = fh.app.Accept(res.RequestID, userId, res.FromUserID)
+		err = fh.app.Accept(res.RequestID, userId)
 	} else {
 		err = fh.app.Refuse(res.RequestID, userId)
 	}
@@ -103,14 +101,12 @@ func (fh *FriendRequestHandle) List(c *gin.Context) {
 	res := make([]FriendRequestResponse, 0, len(requestListApp))
 	for _, r := range requestListApp {
 		res = append(res, FriendRequestResponse{
-			RequestID:       r.RequestID,
-			FromUserID:      r.FromUserID,
-			FromUsername:    r.FromUsername,
-			FromDisplayName: r.FromDisplayName,
-			ToUserID:        r.ToUserID,
-			Message:         r.Message,
-			Status:          r.Status,
-			ApplyTime:       r.ApplyTime,
+			RequestID:         r.RequestID,
+			ApplicantUserID:   r.ApplicantUserID,
+			ApplicantNickName: r.ApplicantNickName,
+			Message:           r.Message,
+			Status:            r.Status,
+			ApplyTime:         r.ApplyTime,
 		})
 	}
 

@@ -1,8 +1,8 @@
 package friendrequest
 
 type FriendRequestRequest struct {
-	ToUserID string `json:"toUserId" binding:"required"`
-	Message  string `json:"message"` // 可选留言
+	TargetUserID string `json:"targetUserId" binding:"required"`
+	Message      string `json:"message"` // 可选留言
 }
 
 type ActionType int
@@ -13,18 +13,15 @@ const (
 )
 
 type FriendRequestResponse struct {
-	RequestID       string `json:"requestId"`
-	FromUserID      string `json:"fromUserId"`
-	FromUsername    string `json:"fromUsername"`
-	FromDisplayName string `json:"fromDisplayName"`
-	ToUserID        string `json:"toUserId"`
-	Message         string `json:"message"`
-	Status          int    `json:"status"`
-	ApplyTime       int64  `json:"applyTime"`
+	RequestID         string `json:"requestId"`
+	ApplicantUserID   string `json:"applicantUserId"`
+	ApplicantNickName string `json:"applicantNickName"`
+	Message           string `json:"message"`
+	Status            int    `json:"status"`
+	ApplyTime         int64  `json:"applyTime"`
 }
 
 type OperateRequestRequest struct {
-	RequestID  string     `json:"requestId" binding:"required"`
-	FromUserID string     `json:"fromUserId" binding:"required"`
-	Action     ActionType `json:"action" binding:"required"`
+	RequestID string     `json:"requestId" binding:"required"`
+	Action    ActionType `json:"action" binding:"required"`
 }

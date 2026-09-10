@@ -11,7 +11,7 @@ const emit = defineEmits(["open-chat", "handle-request", "add-friend"]);
 const query = ref("");
 const showAdd = ref(false);
 const adding = ref(false);
-const addForm = reactive({ toUserId: "", message: "你好，我想加你为好友" });
+const addForm = reactive({ targetUserId: "", message: "你好，我想加你为好友" });
 
 const filteredContacts = computed(() => {
   const keyword = query.value.trim().toLowerCase();
@@ -19,12 +19,12 @@ const filteredContacts = computed(() => {
 });
 
 const submitRequest = async () => {
-  if (!addForm.toUserId.trim()) return;
+  if (!addForm.targetUserId.trim()) return;
   adding.value = true;
   try {
     await emit("add-friend", { ...addForm });
     showAdd.value = false;
-    addForm.toUserId = "";
+    addForm.targetUserId = "";
   } finally {
     adding.value = false;
   }
@@ -45,7 +45,7 @@ const submitRequest = async () => {
 
     <form v-if="showAdd" class="mx-4 mt-4 grid gap-3 rounded-xl border border-[#e7e2f8] bg-[#faf9ff] p-4" @submit.prevent="submitRequest">
       <div class="flex items-center justify-between"><strong class="text-[13px] text-[#332b50]">添加好友</strong><button class="grid size-7 place-items-center rounded-lg bg-transparent text-[#9893a6] hover:bg-[#f0edff] hover:text-[#5b35f5]" type="button" title="关闭" @click="showAdd = false"><X :size="17" /></button></div>
-      <label class="grid gap-1.5"><span class="text-[11px] font-semibold text-[#625c72]">用户 ID</span><input v-model.trim="addForm.toUserId" required placeholder="输入对方的用户 ID" class="min-h-9 rounded-lg border border-[#e5e1f0] bg-white px-2.5 text-xs outline-0 transition focus:border-[#a493ff] focus:ring-4 focus:ring-[rgba(91,53,245,0.08)]" /></label>
+      <label class="grid gap-1.5"><span class="text-[11px] font-semibold text-[#625c72]">用户 ID</span><input v-model.trim="addForm.targetUserId" required placeholder="输入对方的用户 ID" class="min-h-9 rounded-lg border border-[#e5e1f0] bg-white px-2.5 text-xs outline-0 transition focus:border-[#a493ff] focus:ring-4 focus:ring-[rgba(91,53,245,0.08)]" /></label>
       <label class="grid gap-1.5"><span class="text-[11px] font-semibold text-[#625c72]">申请留言</span><input v-model.trim="addForm.message" required maxlength="60" class="min-h-9 rounded-lg border border-[#e5e1f0] bg-white px-2.5 text-xs outline-0 transition focus:border-[#a493ff] focus:ring-4 focus:ring-[rgba(91,53,245,0.08)]" /></label>
       <button class="min-h-9 rounded-lg bg-[#5b35f5] px-3 text-xs font-semibold text-white transition hover:bg-[#4724d8] disabled:cursor-not-allowed disabled:opacity-50" type="submit" :disabled="adding">{{ adding ? "发送中..." : "发送申请" }}</button>
     </form>
