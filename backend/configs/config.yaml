@@ -50,7 +50,6 @@ message:
   room_activity_active_messages: 90
   room_member_state_ttl_seconds: 3600
   room_member_negative_ttl_seconds: 120
-  room_member_ids_ttl_seconds: 1800
   history_default_limit: 20
   history_max_limit: 30
 outbox:

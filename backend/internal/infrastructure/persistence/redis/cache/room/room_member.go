@@ -15,10 +15,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const (
-	roomMembersLoaded = "__members_cache_loaded__"
-)
-
 var _ roomcache.RoomMemberCache = (*RoomMemberCache)(nil)
 
 type RoomMemberCache struct {
@@ -36,7 +32,6 @@ func NewRoomMemberCache(client *redis.Client, config configs.MessageConfig) *Roo
 type roomMemberTTLSettings struct {
 	state    time.Duration
 	negative time.Duration
-	ids      time.Duration
 }
 
 func (c *RoomMemberCache) ttlSettings() (roomMemberTTLSettings, error) {
@@ -46,13 +41,9 @@ func (c *RoomMemberCache) ttlSettings() (roomMemberTTLSettings, error) {
 	if c.config.RoomMemberNegativeTTLSeconds <= 0 {
 		return roomMemberTTLSettings{}, fmt.Errorf("成员负缓存 TTL 必须大于 0")
 	}
-	if c.config.RoomMemberIDsTTLSeconds <= 0 {
-		return roomMemberTTLSettings{}, fmt.Errorf("房间成员列表缓存 TTL 必须大于 0")
-	}
 	return roomMemberTTLSettings{
 		state:    time.Duration(c.config.RoomMemberStateTTLSeconds) * time.Second,
 		negative: time.Duration(c.config.RoomMemberNegativeTTLSeconds) * time.Second,
-		ids:      time.Duration(c.config.RoomMemberIDsTTLSeconds) * time.Second,
 	}, nil
 }
 
@@ -123,27 +114,6 @@ func (c *RoomMemberCache) GetMember(
 	}, true, nil
 }
 
-func (c *RoomMemberCache) SetMember(
-	ctx context.Context,
-	roomID, userID string,
-	state *roomcache.MemberState,
-) error {
-	if state == nil {
-		return fmt.Errorf("房间成员状态不能为空")
-	}
-	ttls, err := c.ttlSettings()
-	if err != nil {
-		return err
-	}
-	return c.setMemberEntry(ctx, roomID, userID, roomMemberEntry{
-		Found:     true,
-		Status:    int(state.Status),
-		Role:      int(state.Role),
-		MuteUntil: state.MuteUntil,
-		Version:   state.Version,
-	}, ttls.state)
-}
-
 // 幂等性更新缓存
 func (c *RoomMemberCache) SetMemberIfVersionGreater(ctx context.Context, roomID, userID string, state *roomcache.MemberState) (bool, error) {
 	if state == nil {
@@ -206,74 +176,4 @@ func (c *RoomMemberCache) setMemberEntry(
 	pipe.Expire(ctx, RoomMemberKey(roomID, userID), ttl)
 	_, err = pipe.Exec(ctx)
 	return err
-}
-
-func (c *RoomMemberCache) SetMemberIDs(ctx context.Context, roomID string, userIDs []string) error {
-	ttls, err := c.ttlSettings()
-	if err != nil {
-		return err
-	}
-	args := make([]any, 0, len(userIDs)+2)
-	args = append(args, roomMembersLoaded)
-	for _, userID := range userIDs {
-		args = append(args, userID)
-	}
-	args = append(args, int64(ttls.ids/time.Second))
-
-	const script = `
-		redis.call('DEL', KEYS[1])
-		for i = 1, #ARGV - 1 do
-			redis.call('SADD', KEYS[1], ARGV[i])
-		end
-		redis.call('EXPIRE', KEYS[1], ARGV[#ARGV])
-		return 1
-	`
-	_, err = c.store.Eval(ctx, script, []string{RoomMembersKey(roomID)}, args...)
-	return err
-}
-
-func (c *RoomMemberCache) GetMemberIDs(ctx context.Context, roomID string) ([]string, bool, error) {
-	const script = `
-		if redis.call('EXISTS', KEYS[1]) == 0 then
-			return {0, {}}
-		end
-		return {1, redis.call('SMEMBERS', KEYS[1])}
-	`
-	result, err := c.store.Eval(ctx, script, []string{RoomMembersKey(roomID)})
-	if err != nil {
-		return nil, false, err
-	}
-	data, ok := result.([]any)
-	if !ok || len(data) != 2 {
-		return nil, false, fmt.Errorf("房间成员列表缓存结果无效")
-	}
-	cached, ok := data[0].(int64)
-	if !ok {
-		return nil, false, fmt.Errorf("房间成员列表缓存标记无效")
-	}
-	rawMembers, ok := data[1].([]any)
-	if !ok {
-		return nil, false, fmt.Errorf("房间成员列表缓存值无效")
-	}
-
-	members := make([]string, 0, len(rawMembers))
-	for _, raw := range rawMembers {
-		var member string
-		switch value := raw.(type) {
-		case string:
-			member = value
-		case []byte:
-			member = string(value)
-		default:
-			return nil, false, fmt.Errorf("房间成员标识类型无效：%T", raw)
-		}
-		if member != roomMembersLoaded {
-			members = append(members, member)
-		}
-	}
-	return members, cached == 1, nil
-}
-
-func (c *RoomMemberCache) DeleteMemberIDs(ctx context.Context, roomID string) error {
-	return c.store.Del(ctx, RoomMembersKey(roomID))
 }

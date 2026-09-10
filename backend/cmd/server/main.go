@@ -252,8 +252,6 @@ func main() {
 		realtimeGateway,
 		roomRepository,
 		roomCache,
-		roomUserRepository,
-		roomMemberCache,
 		cfg.Message,
 	)
 	defer messageDelivery.Close(context.Background())

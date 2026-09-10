@@ -151,7 +151,6 @@ type MessageConfig struct {
 	RoomActivityActiveMessages        int   `yaml:"room_activity_active_messages"`
 	RoomMemberStateTTLSeconds         int   `yaml:"room_member_state_ttl_seconds"`
 	RoomMemberNegativeTTLSeconds      int   `yaml:"room_member_negative_ttl_seconds"`
-	RoomMemberIDsTTLSeconds           int   `yaml:"room_member_ids_ttl_seconds"`
 	HistoryDefaultLimit               int   `yaml:"history_default_limit"`
 	HistoryMaxLimit                   int   `yaml:"history_max_limit"`
 	MaxTextRunes                      int   `yaml:"max_text_runes"`
@@ -315,8 +314,7 @@ func (c Config) Validate() error {
 		return fmt.Errorf("WebSocket 配置无效")
 	}
 	if c.Message.RoomMemberStateTTLSeconds <= 0 ||
-		c.Message.RoomMemberNegativeTTLSeconds <= 0 ||
-		c.Message.RoomMemberIDsTTLSeconds <= 0 {
+		c.Message.RoomMemberNegativeTTLSeconds <= 0 {
 		return fmt.Errorf("房间成员缓存 TTL 配置无效")
 	}
 	if strings.EqualFold(c.App.Env, "production") {

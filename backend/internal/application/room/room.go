@@ -316,13 +316,6 @@ func (ra *RoomApplication) ApplyMemberChanged(ctx context.Context, event protoco
 		if err != nil {
 			return err
 		}
-		if updated {
-			// 成员状态发生变化后，房间成员集合必须重新从数据库加载，
-			// 否则小群消息可能继续投递给已退出或被踢出的成员。
-			if err := ra.roomMemberCache.DeleteMemberIDs(ctx, event.RoomID); err != nil {
-				return err
-			}
-		}
 	}
 	if !updated || ra.roomPresence == nil {
 		return nil
@@ -341,9 +334,6 @@ func (ra *RoomApplication) invalidateRoomMemberCache(ctx context.Context, roomID
 	}
 	if err := ra.roomMemberCache.DeleteMember(ctx, roomID, userID); err != nil {
 		log.Printf("删除房间成员缓存失败：房间=%s 用户=%s 错误=%v", roomID, userID, err)
-	}
-	if err := ra.roomMemberCache.DeleteMemberIDs(ctx, roomID); err != nil {
-		log.Printf("删除房间成员列表缓存失败：房间=%s 错误=%v", roomID, err)
 	}
 }
 

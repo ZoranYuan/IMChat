@@ -15,8 +15,6 @@ import (
 	"log"
 	"sync"
 	"time"
-
-	"golang.org/x/sync/singleflight"
 )
 
 var ErrLargeRoomNoticeCoalescerFull = errors.New("大群消息合并队列已满")
@@ -35,22 +33,17 @@ type LargeRoomNoticeCoalescerOptions struct {
 }
 
 type MessageDelivery struct {
-	realtime           realtime.RealtimeDelivery
-	roomMemberCache    roomcache.RoomMemberCache
-	roomCache          roomcache.RoomCache
-	roomRepository     roomrepo.RoomRepository
-	roomUserRepository roomrepo.RoomUserRepository
-	config             configs.MessageConfig
-	noticeCoalescer    *largeRoomNoticeCoalescer
-	singleflight       singleflight.Group
+	realtime        realtime.RealtimeDelivery
+	roomCache       roomcache.RoomCache
+	roomRepository  roomrepo.RoomRepository
+	config          configs.MessageConfig
+	noticeCoalescer *largeRoomNoticeCoalescer
 }
 
 func NewMessageDelivery(
 	delivery realtime.RealtimeDelivery,
 	roomRepository roomrepo.RoomRepository,
 	roomCache roomcache.RoomCache,
-	roomUserRepository roomrepo.RoomUserRepository,
-	roomMemberCache roomcache.RoomMemberCache,
 	config configs.MessageConfig,
 ) *MessageDelivery {
 	if config.RoomRealtimeFanoutLimit <= 0 {
@@ -67,12 +60,10 @@ func NewMessageDelivery(
 	}
 
 	return &MessageDelivery{
-		realtime:           delivery,
-		roomRepository:     roomRepository,
-		roomUserRepository: roomUserRepository,
-		roomMemberCache:    roomMemberCache,
-		roomCache:          roomCache,
-		config:             config,
+		realtime:       delivery,
+		roomRepository: roomRepository,
+		roomCache:      roomCache,
+		config:         config,
 		noticeCoalescer: newLargeRoomNoticeCoalescer(delivery, LargeRoomNoticeCoalescerOptions{
 			Linger:     time.Duration(config.LargeRoomNoticeLingerMilliseconds) * time.Millisecond,
 			ShardCount: config.LargeRoomNoticeShardCount,
@@ -164,27 +155,12 @@ func (delivery *MessageDelivery) deliverRoomMessage(
 		}
 	}
 
-	members, err := delivery.roomMembers(ctx, roomID)
-	if err != nil {
-		return err
-	}
-	return delivery.deliverSmallRoomMessage(eventType, members, envelope)
-}
-
-func (delivery *MessageDelivery) deliverSmallRoomMessage(
-	eventType string,
-	members []string,
-	envelope protocol.Envelope,
-) error {
-	for _, userID := range members {
-		if userID == envelope.From {
-			continue
-		}
-		if err := delivery.realtime.DeliverToUser(eventType, userID, envelope.Payload); err != nil {
-			return err
-		}
-	}
-	return nil
+	return delivery.realtime.DeliverToOnlineRoomMembers(
+		eventType,
+		roomID,
+		envelope.Payload,
+		envelope.From,
+	)
 }
 
 // 当房间需要进行轻量推送
@@ -199,35 +175,6 @@ func (delivery *MessageDelivery) deliverLargeRoomNotice(
 		MessageID:      event.MessageId,
 		Seq:            event.Seq,
 	})
-}
-
-func (delivery *MessageDelivery) roomMembers(ctx context.Context, roomID string) ([]string, error) {
-	if delivery.roomMemberCache != nil {
-		members, found, err := delivery.roomMemberCache.GetMemberIDs(ctx, roomID)
-		if err != nil {
-			log.Printf("读取房间成员缓存失败：房间=%s 错误=%v", roomID, err)
-		}
-		if found {
-			return members, nil
-		}
-	}
-
-	result, err, _ := delivery.singleflight.Do(roomID, func() (any, error) {
-		members, err := delivery.roomUserRepository.ListActiveUserIDs(roomID)
-		if err != nil {
-			return nil, err
-		}
-		if delivery.roomMemberCache != nil {
-			if err := delivery.roomMemberCache.SetMemberIDs(ctx, roomID, members); err != nil {
-				log.Printf("写入房间成员缓存失败：房间=%s 错误=%v", roomID, err)
-			}
-		}
-		return members, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]string), nil
 }
 
 func (delivery *MessageDelivery) Close(ctx context.Context) {

@@ -2,7 +2,6 @@ package message
 
 import (
 	"IM_backend/configs"
-	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
@@ -74,45 +73,6 @@ func (stub *deliveryRoomRepositoryStub) DecrementMemberCount(context.Context, st
 	return true, nil
 }
 
-type deliveryRoomUserRepositoryStub struct {
-	members []string
-	called  bool
-}
-
-func (stub *deliveryRoomUserRepositoryStub) JoinRoom(user *roomentity.RoomUser) (*roomentity.RoomUser, error) {
-	return user, nil
-}
-
-func (stub *deliveryRoomUserRepositoryStub) WithTx(any) roomrepo.RoomUserRepository {
-	return stub
-}
-
-func (stub *deliveryRoomUserRepositoryStub) RejoinRoom(*roomentity.RoomUser) error {
-	return nil
-}
-
-func (stub *deliveryRoomUserRepositoryStub) GetRelationByIDs(string, string) (*roomentity.RoomUser, error) {
-	return nil, nil
-}
-
-func (stub *deliveryRoomUserRepositoryStub) ListActiveUserIDs(string) ([]string, error) {
-	stub.called = true
-	return stub.members, nil
-}
-
-func (stub *deliveryRoomUserRepositoryStub) ListActiveRoomIDs(string) ([]string, error) {
-	return nil, nil
-}
-
-func (stub *deliveryRoomUserRepositoryStub) LeaveRoom(*roomentity.RoomUser, []int) error {
-	return nil
-}
-
-type deliveryRoomMemberCacheStub struct {
-	members []string
-	cached  bool
-}
-
 func testMessageConfig() configs.MessageConfig {
 	return configs.MessageConfig{
 		RoomRealtimeFanoutLimit:           500,
@@ -122,46 +82,12 @@ func testMessageConfig() configs.MessageConfig {
 	}
 }
 
-func (stub *deliveryRoomMemberCacheStub) GetMember(context.Context, string, string) (*roomcache.MemberState, bool, error) {
-	return nil, false, nil
-}
-
-func (stub *deliveryRoomMemberCacheStub) SetMember(context.Context, string, string, *roomcache.MemberState) error {
-	return nil
-}
-
-func (stub *deliveryRoomMemberCacheStub) SetMemberIfVersionGreater(context.Context, string, string, *roomcache.MemberState) (bool, error) {
-	return true, nil
-}
-
-func (stub *deliveryRoomMemberCacheStub) SetMemberNotFound(context.Context, string, string) error {
-	return nil
-}
-
-func (stub *deliveryRoomMemberCacheStub) DeleteMember(context.Context, string, string) error {
-	return nil
-}
-
-func (stub *deliveryRoomMemberCacheStub) GetMemberIDs(context.Context, string) ([]string, bool, error) {
-	return stub.members, stub.cached, nil
-}
-
-func (stub *deliveryRoomMemberCacheStub) SetMemberIDs(_ context.Context, _ string, userIDs []string) error {
-	stub.members = userIDs
-	stub.cached = true
-	return nil
-}
-
-func (stub *deliveryRoomMemberCacheStub) DeleteMemberIDs(context.Context, string) error {
-	return nil
-}
-
 func TestDeliveryDeliversPrivateMessageToReceiver(t *testing.T) {
 	event := protocol.MessageEvent{MessageId: "m1", ConvType: protocol.PrivateChat, Seq: 2}
 	eventPayload, _ := json.Marshal(event)
 	envelope := protocol.Envelope{From: "u1", To: "u2", Payload: eventPayload}
 	realtime := &recordingRealtimeDelivery{}
-	delivery := NewMessageDelivery(realtime, nil, nil, nil, nil, testMessageConfig())
+	delivery := NewMessageDelivery(realtime, nil, nil, testMessageConfig())
 	defer delivery.Close(context.Background())
 
 	err := delivery.Deliver(context.Background(), protocol.EventTypeSendMessage, "c1", envelope, event)
@@ -176,12 +102,11 @@ func TestDeliveryDeliversPrivateMessageToReceiver(t *testing.T) {
 	}
 }
 
-func TestDeliveryDeliversSmallRoomMessageToMemberUsers(t *testing.T) {
+func TestDeliveryDeliversSmallRoomMessageToOnlineRoomMembers(t *testing.T) {
 	event := protocol.MessageEvent{MessageId: "m1", ConvType: protocol.RoomChat, Seq: 2}
 	eventPayload, _ := json.Marshal(event)
 	envelope := protocol.Envelope{From: "u1", To: "room1", Payload: eventPayload}
 	realtime := &recordingRealtimeDelivery{}
-	roomUsers := &deliveryRoomUserRepositoryStub{members: []string{"u1", "u2", "u3"}}
 	delivery := NewMessageDelivery(
 		realtime,
 		&deliveryRoomRepositoryStub{room: &roomentity.Room{
@@ -190,8 +115,6 @@ func TestDeliveryDeliversSmallRoomMessageToMemberUsers(t *testing.T) {
 			MemberCount: 3,
 		}},
 		nil,
-		roomUsers,
-		&deliveryRoomMemberCacheStub{},
 		testMessageConfig(),
 	)
 	defer delivery.Close(context.Background())
@@ -200,14 +123,11 @@ func TestDeliveryDeliversSmallRoomMessageToMemberUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("投递小群消息失败：%v", err)
 	}
-	if len(realtime.records) != 2 {
-		t.Fatalf("小群消息应推给两个非发送者成员，实际=%d", len(realtime.records))
+	if len(realtime.records) != 0 || len(realtime.roomRecords) != 1 {
+		t.Fatalf("小群应通过房间在线 Session fanout，user=%d room=%d", len(realtime.records), len(realtime.roomRecords))
 	}
-	if realtime.records[0].eventType != protocol.EventTypeSendMessage || realtime.records[0].userID != "u2" {
-		t.Fatalf("小群第一个投递目标错误：%+v", realtime.records[0])
-	}
-	if realtime.records[1].eventType != protocol.EventTypeSendMessage || realtime.records[1].userID != "u3" {
-		t.Fatalf("小群第二个投递目标错误：%+v", realtime.records[1])
+	if record := realtime.roomRecords[0]; record.eventType != protocol.EventTypeSendMessage || record.roomID != "room1" || record.excludeUserID != "u1" {
+		t.Fatalf("小群在线 Session 投递目标错误：%+v", record)
 	}
 }
 
@@ -216,7 +136,6 @@ func TestDeliveryDeliversNoticeForLargeRoom(t *testing.T) {
 	eventPayload, _ := json.Marshal(event)
 	envelope := protocol.Envelope{From: "u1", To: "room1", Payload: eventPayload}
 	realtime := &recordingRealtimeDelivery{}
-	roomUsers := &deliveryRoomUserRepositoryStub{members: []string{"u1", "u2"}}
 	delivery := NewMessageDelivery(
 		realtime,
 		&deliveryRoomRepositoryStub{room: &roomentity.Room{
@@ -225,8 +144,6 @@ func TestDeliveryDeliversNoticeForLargeRoom(t *testing.T) {
 			MemberCount: 501,
 		}},
 		nil,
-		roomUsers,
-		&deliveryRoomMemberCacheStub{},
 		testMessageConfig(),
 	)
 	defer delivery.Close(context.Background())
@@ -252,14 +169,10 @@ func TestDeliveryDeliversNoticeForLargeRoom(t *testing.T) {
 	if notice.ConversationId != "room1" || notice.MessageId != "m1" || notice.Seq != 2 {
 		t.Fatalf("大群轻量提醒载荷错误：%+v", notice)
 	}
-	if roomUsers.called {
-		t.Fatal("大群读扩散不应查询全量成员列表")
-	}
 }
 
 func TestDeliveryCoalescesLargeRoomNoticeToLatestSeq(t *testing.T) {
 	realtime := &recordingRealtimeDelivery{}
-	roomUsers := &deliveryRoomUserRepositoryStub{members: []string{"u1", "u2"}}
 	delivery := NewMessageDelivery(
 		realtime,
 		&deliveryRoomRepositoryStub{room: &roomentity.Room{
@@ -268,8 +181,6 @@ func TestDeliveryCoalescesLargeRoomNoticeToLatestSeq(t *testing.T) {
 			MemberCount: 501,
 		}},
 		nil,
-		roomUsers,
-		&deliveryRoomMemberCacheStub{},
 		func() configs.MessageConfig {
 			config := testMessageConfig()
 			config.LargeRoomNoticeLingerMilliseconds = 1000

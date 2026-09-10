@@ -24,7 +24,6 @@ func newRoomMemberCacheTest(t *testing.T) (*RoomMemberCache, *redis.Client, *min
 	return NewRoomMemberCache(client, configs.MessageConfig{
 		RoomMemberStateTTLSeconds:    3600,
 		RoomMemberNegativeTTLSeconds: 120,
-		RoomMemberIDsTTLSeconds:      1800,
 	}), client, server
 }
 
