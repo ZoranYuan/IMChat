@@ -64,15 +64,11 @@ func (g *Gateway) consumeRedisDelivery() {
 				log.Printf("解析跨实例实时推送失败：%v", err)
 				continue
 			}
-			var err error
 			switch event.Kind {
 			case "user":
-				err = g.deliverLocalToUser(event.EventType, event.UserID, event.Payload)
+				g.deliverLocalToUser(event.EventType, event.UserID, event.Payload)
 			case "room":
-				err = g.deliverLocalToRoom(event.EventType, event.RoomID, event.Payload, event.ExcludeUserID)
-			}
-			if err != nil {
-				log.Printf("跨实例实时推送本地投递失败：%v", err)
+				g.deliverLocalToRoom(event.EventType, event.RoomID, event.Payload, event.ExcludeUserID)
 			}
 		}
 	}

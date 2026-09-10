@@ -157,18 +157,16 @@ func (g *Gateway) DeliverToUser(eventType, userID string, payload []byte) error 
 			Kind: "user", EventType: eventType, UserID: userID, Payload: payload,
 		})
 	}
-	err := g.deliverLocalToUser(eventType, userID, payload)
-	return err
+	g.deliverLocalToUser(eventType, userID, payload)
+	return nil
 }
 
-func (g *Gateway) deliverLocalToUser(eventType, userID string, payload []byte) error {
-	var deliveryErr error
+func (g *Gateway) deliverLocalToUser(eventType, userID string, payload []byte) {
 	for _, session := range g.sessionsForUser(userID) {
 		if err := session.PushEvent(eventType, payload); err != nil {
-			deliveryErr = errors.Join(deliveryErr, err)
-			if errors.Is(err, ErrOutboundQueueFull) {
-				session.Close()
-			}
+			// 当前 Session 投递失败，主动断开，然后让前端重新连接并同步消息。
+			// 单个 Session 的失败不能影响同一用户的其他连接。
+			session.Close()
 
 			log.Printf(
 				"WS 用户推送失败：user=%s session=%s event=%s error=%v",
@@ -179,7 +177,6 @@ func (g *Gateway) deliverLocalToUser(eventType, userID string, payload []byte) e
 			)
 		}
 	}
-	return deliveryErr
 }
 
 func (g *Gateway) BindOnlineRooms(session *Session, roomIDs []string) {
@@ -268,12 +265,11 @@ func (g *Gateway) DeliverToOnlineRoomMembers(eventType, roomID string, payload [
 			Kind: "room", EventType: eventType, RoomID: roomID, ExcludeUserID: excludeUserID, Payload: payload,
 		})
 	}
-	err := g.deliverLocalToRoom(eventType, roomID, payload, excludeUserID)
-	return err
+	g.deliverLocalToRoom(eventType, roomID, payload, excludeUserID)
+	return nil
 }
 
-func (g *Gateway) deliverLocalToRoom(eventType, roomID string, payload []byte, excludeUserID string) error {
-	var deliveryErr error
+func (g *Gateway) deliverLocalToRoom(eventType, roomID string, payload []byte, excludeUserID string) {
 	for _, session := range g.sessionsForRoom(roomID) {
 		// 排除发送者自身
 		if excludeUserID != "" && session.UserID() == excludeUserID {
@@ -281,11 +277,8 @@ func (g *Gateway) deliverLocalToRoom(eventType, roomID string, payload []byte, e
 		}
 
 		if err := session.PushEvent(eventType, payload); err != nil {
-			deliveryErr = errors.Join(deliveryErr, err)
-			if errors.Is(err, ErrOutboundQueueFull) {
-				log.Printf("断开处理缓慢的实时通道会话：用户=%s 会话=%s", session.UserID(), session.SessionID())
-				session.Close()
-			}
+			// 当前 Session 投递失败，主动断开，然后让前端重新连接并同步消息。
+			session.Close()
 
 			log.Printf(
 				"WS 房间推送失败：room=%s user=%s session=%s event=%s error=%v",
@@ -297,7 +290,6 @@ func (g *Gateway) deliverLocalToRoom(eventType, roomID string, payload []byte, e
 			)
 		}
 	}
-	return deliveryErr
 }
 
 func (g *Gateway) sessionsForUser(userID string) []*Session {
