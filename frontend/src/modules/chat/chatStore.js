@@ -45,6 +45,7 @@ import {
   initialUser,
   persistSession,
 } from "./services/authService.js";
+import { createMessageSyncService } from "./services/messageSyncService.js";
 import {
   applyIncomingMessageToConversation,
   applySyncedMessagesToConversation,
@@ -53,19 +54,18 @@ import {
   sortConversations,
 } from "./utils/conversationState.js";
 import {
-  confirmedMessages,
-  latestConfirmedMessage,
-  mergeMessageLists,
-  normalizeMessage,
-} from "./utils/messageMerge.js";
-import {
   createClientMessageId,
   createConversationPreview,
   createOutgoingMessage,
   getImageDimensions,
   getVideoMetadata,
 } from "./utils/messageComposer.js";
-import { createMessageSyncService } from "./services/messageSyncService.js";
+import {
+  confirmedMessages,
+  latestConfirmedMessage,
+  mergeMessageLists,
+  normalizeMessage,
+} from "./utils/messageMerge.js";
 
 const HISTORY_PAGE_SIZE = 30;
 const THEME_CONTACT_AVATAR = "#8b72d6";
@@ -459,10 +459,9 @@ export const useChatStore = defineStore("chat", () => {
       );
       state.contacts = (friends || []).map((item) => ({
         id: item.friendUserId,
-        name: item.displayName || item.dsipalyName || item.friendUsername || "好友",
+        name: item.displayName || item.friendUsername || "好友",
         username: item.friendUsername || "",
         avatar: item.friendAvatar || "",
-        role: item.status === 1 ? "好友" : "联系人",
         online: false,
         avatarColor: THEME_CONTACT_AVATAR,
         conversationId: conversationByTargetId.get(item.friendUserId)?.conversationId || "",
