@@ -131,13 +131,7 @@ func (w *OutboxWorker) markRetry(ctx context.Context, item *outboxport.Entry, la
 	}
 
 	baseRetryWait := time.Duration(w.options.BaseRetryWaitSeconds) * time.Second
-	retryDelay := baseRetryWait * time.Duration(int(math.Pow(2, float64(item.RetryCount))))
-	if retryDelay > 5*time.Minute {
-		retryDelay = 5 * time.Minute
-	}
-	if retryDelay <= 0 {
-		retryDelay = baseRetryWait
-	}
+	retryDelay := min(baseRetryWait*time.Duration(int(math.Pow(2, float64(item.RetryCount)))), 5*time.Minute)
 
 	return w.outboxRepo.MarkRetry(
 		ctx,

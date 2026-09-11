@@ -61,7 +61,6 @@ func (op *OutboxPool) Start(ctx context.Context) {
 					}
 				}
 			}
-
 		}(shard)
 	}
 }
