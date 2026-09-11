@@ -23,10 +23,6 @@ type messageDeliveryCloser interface {
 	Close(ctx context.Context)
 }
 
-type messageDeliveryFlusher interface {
-	FlushLargeRoomNotices(ctx context.Context)
-}
-
 type MessageHandler struct {
 	delivery MessageDelivery
 }
@@ -40,12 +36,6 @@ func NewMessageHandler(delivery MessageDelivery) *MessageHandler {
 func (handler *MessageHandler) Close(ctx context.Context) {
 	if closer, ok := handler.delivery.(messageDeliveryCloser); ok {
 		closer.Close(ctx)
-	}
-}
-
-func (handler *MessageHandler) FlushLargeRoomNotices(ctx context.Context) {
-	if flusher, ok := handler.delivery.(messageDeliveryFlusher); ok {
-		flusher.FlushLargeRoomNotices(ctx)
 	}
 }
 
