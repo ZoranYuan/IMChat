@@ -241,7 +241,7 @@ func NewConsumerGroup(
 	topicRouter *TopicRouter,
 	config configs.KafkaConsumerConfig,
 ) (*ConsumerGroup, error) {
-	if client == nil || client.Consumer == nil {
+	if client == nil || client.ConsumerGroup == nil {
 		return nil, ErrInvalidClient
 	}
 
@@ -261,7 +261,7 @@ func NewConsumerGroup(
 	}
 
 	group := &ConsumerGroup{
-		group:               client.Consumer,
+		group:               client.ConsumerGroup,
 		topics:              validTopics,
 		handlerRouter:       router,
 		topicRouter:         topicRouter,

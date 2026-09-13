@@ -7,8 +7,8 @@ import (
 )
 
 type Client struct {
-	Producer sarama.SyncProducer
-	Consumer sarama.ConsumerGroup
+	Producer      sarama.SyncProducer
+	ConsumerGroup sarama.ConsumerGroup
 }
 
 func NewClient(cfg configs.KafkaConfig) (*Client, error) {
@@ -41,8 +41,8 @@ func NewClient(cfg configs.KafkaConfig) (*Client, error) {
 	}
 
 	return &Client{
-		Producer: producer,
-		Consumer: consumer,
+		Producer:      producer,
+		ConsumerGroup: consumer,
 	}, nil
 }
 
@@ -52,8 +52,8 @@ func (client *Client) Close() error {
 	}
 
 	var firstErr error
-	if client.Consumer != nil {
-		firstErr = client.Consumer.Close()
+	if client.ConsumerGroup != nil {
+		firstErr = client.ConsumerGroup.Close()
 	}
 	if client.Producer != nil {
 		if err := client.Producer.Close(); firstErr == nil {
