@@ -97,7 +97,7 @@ let authBootstrapPromise = null;
 let historyRequestSequence = 0;
 
 /** 返回当前登录用户 ID，作为本地缓存和会话请求的隔离边界。 */
-const currentUserId = () => state.currentUser?.userId || state.currentUser?.id || "";
+const currentUserId = () => state.currentUser?.userId || "";
 
 /** 捕获当前认证代次，防止旧请求在切换用户后回写新会话数据。 */
 const captureSession = () => ({
@@ -596,6 +596,7 @@ export const useChatStore = defineStore("chat", () => {
       payload.durationMs = metadata.durationMs;
     }
     if (!payload.fileId) throw new Error("上传成功但未返回文件标识。");
+    // 文件上传后需要再次通过 ws 发送消息
     if (!wsClient.sendMessage(payload)) throw new Error("消息发送失败，请重新连接后重试。");
     return appendOutgoingMessage(conversation, payload);
   };

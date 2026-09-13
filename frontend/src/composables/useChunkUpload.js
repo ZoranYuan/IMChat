@@ -171,8 +171,10 @@ export function useChunkUpload(options = {}) {
       size: file.size,
       fileHash,
     });
+    // 如果之前已经传递过，后端会直接返回 fileId，此为秒传
     if (initialized.status === "completed") return { fileId: initialized.fileId };
 
+    // 之前没传递过，开始根据后端返回的 url 传递数
     uploadId.value = initialized.uploadId;
     status.value = "uploading";
     await uploadDirectObjectToStorage(initialized.url, file, (event) => {
@@ -191,6 +193,7 @@ export function useChunkUpload(options = {}) {
     totalBytes.value = file.size;
     try {
       let result;
+      // 选择直传还是分片上传，这个阈值需要前后端进行约定
       if (file.size < MULTIPART_THRESHOLD) {
         result = await uploadDirect(file);
       } else {
