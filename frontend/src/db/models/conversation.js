@@ -21,8 +21,16 @@ export const createConversationRecord = (
     if (!userId || !conversation.conversationId) return null;
 
     return {
-        // 保留后端 /conversations 返回的字段，不在前端重新改名。
-        ...conversation,
         userId,
+        conversationId: conversation.conversationId,
+        convType: conversation.convType,
+        targetId: conversation.targetId,
+        displayName: conversation.displayName,
+        avatar: conversation.avatar,
+        lastMessage: conversation.lastMessage,
+        peerUser: conversation.peerUser,
+        room: conversation.room,
+        // 本地消息同步边界，初始值为 0，之后由消息落库流程维护。
+        lastContinuousSeq: Number(conversation.lastContinuousSeq) || 0,
     };
 };
