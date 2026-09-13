@@ -80,7 +80,7 @@ func (w *Worker) dispatchPendingOnce(ctx context.Context) error {
 	var uploads []filerepo.FileUploadRecord
 	if err := w.txManager.WithinTransaction(ctx, func(tx any) error {
 		var err error
-		uploads, err = w.fileUploadRepo.WithTx(tx).ClaimExpired(ctx, now, staleBefore, w.batchSize)
+		uploads, err = w.fileUploadRepo.WithTx(tx).ClaimExpiredFileUploads(ctx, now, staleBefore, w.batchSize)
 		return err
 	}); err != nil {
 		return err
@@ -101,7 +101,7 @@ func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64, now int64
 	if w.fileRepo == nil {
 		return nil
 	}
-	files, err := w.fileRepo.ListOrphanCandidates(ctx, before, now, w.batchSize)
+	files, err := w.fileRepo.ListFilesEligibleForCleanup(ctx, before, now, w.batchSize)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64, now int64
 			continue
 		}
 		if file.Status == fileentity.FileStatusUploaded {
-			marked, err := w.fileRepo.MarkDeleting(ctx, file.FileId, before, now)
+			marked, err := w.fileRepo.MarkFileAsDeletingIfEligible(ctx, file.FileId, before, now)
 			if err != nil || !marked {
 				continue
 			}
@@ -122,7 +122,7 @@ func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64, now int64
 			log.Printf("删除未引用文件对象失败：文件=%s 错误=%v", file.FileId, err)
 			continue
 		}
-		deleted, err := w.fileRepo.DeleteDeleting(ctx, file.FileId)
+		deleted, err := w.fileRepo.DeleteFileIfMarkedDeleting(ctx, file.FileId)
 		if err != nil || !deleted {
 			log.Printf("删除未引用文件记录失败：文件=%s 错误=%v", file.FileId, err)
 			continue

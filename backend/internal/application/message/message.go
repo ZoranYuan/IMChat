@@ -303,7 +303,7 @@ func (ma *MessageApplication) normalizeMediaDTO(ctx context.Context, dto *SendMe
 		if dto.FileID == "" || ma.fileRepository == nil {
 			return fmt.Errorf("文件引用不能为空")
 		}
-		file, err := ma.fileRepository.FindUploadedByIDForUploader(ctx, dto.FileID, dto.SenderID)
+		file, err := ma.fileRepository.FindUploadedFileByIDAndUploader(ctx, dto.FileID, dto.SenderID)
 		if err != nil {
 			return err
 		}
@@ -826,7 +826,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMes
 		outboxRepo := ma.messageOutboxRepository.WithTx(tx)
 
 		if messagevo.CType(dto.Type) == messagevo.Image || messagevo.CType(dto.Type) == messagevo.Video || messagevo.CType(dto.Type) == messagevo.File {
-			lockedFile, lockErr := ma.fileRepository.WithTx(tx).FindUploadedByIDForUploaderForUpdate(ctx, dto.FileID, dto.SenderID)
+			lockedFile, lockErr := ma.fileRepository.WithTx(tx).FindUploadedFileByIDAndUploaderForUpdate(ctx, dto.FileID, dto.SenderID)
 			if lockErr != nil {
 				return lockErr
 			}
@@ -1606,7 +1606,7 @@ func (ma *MessageApplication) GetRoomVideoHistory(
 		if err != nil {
 			return nil, err
 		}
-		if file, err := ma.fileRepository.GetByID(ctx, item.VideoId); err == nil && file != nil && file.FileName != "" {
+		if file, err := ma.fileRepository.FindFileByID(ctx, item.VideoId); err == nil && file != nil && file.FileName != "" {
 			fileName = file.FileName
 		}
 

@@ -6,28 +6,28 @@ import (
 )
 
 type FileRepository interface {
-	Save(ctx context.Context, file *fileentity.File) error
-	GetByID(ctx context.Context, fileId string) (*fileentity.File, error)
-	FindUploadedByIDForUploader(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error)
-	FindUploadedByIDForUploaderForUpdate(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error)
-	FindByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (*fileentity.File, error)
-	BatchGetByIDs(ctx context.Context, fileIds []string) (map[string]*fileentity.File, error)
-	ListOrphanCandidates(ctx context.Context, before int64, now int64, limit int) ([]*fileentity.File, error)
-	MarkDeleting(ctx context.Context, fileId string, before int64, now int64) (bool, error)
-	DeleteDeleting(ctx context.Context, fileId string) (bool, error)
+	CreateFile(ctx context.Context, file *fileentity.File) error
+	FindFileByID(ctx context.Context, fileId string) (*fileentity.File, error)
+	FindUploadedFileByIDAndUploader(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error)
+	FindUploadedFileByIDAndUploaderForUpdate(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error)
+	FindUploadedFileByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (*fileentity.File, error)
+	FindFilesByFileIDs(ctx context.Context, fileIds []string) (map[string]*fileentity.File, error)
+	ListFilesEligibleForCleanup(ctx context.Context, before int64, now int64, limit int) ([]*fileentity.File, error)
+	MarkFileAsDeletingIfEligible(ctx context.Context, fileId string, before int64, now int64) (bool, error)
+	DeleteFileIfMarkedDeleting(ctx context.Context, fileId string) (bool, error)
 	WithTx(tx any) FileRepository
 }
 
 type FileUploadRepository interface {
-	Create(ctx context.Context, upload FileUploadRecord) error
-	GetByID(ctx context.Context, uploadId string) (*FileUploadRecord, error)
-	FindUploadingByUploaderAndHash(ctx context.Context, uploaderId, fileHash string, now int64) (*FileUploadRecord, error)
-	ClaimExpired(ctx context.Context, now int64, staleBefore int64, limit int) ([]FileUploadRecord, error)
+	CreateFileUpload(ctx context.Context, upload FileUploadRecord) error
+	FindFileUploadByID(ctx context.Context, uploadId string) (*FileUploadRecord, error)
+	FindActiveFileUploadByUploaderAndHash(ctx context.Context, uploaderId, fileHash string, now int64) (*FileUploadRecord, error)
+	ClaimExpiredFileUploads(ctx context.Context, now int64, staleBefore int64, limit int) ([]FileUploadRecord, error)
 	MarkExpired(ctx context.Context, uploadId, lockToken string, updatedAt int64) (bool, error)
 	MarkCleanupRetry(ctx context.Context, uploadId, lockToken string, nextRetryAt int64, lastError string, updatedAt int64) (bool, error)
 	MarkCleanupFailed(ctx context.Context, uploadId, lockToken string, lastError string, updatedAt int64) (bool, error)
 	MarkCompleted(ctx context.Context, uploadId, fileId string, completedAt int64) (bool, error)
-	Delete(ctx context.Context, uploadId string) error
+	DeleteFileUploadByID(ctx context.Context, uploadId string) error
 	WithTx(tx any) FileUploadRepository
 }
 

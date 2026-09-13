@@ -25,7 +25,7 @@ func (r *FileRepository) WithTx(tx any) filerepo.FileRepository {
 	return &FileRepository{db: tx.(*gorm.DB)}
 }
 
-func (r *FileRepository) Save(ctx context.Context, file *fileentity.File) error {
+func (r *FileRepository) CreateFile(ctx context.Context, file *fileentity.File) error {
 	err := r.db.WithContext(ctx).Create(toFileModel(file)).Error
 
 	var mysqlErr *mysqlDriver.MySQLError
@@ -39,7 +39,7 @@ func (r *FileRepository) Save(ctx context.Context, file *fileentity.File) error 
 	return err
 }
 
-func (r *FileRepository) GetByID(ctx context.Context, fileId string) (*fileentity.File, error) {
+func (r *FileRepository) FindFileByID(ctx context.Context, fileId string) (*fileentity.File, error) {
 	var m model.File
 	if err := r.db.WithContext(ctx).Where("file_id = ?", fileId).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -50,7 +50,7 @@ func (r *FileRepository) GetByID(ctx context.Context, fileId string) (*fileentit
 	return toFileDomain(&m), nil
 }
 
-func (r *FileRepository) FindUploadedByIDForUploader(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error) {
+func (r *FileRepository) FindUploadedFileByIDAndUploader(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error) {
 	if fileId == "" || uploaderId == "" {
 		return nil, nil
 	}
@@ -67,7 +67,9 @@ func (r *FileRepository) FindUploadedByIDForUploader(ctx context.Context, fileId
 	return toFileDomain(&m), nil
 }
 
-func (r *FileRepository) FindUploadedByIDForUploaderForUpdate(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error) {
+// FindUploadedFileByIDAndUploaderForUpdate 查询指定上传者拥有的已上传文件，并锁定该行。
+// 该方法必须在事务中调用，避免发送消息和文件清理任务并发修改同一文件状态。
+func (r *FileRepository) FindUploadedFileByIDAndUploaderForUpdate(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error) {
 	if fileId == "" || uploaderId == "" {
 		return nil, nil
 	}
@@ -84,7 +86,7 @@ func (r *FileRepository) FindUploadedByIDForUploaderForUpdate(ctx context.Contex
 	return toFileDomain(&m), nil
 }
 
-func (r *FileRepository) FindByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (*fileentity.File, error) {
+func (r *FileRepository) FindUploadedFileByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (*fileentity.File, error) {
 	if uploaderId == "" || fileHash == "" {
 		return nil, nil
 	}
@@ -100,7 +102,7 @@ func (r *FileRepository) FindByUploaderAndHash(ctx context.Context, uploaderId s
 	return toFileDomain(&m), nil
 }
 
-func (r *FileRepository) BatchGetByIDs(ctx context.Context, fileIds []string) (map[string]*fileentity.File, error) {
+func (r *FileRepository) FindFilesByFileIDs(ctx context.Context, fileIds []string) (map[string]*fileentity.File, error) {
 	if len(fileIds) == 0 {
 		return map[string]*fileentity.File{}, nil
 	}
@@ -115,7 +117,7 @@ func (r *FileRepository) BatchGetByIDs(ctx context.Context, fileIds []string) (m
 	return result, nil
 }
 
-func (r *FileRepository) ListOrphanCandidates(ctx context.Context, before int64, now int64, limit int) ([]*fileentity.File, error) {
+func (r *FileRepository) ListFilesEligibleForCleanup(ctx context.Context, before int64, now int64, limit int) ([]*fileentity.File, error) {
 	if limit <= 0 {
 		return []*fileentity.File{}, nil
 	}
@@ -137,7 +139,7 @@ func (r *FileRepository) ListOrphanCandidates(ctx context.Context, before int64,
 	return result, nil
 }
 
-func (r *FileRepository) MarkDeleting(ctx context.Context, fileId string, before int64, now int64) (bool, error) {
+func (r *FileRepository) MarkFileAsDeletingIfEligible(ctx context.Context, fileId string, before int64, now int64) (bool, error) {
 	result := r.db.WithContext(ctx).Model(&model.File{}).
 		Where("file_id = ? AND status = ? AND created_at < ?", fileId, fileentity.FileStatusUploaded, before).
 		Where("NOT EXISTS (SELECT 1 FROM message_attachments ma WHERE ma.file_id = ? AND ma.expire_at > ?)", fileId, now).
@@ -145,7 +147,7 @@ func (r *FileRepository) MarkDeleting(ctx context.Context, fileId string, before
 	return result.RowsAffected == 1, result.Error
 }
 
-func (r *FileRepository) DeleteDeleting(ctx context.Context, fileId string) (bool, error) {
+func (r *FileRepository) DeleteFileIfMarkedDeleting(ctx context.Context, fileId string) (bool, error) {
 	result := r.db.WithContext(ctx).Where("file_id = ? AND status = ?", fileId, fileentity.FileStatusDeleting).Delete(&model.File{})
 	return result.RowsAffected == 1, result.Error
 }
