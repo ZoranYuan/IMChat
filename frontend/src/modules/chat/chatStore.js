@@ -25,7 +25,6 @@ import {
   insertConversations,
   queryConversationsByUserId,
   replaceConversations,
-  updateConversationLastReadSeq,
 } from "../../db/services/conversationService.js";
 import {
   clearMessages,
@@ -126,10 +125,37 @@ const formatTime = (timestamp) => {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 };
 
-/** 只持久化已经获得服务端 seq 和 messageId 的确认消息。 */
-const persistConfirmedMessages = (messages) => (
-  insertMessages(confirmedMessages(messages))
-);
+/** 持久化确认消息，并同步更新当前会话的本地连续序号。 */
+const persistConfirmedMessages = async (
+  messages,
+  session = captureSession(),
+) => {
+  if (!isSessionActive(session)) return;
+
+  const result = await insertMessages(
+    confirmedMessages(messages),
+    { userId: session.userId },
+  );
+
+  if (!isSessionActive(session)) return result;
+
+  for (const [conversationId, seq] of Object.entries(
+    result?.lastContinuousSeqByConversation || {},
+  )) {
+    const conversation = findConversation(
+      state.conversations,
+      conversationId,
+    );
+    if (!conversation) continue;
+
+    conversation.lastContinuousSeq = Math.max(
+      Number(conversation.lastContinuousSeq) || 0,
+      Number(seq) || 0,
+    );
+  }
+
+  return result;
+};
 
 /** 将会话快照写入当前用户的本地会话表。 */
 const persistConversation = (conversation, session = captureSession()) => {
@@ -142,7 +168,9 @@ const messageSync = createMessageSyncService({
   getMessagesBySeqs,
   syncMessages,
   queryMessagesByCursor,
-  insertMessages,
+  insertMessages: (messages, session) => (
+    persistConfirmedMessages(messages, session)
+  ),
   canContinue: () => state.authenticated && currentUserId() !== "",
 });
 
@@ -162,7 +190,9 @@ const mergeMessages = async (
     return state.messages[conversationId] || [];
   }
   state.messages[conversationId] = mergedMessages;
-  if (persist && isSessionActive(session)) await persistConfirmedMessages(incoming);
+  if (persist && isSessionActive(session)) {
+    await persistConfirmedMessages(incoming, session);
+  }
   return state.messages[conversationId];
 };
 
@@ -199,7 +229,7 @@ const upsertIncomingMessage = (payload) => {
     if (storedMessage) attachmentResolver.resolve([storedMessage]).catch(() => { });
   }
 
-  persistConfirmedMessages([message]).catch(() => { });
+  persistConfirmedMessages([message], session).catch(() => { });
   applyIncomingMessageToConversation(conversation, message, { active });
   updateConversationList();
   persistConversation(conversation, session);
@@ -207,8 +237,9 @@ const upsertIncomingMessage = (payload) => {
 
 /** 将消息 ACK 应用到发送中的本地消息，并用服务端 seq 完成确认。 */
 const handleMessageAck = (ack) => {
+  const session = captureSession();
   const pending = pendingMessages.get(ack?.clientMsgId);
-  if (!pending) return;
+  if (!pending || !isSessionActive(session)) return;
 
   const conversationId = ack.conversationId || pending.conversationId;
   const updated = normalizeMessage({
@@ -232,7 +263,7 @@ const handleMessageAck = (ack) => {
     || (updated.clientMsgId && item.clientMsgId === updated.clientMsgId)
   ));
   if (storedMessage) attachmentResolver.resolve([storedMessage]).catch(() => { });
-  persistConfirmedMessages([updated]).catch(() => { });
+  persistConfirmedMessages([updated], session).catch(() => { });
 
   const conversation = findConversation(state.conversations, conversationId);
   if (conversation && updated.seq > 0) {
@@ -240,7 +271,7 @@ const handleMessageAck = (ack) => {
       active: state.activeConversationId === conversationId,
     });
     updateConversationList();
-    persistConversation(conversation);
+    persistConversation(conversation, session);
   }
 };
 
@@ -263,12 +294,25 @@ const handleReadNotify = (receipt) => {
   }
 };
 
-/** 从服务端刷新会话快照，并替换当前用户的本地会话数据。 */
+/** 从服务端刷新会话快照，并保留内存中的本地连续序号。 */
 const refreshConversationSnapshot = async (session = captureSession()) => {
   const items = await getConversations();
   if (!isSessionActive(session)) return [];
 
-  const conversations = sortConversations(items || []);
+  const localContinuousSeqByConversation = new Map(
+    state.conversations.map((conversation) => [
+      conversation.conversationId,
+      Number(conversation.lastContinuousSeq) || 0,
+    ]),
+  );
+  const conversations = sortConversations(
+    (items || []).map((conversation) => ({
+      ...conversation,
+      lastContinuousSeq: localContinuousSeqByConversation.get(
+        conversation.conversationId,
+      ) || 0,
+    })),
+  );
   state.conversations = conversations;
   if (!findConversation(conversations, state.activeConversationId)) {
     state.activeConversationId = "";
@@ -277,7 +321,7 @@ const refreshConversationSnapshot = async (session = captureSession()) => {
   return conversations;
 };
 
-/** 按会话已读边界同步缺失消息，并更新内存和本地消息缓存。 */
+/** 按本地连续序号同步缺失消息，并更新内存和本地消息缓存。 */
 const syncConversation = async (conversationId, { force = false } = {}) => {
   const session = captureSession();
   if (!conversationId || !isSessionActive(session)) return;
@@ -285,12 +329,18 @@ const syncConversation = async (conversationId, { force = false } = {}) => {
   const conversation = findConversation(state.conversations, conversationId);
   if (!conversation) return;
 
-  const lastReadSeq = Number(conversation.lastReadSeq) || 0;
+  const lastContinuousSeq = Number(
+    conversation.lastContinuousSeq,
+  ) || 0;
   const latestSeq = Number(conversation.latestSeq) || 0;
-  if (!force && latestSeq <= lastReadSeq) return;
+  if (!force && latestSeq <= lastContinuousSeq) return;
 
   const scope = `${session.userId}:${session.generation}`;
-  const data = await messageSync.syncAfter(conversationId, lastReadSeq, scope);
+  const data = await messageSync.syncAfter(
+    conversationId,
+    lastContinuousSeq,
+    scope,
+  );
   if (!isSessionActive(session)) return;
 
   const messages = data?.messages || [];
@@ -298,7 +348,7 @@ const syncConversation = async (conversationId, { force = false } = {}) => {
   if (state.activeConversationId === conversationId) {
     await mergeMessages(conversationId, messages, { session });
   } else {
-    await persistConfirmedMessages(messages);
+    await persistConfirmedMessages(messages, session);
   }
 
   if (messages.length) {
@@ -446,8 +496,21 @@ export const useChatStore = defineStore("chat", () => {
       if (!isSessionActive(session)) return;
       if (!remoteResult.ok && !cachedConversations.length) throw remoteResult.error;
 
+      const cachedContinuousSeqByConversation = new Map(
+        cachedConversations.map((conversation) => [
+          conversation.conversationId,
+          Number(conversation.lastContinuousSeq) || 0,
+        ]),
+      );
       const conversations = sortConversations(
-        remoteResult.ok ? remoteResult.value : cachedConversations,
+        remoteResult.ok
+          ? (remoteResult.value || []).map((conversation) => ({
+            ...conversation,
+            lastContinuousSeq: cachedContinuousSeqByConversation.get(
+              conversation.conversationId,
+            ) || 0,
+          }))
+          : cachedConversations,
       );
       state.conversations = conversations;
       if (remoteResult.ok) {
@@ -502,6 +565,7 @@ export const useChatStore = defineStore("chat", () => {
         limit: HISTORY_PAGE_SIZE,
         latestSeq: Number(conversation?.latestSeq) || 0,
         scope: `${session.userId}:${session.generation}`,
+        insertContext: session,
         requestCanContinue: () => isSessionActive(session),
       });
       if (!isSessionActive(session) || state.activeConversationId !== conversationId) return;
@@ -622,11 +686,6 @@ export const useChatStore = defineStore("chat", () => {
 
     conversation.lastReadSeq = Math.max(lastReadSeq, readSeq);
     conversation.unread = Math.max(latestSeq - conversation.lastReadSeq, 0);
-    updateConversationLastReadSeq({
-      userId: currentUserId(),
-      conversationId: conversation.conversationId,
-      lastReadSeq: conversation.lastReadSeq,
-    }).catch(() => { });
   };
 
   const clearConversation = async (conversationId) => {
