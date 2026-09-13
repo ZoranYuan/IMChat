@@ -8,12 +8,6 @@ import {
     openIndexedDb,
 } from "./indexedDb.js";
 
-/** 合并已有本地会话和最新会话快照，保留未被服务端覆盖的本地字段。 */
-const mergeConversationRecord = (oldRecord, nextRecord) => ({
-    ...oldRecord,
-    ...nextRecord,
-});
-
 /** 在一个 IndexedDB 事务中批量新增或更新用户会话。 */
 export const insertConversations = async (userId, conversations) => {
     if (!userId || !conversations?.length) return;
@@ -27,11 +21,7 @@ export const insertConversations = async (userId, conversations) => {
             const record = createConversationRecord(userId, conversation);
             if (!record) continue;
 
-            const readRequest = store.get([userId, record.conversationId]);
-            readRequest.onsuccess = () => {
-                store.put(mergeConversationRecord(readRequest.result, record));
-            };
-            readRequest.onerror = () => reject(readRequest.error);
+            store.put(record);
         }
 
         transaction.oncomplete = () => {
@@ -103,47 +93,6 @@ export const queryConversationsByUserId = async (userId) => {
         };
         request.onerror = () => reject(request.error);
         transaction.oncomplete = () => closeIndexedDb(db);
-        transaction.onerror = () => {
-            closeIndexedDb(db);
-            reject(transaction.error);
-        };
-    });
-};
-
-/** 更新本地会话的已读序号，并重新计算本地未读数。 */
-export const updateConversationLastReadSeq = async ({ userId, conversationId, lastReadSeq }) => {
-    if (!userId || !conversationId || Number(lastReadSeq) <= 0) return;
-
-    const db = await openIndexedDb();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction(CONVERSATION_STORE_NAME, "readwrite");
-        const store = transaction.objectStore(CONVERSATION_STORE_NAME);
-        const key = [userId, conversationId];
-        const readRequest = store.get(key);
-
-        readRequest.onsuccess = () => {
-            const oldRecord = readRequest.result || {
-                userId,
-                conversationId,
-            };
-            const nextLastReadSeq = Math.max(
-                Number(oldRecord.lastReadSeq) || 0,
-                Number(lastReadSeq),
-            );
-            store.put({
-                ...oldRecord,
-                lastReadSeq: nextLastReadSeq,
-                unread: Math.max(
-                    (Number(oldRecord.latestSeq) || 0) - nextLastReadSeq,
-                    0,
-                ),
-            });
-        };
-        readRequest.onerror = () => reject(readRequest.error);
-        transaction.oncomplete = () => {
-            closeIndexedDb(db);
-            resolve();
-        };
         transaction.onerror = () => {
             closeIndexedDb(db);
             reject(transaction.error);
