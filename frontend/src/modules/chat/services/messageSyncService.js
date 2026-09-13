@@ -47,6 +47,7 @@ export const createMessageSyncService = ({
     limit,
     latestSeq,
     requestCanContinue,
+    insertContext,
   ) => {
     let page = await queryMessagesByCursor({ conversationId, cursor, limit });
     const missingSeqs = page.messages.length
@@ -58,7 +59,7 @@ export const createMessageSyncService = ({
       if (!requestCanContinue()) return page;
       const missingMessages = data?.messages || [];
       if (missingMessages.length) {
-        await insertMessages(missingMessages);
+        await insertMessages(missingMessages, insertContext);
         page = await queryMessagesByCursor({ conversationId, cursor, limit });
       }
     }
@@ -85,6 +86,7 @@ export const createMessageSyncService = ({
     limit = DEFAULT_HISTORY_PAGE_SIZE,
     latestSeq = 0,
     scope = "",
+    insertContext,
     requestCanContinue = canContinue,
   }) => {
     const page = await queryLocalPage(
@@ -93,6 +95,7 @@ export const createMessageSyncService = ({
       limit,
       latestSeq,
       requestCanContinue,
+      insertContext,
     );
     const metadataKey = `${scope}:${conversationId}:${Number(cursor) || 0}:${limit}`;
     const knownMetadata = historyMetadata.get(metadataKey);
@@ -108,7 +111,9 @@ export const createMessageSyncService = ({
     const remote = await remoteHistoryPage(conversationId, cursor, limit, scope);
     if (!requestCanContinue()) return emptyHistoryPage();
     const remoteMessages = remote?.messages || [];
-    if (remoteMessages.length) await insertMessages(remoteMessages);
+    if (remoteMessages.length) {
+      await insertMessages(remoteMessages, insertContext);
+    }
 
     historyMetadata.set(metadataKey, {
       hasMore: Boolean(remote?.hasMore),
@@ -124,6 +129,7 @@ export const createMessageSyncService = ({
         limit,
         latestSeq,
         requestCanContinue,
+        insertContext,
       )
       : emptyHistoryPage();
 
