@@ -19,7 +19,6 @@ export const createMessageRecord = (message) => {
     }
 
     return {
-        // 只持久化消息本身和附件关联，不持久化临时签名 URL 或附件卡片信息。
         messageId: message.messageId,
         conversationId: message.conversationId,
         senderId: message.senderId || "",
@@ -27,6 +26,8 @@ export const createMessageRecord = (message) => {
         seq,
         cType: Number(message.cType) || 1,
         content: message.content || "",
+
+        // 弹幕相关接口兼容
         videoId: message.videoId || "",
         videoTime: message.videoTime ?? null,
         status: message.status || "sent",
