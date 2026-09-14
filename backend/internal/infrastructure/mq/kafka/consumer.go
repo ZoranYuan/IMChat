@@ -21,13 +21,28 @@ var (
 )
 
 type ConsumerRouter struct {
-	handlers        map[string]eventbus.Handler
-	inbox           inboxport.InboxRepository
-	txManager       txmanager.TxManager
-	inboxStaleAfter time.Duration
+	handlers            map[string]eventbus.Handler
+	inbox               inboxport.InboxRepository
+	txManager           txmanager.TxManager
+	inboxStaleAfter     time.Duration
+	maxInboxRetries     int
+	deadLetterPublisher eventbus.Publisher
+	deadLetterSuffix    string
 }
 
-func NewConsumerRouter(handlers map[string]eventbus.Handler, inbox inboxport.InboxRepository, txManager txmanager.TxManager, config configs.KafkaConsumerConfig) *ConsumerRouter {
+type inboxClaim struct {
+	claimed    bool
+	lockToken  string
+	retryCount int
+}
+
+func NewConsumerRouter(
+	handlers map[string]eventbus.Handler,
+	inbox inboxport.InboxRepository,
+	txManager txmanager.TxManager,
+	config configs.KafkaConsumerConfig,
+	deadLetterPublisher eventbus.Publisher,
+) *ConsumerRouter {
 	registered := make(map[string]eventbus.Handler, len(handlers))
 	for eventName, handler := range handlers {
 		if eventName == "" || handler == nil {
@@ -37,70 +52,165 @@ func NewConsumerRouter(handlers map[string]eventbus.Handler, inbox inboxport.Inb
 		registered[eventName] = handler
 	}
 	return &ConsumerRouter{
-		handlers:        registered,
-		inbox:           inbox,
-		txManager:       txManager,
-		inboxStaleAfter: time.Duration(config.InboxStaleAfterSecs) * time.Second,
+		handlers:            registered,
+		inbox:               inbox,
+		txManager:           txManager,
+		inboxStaleAfter:     time.Duration(config.InboxStaleAfterSecs) * time.Second,
+		maxInboxRetries:     config.MaxInboxRetries,
+		deadLetterPublisher: deadLetterPublisher,
+		deadLetterSuffix:    config.DeadLetterSuffix,
 	}
 }
 
-func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEvent) (string, int, error) {
+func (r *ConsumerRouter) claim(ctx context.Context, message eventbus.IncomingEvent) (inboxClaim, error) {
 	if r == nil {
-		return "", 0, ErrHandlerNotFound
+		return inboxClaim{}, ErrHandlerNotFound
+	}
+
+	if _, ok := r.handlers[message.Name]; !ok {
+		return inboxClaim{}, eventbus.NonRetryable(ErrHandlerNotFound)
+	}
+
+	claim := inboxClaim{
+		claimed:    true,
+		retryCount: 1,
+	}
+	if r.inbox != nil && message.EventID != "" {
+		if r.txManager == nil {
+			return inboxClaim{}, errors.New("Inbox 事务管理器未配置")
+		}
+		now := time.Now()
+		err := r.txManager.WithinTransaction(ctx, func(tx any) error {
+			var err error
+			claim.claimed, claim.lockToken, claim.retryCount, err = r.inbox.WithTx(tx).TryClaim(
+				ctx,
+				message.EventID,
+				string(message.Name),
+				now,
+				now.Add(-r.inboxStaleAfter),
+			)
+			return err
+		})
+		if err != nil {
+			return claim, err
+		}
+	}
+	return claim, nil
+}
+
+func (r *ConsumerRouter) execute(ctx context.Context, message eventbus.IncomingEvent) error {
+	if r == nil {
+		return ErrHandlerNotFound
 	}
 
 	handler, ok := r.handlers[message.Name]
 	if !ok {
-		return "", 0, ErrHandlerNotFound
+		return eventbus.NonRetryable(ErrHandlerNotFound)
+	}
+	return handler.Handle(ctx, message)
+}
+
+func (r *ConsumerRouter) publishDeadLetter(ctx context.Context, message eventbus.IncomingEvent) error {
+	if r == nil || r.deadLetterPublisher == nil {
+		return errors.New("死信发布器未配置")
 	}
 
-	claimed := true
-	lockToken := ""
-	retryCount := 1
-	if r.inbox != nil && message.EventID != "" {
-		if r.txManager == nil {
-			return "", 0, errors.New("Inbox 事务管理器未配置")
-		}
-		now := time.Now()
-		var err error
-		err = r.txManager.WithinTransaction(ctx, func(tx any) error {
-			claimed, lockToken, retryCount, err = r.inbox.WithTx(tx).TryClaim(ctx, message.EventID, string(message.Name), now, now.Add(-r.inboxStaleAfter))
-			return err
-		})
-		if err != nil {
-			return "", retryCount, err
-		}
-		if !claimed {
-			return "", retryCount, nil
-		}
+	if err := r.deadLetterPublisher.Publish(
+		ctx,
+		eventbus.IntegrationEvent{
+			EventID:      message.EventID,
+			Name:         message.Name + r.deadLetterSuffix,
+			PartitionKey: string(message.Key),
+			Payload:      cloneBytes(message.Payload),
+		},
+	); err != nil {
+		return fmt.Errorf("发布死信消息失败：%w", err)
 	}
 
-	err := handler.Handle(ctx, message)
+	return nil
+}
+
+func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEvent) error {
+	inboxState, err := r.claim(ctx, message)
 	if err != nil {
-		return lockToken, retryCount, err
+		if eventbus.IsNonRetryable(err) {
+			if publishErr := r.publishDeadLetter(ctx, message); publishErr != nil {
+				return publishErr
+			}
+			return nil
+		}
+
+		log.Printf("消息抢占失败：event_id=%s，error=%v", message.EventID, err)
+		return err
 	}
 
-	if r.inbox != nil && message.EventID != "" {
-		if err := r.inbox.MarkCompleted(ctx, message.EventID, lockToken, time.Now()); err != nil {
-			return lockToken, retryCount, fmt.Errorf("标记 Inbox 完成状态失败：%w", err)
-		}
+	// 已经 completed 或 dead，不需要重复执行业务逻辑。
+	if !inboxState.claimed {
+		return nil
 	}
-	return lockToken, retryCount, nil
+
+	handlerErr := r.execute(ctx, message)
+	if handlerErr != nil {
+		if eventbus.IsNonRetryable(handlerErr) ||
+			(r.maxInboxRetries > 0 && inboxState.retryCount >= r.maxInboxRetries) {
+			if err := r.publishDeadLetter(ctx, message); err != nil {
+				return err
+			}
+			if err := r.markDead(ctx, message, inboxState.lockToken, handlerErr.Error()); err != nil {
+				return fmt.Errorf("标记 Inbox 死信状态失败：%w", err)
+			}
+			log.Printf(
+				"消息进入死信队列：event_id=%s，retry_count=%d，error=%v",
+				message.EventID,
+				inboxState.retryCount,
+				handlerErr,
+			)
+			return nil
+		}
+
+		if err := r.markRetry(ctx, message, inboxState.lockToken, handlerErr.Error()); err != nil {
+			return fmt.Errorf("释放 Inbox 重试租约失败：%w", err)
+		}
+
+		log.Printf(
+			"消息处理失败，等待 Kafka 重新投递：event_id=%s，error=%v",
+			message.EventID,
+			handlerErr,
+		)
+		return handlerErr
+	}
+
+	if err := r.markCompleted(ctx, message, inboxState.lockToken); err != nil {
+		return fmt.Errorf("标记 Inbox 完成状态失败：%w", err)
+	}
+
+	return nil
+}
+
+func (r *ConsumerRouter) markRetry(ctx context.Context, message eventbus.IncomingEvent, lockToken, lastError string) error {
+	if r == nil || r.inbox == nil || message.EventID == "" || lockToken == "" {
+		return nil
+	}
+	return r.inbox.MarkRetry(ctx, message.EventID, lockToken, lastError)
 }
 
 func (r *ConsumerRouter) markDead(ctx context.Context, message eventbus.IncomingEvent, lockToken, lastError string) error {
-	if r == nil || r.inbox == nil || message.EventID == "" {
+	if r == nil || r.inbox == nil || message.EventID == "" || lockToken == "" {
 		return nil
 	}
 	return r.inbox.MarkDead(ctx, message.EventID, lockToken, lastError, time.Now())
 }
 
+func (r *ConsumerRouter) markCompleted(ctx context.Context, message eventbus.IncomingEvent, lockToken string) error {
+	if r == nil || r.inbox == nil || message.EventID == "" || lockToken == "" {
+		return nil
+	}
+	return r.inbox.MarkCompleted(ctx, message.EventID, lockToken, time.Now())
+}
+
 type saramaAdapter struct {
-	router              *ConsumerRouter
-	topicRouter         *TopicRouter
-	maxInboxRetries     int
-	deadLetterPublisher eventbus.Publisher
-	deadLetterSuffix    string
+	router      *ConsumerRouter
+	topicRouter *TopicRouter
 }
 
 func cloneBytes(data []byte) []byte {
@@ -130,10 +240,12 @@ func (h saramaAdapter) ConsumeClaim(
 	session sarama.ConsumerGroupSession,
 	claim sarama.ConsumerGroupClaim,
 ) error {
+	ctx := session.Context()
+
 	for {
 		select {
-		case <-session.Context().Done():
-			return session.Context().Err()
+		case <-ctx.Done():
+			return ctx.Err()
 		case message, ok := <-claim.Messages():
 			if !ok {
 				return nil
@@ -145,49 +257,18 @@ func (h saramaAdapter) ConsumeClaim(
 				return mapErr
 			}
 
-			lockToken, retryCount, err := h.router.handle(session.Context(),
-				eventbus.IncomingEvent{
-					EventID: eventID,
-					Name:    eventName,
+			incomingEvent := eventbus.IncomingEvent{
+				EventID: eventID,
+				Name:    eventName,
+				// 复制数据，避免业务层继续持有 Sarama 内部消息切片。
+				Key:     cloneBytes(message.Key),
+				Payload: cloneBytes(message.Value),
+			}
 
-					// 复制数据，避免业务层继续持有 Sarama 内部消息切片。
-					Key:     cloneBytes(message.Key),
-					Payload: cloneBytes(message.Value),
-				})
-
-			if err != nil {
-				if eventbus.IsNonRetryable(err) || (h.maxInboxRetries > 0 && retryCount >= h.maxInboxRetries) {
-					if h.deadLetterPublisher == nil {
-						return fmt.Errorf("死信发布器未配置：%w", err)
-					}
-					if publishErr := h.deadLetterPublisher.Publish(
-						session.Context(),
-						eventbus.IntegrationEvent{
-							EventID:      eventID,
-							Name:         eventName + h.deadLetterSuffix,
-							PartitionKey: string(message.Key),
-							Payload:      cloneBytes(message.Value),
-						},
-					); publishErr != nil {
-						return fmt.Errorf("发布死信消息失败：%w", publishErr)
-					}
-					if markErr := h.router.markDead(session.Context(), eventbus.IncomingEvent{
-						EventID: eventID,
-						Name:    eventName,
-					}, lockToken, err.Error()); markErr != nil {
-						return fmt.Errorf("标记 Inbox 死信状态失败：%w", markErr)
-					}
-					log.Printf(
-						"消息已转入死信队列：主题=%s 分区=%d 偏移量=%d 错误=%v",
-						message.Topic,
-						message.Partition,
-						message.Offset,
-						err,
-					)
-					session.MarkMessage(message, "")
-					continue
+			if err := h.router.handle(ctx, incomingEvent); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
 				}
-				// 不调用 MarkMessage，当前 offset 不会被当前处理流程提交。
 				return fmt.Errorf(
 					"处理消息队列消息失败：主题=%s 分区=%d 偏移量=%d：%w",
 					message.Topic,
@@ -203,14 +284,11 @@ func (h saramaAdapter) ConsumeClaim(
 }
 
 type ConsumerGroup struct {
-	group               sarama.ConsumerGroup
-	topicRouter         *TopicRouter
-	maxInboxRetries     int
-	topics              []string
-	handlerRouter       *ConsumerRouter
-	retryInterval       time.Duration
-	deadLetterPublisher eventbus.Publisher
-	deadLetterSuffix    string
+	group         sarama.ConsumerGroup
+	topicRouter   *TopicRouter
+	topics        []string
+	handlerRouter *ConsumerRouter
+	retryInterval time.Duration
 }
 
 func normalizeTopics(topics []string) []string {
@@ -237,7 +315,6 @@ func NewConsumerGroup(
 	client *Client,
 	topics []string,
 	router *ConsumerRouter,
-	deadLetterPublisher eventbus.Publisher,
 	topicRouter *TopicRouter,
 	config configs.KafkaConsumerConfig,
 ) (*ConsumerGroup, error) {
@@ -261,14 +338,11 @@ func NewConsumerGroup(
 	}
 
 	group := &ConsumerGroup{
-		group:               client.ConsumerGroup,
-		topics:              validTopics,
-		handlerRouter:       router,
-		topicRouter:         topicRouter,
-		maxInboxRetries:     config.MaxInboxRetries,
-		retryInterval:       time.Duration(config.ConsumeRetryIntervalSecs) * time.Second,
-		deadLetterPublisher: deadLetterPublisher,
-		deadLetterSuffix:    config.DeadLetterSuffix,
+		group:         client.ConsumerGroup,
+		topics:        validTopics,
+		handlerRouter: router,
+		topicRouter:   topicRouter,
+		retryInterval: time.Duration(config.ConsumeRetryIntervalSecs) * time.Second,
 	}
 	return group, nil
 }
@@ -278,11 +352,8 @@ func (c *ConsumerGroup) Start(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	handler := saramaAdapter{
-		router:              c.handlerRouter,
-		topicRouter:         c.topicRouter,
-		maxInboxRetries:     c.maxInboxRetries,
-		deadLetterPublisher: c.deadLetterPublisher,
-		deadLetterSuffix:    c.deadLetterSuffix,
+		router:      c.handlerRouter,
+		topicRouter: c.topicRouter,
 	}
 	for ctx.Err() == nil {
 		if err := c.group.Consume(ctx, c.topics, handler); err != nil {

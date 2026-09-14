@@ -278,11 +278,11 @@ func main() {
 		inboxRepository,
 		txManager,
 		cfg.Kafka.Consumer,
+		messageProducer,
 	)
 
 	messageConsumerGroup, err := kafka.NewConsumerGroup(kafkaClient, topicRouter.Topics(),
 		consumerRouter,
-		messageProducer,
 		topicRouter,
 		cfg.Kafka.Consumer,
 	)
