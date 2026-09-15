@@ -1,9 +1,7 @@
 import { computed, ref } from "vue";
 import {
-  completeDirectUpload,
-  completeMultipartUpload,
-  initDirectUpload,
-  initMultipartUpload,
+  completeUpload,
+  initUpload,
   presignMultipartParts,
   uploadDirectObjectToStorage,
   uploadMultipartPartToStorage,
@@ -11,14 +9,18 @@ import {
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 const DEFAULT_CONCURRENCY = 3;
-const MULTIPART_THRESHOLD = 8 * 1024 * 1024;
+const DEFAULT_MAX_FILE_SIZE = 1024 * 1024 * 1024;
+const DEFAULT_MAX_HASH_FILE_SIZE = 512 * 1024 * 1024;
+const HASH_MEMORY_MULTIPLIER = 2;
+const DEVICE_HASH_MEMORY_RATIO = 0.25;
 const MAX_RETRIES = 3;
 const MAX_COMPLETE_REPAIR_ROUNDS = 2;
-const FINGERPRINT_SAMPLE_SIZE = 2 * 1024 * 1024;
 
 export function useChunkUpload(options = {}) {
   const chunkSize = options.chunkSize || DEFAULT_CHUNK_SIZE;
   const concurrency = options.concurrency || DEFAULT_CONCURRENCY;
+  const maxFileSize = options.maxFileSize || DEFAULT_MAX_FILE_SIZE;
+  const maxHashFileSize = options.maxHashFileSize || DEFAULT_MAX_HASH_FILE_SIZE;
   const status = ref("idle");
   const progress = ref(0);
   const uploadedBytes = ref(0);
@@ -106,7 +108,11 @@ export function useChunkUpload(options = {}) {
     for (let round = 0; round <= MAX_COMPLETE_REPAIR_ROUNDS; round += 1) {
       try {
         status.value = "completing";
-        return await completeMultipartUpload(currentUploadId);
+        const result = await completeUpload(currentUploadId);
+        if (result?.status !== "completed" || !result.fileId) {
+          throw new Error("合并成功但未返回文件标识。");
+        }
+        return result;
       } catch (completeError) {
         const repairParts = incompletePartNumbers(completeError);
         if (!repairParts.length || round === MAX_COMPLETE_REPAIR_ROUNDS) throw completeError;
@@ -117,20 +123,14 @@ export function useChunkUpload(options = {}) {
     throw new Error("合并文件失败");
   };
 
-  const uploadMultipart = async (file) => {
-    status.value = "hashing";
-    const fileHash = await createFileFingerprint(file);
+  const uploadMultipart = async (file, initialized) => {
     const totalChunks = Math.ceil(file.size / chunkSize);
-    status.value = "initializing";
-    const initialized = await initMultipartUpload({
-      fileName: file.name,
-      contentType: file.type || "application/octet-stream",
-      size: file.size,
-      fileHash,
-      chunkSize,
-      totalChunks,
-    });
-    if (initialized.status === "completed") return { fileId: initialized.fileId };
+    if (initialized.status === "completed" && initialized.fileId) {
+      return { fileId: initialized.fileId, status: initialized.status };
+    }
+    if (initialized.status === "completed") {
+      throw new Error("秒传响应缺少文件标识。");
+    }
 
     uploadId.value = initialized.uploadId;
     const completedParts = new Set(initialized.uploadedParts || []);
@@ -161,18 +161,14 @@ export function useChunkUpload(options = {}) {
   };
 
   // 小文件前端直接传递
-  const uploadDirect = async (file) => {
-    status.value = "hashing";
-    const fileHash = await createActualSHA256(file);
-    status.value = "initializing";
-    const initialized = await initDirectUpload({
-      fileName: file.name,
-      contentType: file.type || "application/octet-stream",
-      size: file.size,
-      fileHash,
-    });
-    // 如果之前已经传递过，后端会直接返回 fileId，此为秒传
-    if (initialized.status === "completed") return { fileId: initialized.fileId };
+  const uploadDirect = async (file, initialized) => {
+    // 只有秒传命中时才会返回 fileId；普通直传初始化不会返回 fileId。
+    if (initialized.status === "completed" && initialized.fileId) {
+      return { fileId: initialized.fileId, status: initialized.status };
+    }
+    if (initialized.status === "completed") {
+      throw new Error("秒传响应缺少文件标识。");
+    }
 
     // 之前没传递过，开始根据后端返回的 url 传递数
     uploadId.value = initialized.uploadId;
@@ -184,20 +180,48 @@ export function useChunkUpload(options = {}) {
       }
     });
     status.value = "completing";
-    return completeDirectUpload(initialized.uploadId);
+    const result = await completeUpload(initialized.uploadId);
+    if (result?.status !== "completed" || !result.fileId) {
+      throw new Error("上传完成但未返回文件标识。");
+    }
+    return result;
   };
 
   const upload = async (file) => {
     reset();
-    if (!file || file.size <= 0) throw new Error("文件不能为空");
-    totalBytes.value = file.size;
     try {
+      if (!file || file.size <= 0) throw new Error("文件不能为空");
+      assertFileCanBeHashed(file, maxFileSize, maxHashFileSize);
+      totalBytes.value = file.size;
+
+      status.value = "hashing";
+      const fileHash = await createActualSHA256(file);
+      const totalChunks = Math.ceil(file.size / chunkSize);
+      status.value = "initializing";
+      const initialized = await initUpload({
+        fileName: file.name,
+        contentType: file.type || "application/octet-stream",
+        size: file.size,
+        fileHash,
+        chunkSize,
+        totalChunks,
+      });
+
+      if (initialized.status === "completed" && initialized.fileId) {
+        uploadedBytes.value = file.size;
+        return { fileId: initialized.fileId, status: initialized.status };
+      }
+      if (initialized.status === "completed") {
+        throw new Error("秒传响应缺少文件标识。");
+      }
+
       let result;
-      // 选择直传还是分片上传，这个阈值需要前后端进行约定
-      if (file.size < MULTIPART_THRESHOLD) {
-        result = await uploadDirect(file);
+      if (initialized.uploadMode === "direct") {
+        result = await uploadDirect(file, initialized);
+      } else if (initialized.uploadMode === "multipart") {
+        result = await uploadMultipart(file, initialized);
       } else {
-        result = await uploadMultipart(file);
+        throw new Error("服务端返回了未知的上传模式。");
       }
       if (canceled.value) throw new Error("上传已取消");
       uploadedBytes.value = file.size;
@@ -245,30 +269,29 @@ export function useChunkUpload(options = {}) {
   };
 }
 
-async function createFileFingerprint(file) {
-  const sampleSize = FINGERPRINT_SAMPLE_SIZE;
-  const samples = file.size <= sampleSize * 3
-    ? [file]
-    : [
-      file.slice(0, sampleSize),
-      file.slice(Math.floor(file.size / 2 - sampleSize / 2), Math.floor(file.size / 2 + sampleSize / 2)),
-      file.slice(file.size - sampleSize, file.size),
-    ];
-  const buffers = await Promise.all(samples.map((sample) => sample.arrayBuffer()));
-  const metadata = new TextEncoder().encode([file.name, file.size, file.type, file.lastModified].join("|"));
-  const size = buffers.reduce((total, buffer) => total + buffer.byteLength, metadata.byteLength);
-  const payload = new Uint8Array(size);
-  payload.set(metadata);
-  let offset = metadata.byteLength;
-  buffers.forEach((buffer) => {
-    payload.set(new Uint8Array(buffer), offset);
-    offset += buffer.byteLength;
-  });
-  return digest(payload);
-}
-
 async function createActualSHA256(file) {
   return digest(await file.arrayBuffer());
+}
+
+function assertFileCanBeHashed(file, maxFileSize, maxHashFileSize) {
+  if (file.size > maxFileSize) {
+    throw new Error("文件大小超过允许上传的上限。");
+  }
+
+  if (file.size > maxHashFileSize) {
+    throw new Error("当前设备不适合在浏览器中计算该文件的完整 Hash。");
+  }
+
+  const deviceMemoryGB = Number(globalThis.navigator?.deviceMemory);
+  if (!Number.isFinite(deviceMemoryGB) || deviceMemoryGB <= 0) return;
+
+  const estimatedHashMemory = file.size * HASH_MEMORY_MULTIPLIER;
+  const deviceHashMemoryLimit = deviceMemoryGB
+    * 1024 * 1024 * 1024
+    * DEVICE_HASH_MEMORY_RATIO;
+  if (estimatedHashMemory > deviceHashMemoryLimit) {
+    throw new Error("当前设备可用内存不足，无法安全计算该文件的完整 Hash。");
+  }
 }
 
 const digest = async (buffer) => {
@@ -278,7 +301,7 @@ const digest = async (buffer) => {
 const sleep = (duration) => new Promise((resolve) => window.setTimeout(resolve, duration));
 
 function incompletePartNumbers(error) {
-  if (error?.status !== 409) return [];
+  if (error?.status !== 409 || error.data?.status !== "uploading") return [];
   const data = error.data || {};
   const numbers = [...(data.missingParts || []), ...(data.invalidParts || [])]
     .map((partNumber) => Number(partNumber))

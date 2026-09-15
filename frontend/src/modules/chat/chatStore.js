@@ -19,7 +19,7 @@ import {
   updateUserProfile,
 } from "../../api.js";
 import { useChunkUpload } from "../../composables/useChunkUpload.js";
-import { MessageType, UploadableMessageTypes } from "../../constants/message.js";
+import { MessageType } from "../../constants/message.js";
 import {
   clearConversations,
   insertConversations,
@@ -38,6 +38,7 @@ import {
 } from "../../mocks/chat.js";
 import { createWsClient } from "../../services/wsClient.js";
 import { createAttachmentResolver } from "./services/attachmentService.js";
+import { createMediaUploadService } from "./services/mediaUploadService.js";
 import {
   authUserProfile,
   clone,
@@ -56,8 +57,6 @@ import {
   createClientMessageId,
   createConversationPreview,
   createOutgoingMessage,
-  getImageDimensions,
-  getVideoMetadata,
 } from "./utils/messageComposer.js";
 import {
   confirmedMessages,
@@ -87,6 +86,7 @@ const state = reactive({
 
 const attachmentResolver = createAttachmentResolver(getAttachmentAccessURLs);
 const attachmentUpload = useChunkUpload();
+const mediaUploadService = createMediaUploadService(attachmentUpload);
 const pendingMessages = new Map();
 const historyRequests = new Map();
 
@@ -635,32 +635,20 @@ export const useChatStore = defineStore("chat", () => {
 
   const sendAttachment = async (file, cType) => {
     if (!file) return null;
-    const type = Number(cType);
-    if (!UploadableMessageTypes.includes(type)) throw new Error("不支持的附件类型。");
     const conversation = activeConversation.value;
     if (!conversation) return null;
     if (!state.authenticated) throw new Error("登录状态已失效，请重新登录。");
     if (!wsClient.isConnected()) throw new Error("实时连接尚未建立，请稍后重试。");
 
-    const metadata = type === MessageType.IMAGE
-      ? await getImageDimensions(file)
-      : type === MessageType.VIDEO
-        ? await getVideoMetadata(file)
-        : {};
-    const uploaded = await attachmentUpload.upload(file);
+    const uploaded = await mediaUploadService.upload(file, cType);
     const payload = {
       clientMsgId: createClientMessageId(),
       recvId: conversation.targetId,
       convType: conversation.convType,
-      cType: type,
-      fileId: uploaded?.fileId || "",
-      ...metadata,
+      cType: uploaded.cType,
+      fileId: uploaded.fileId,
     };
-    if (type === MessageType.VIDEO && metadata.durationMs) {
-      payload.durationMs = metadata.durationMs;
-    }
-    if (!payload.fileId) throw new Error("上传成功但未返回文件标识。");
-    // 文件上传后需要再次通过 ws 发送消息
+    // 文件上传后只提交 fileId；文件元信息由后端根据文件记录组装。
     if (!wsClient.sendMessage(payload)) throw new Error("消息发送失败，请重新连接后重试。");
     return appendOutgoingMessage(conversation, payload);
   };

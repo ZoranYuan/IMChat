@@ -9,7 +9,7 @@ message MessageReadAckReq { string conversation_id = 1; int64 last_read_seq = 2;
 message MessageReq {
   string client_msg_id = 1; string recv_id = 2; int32 conv_type = 3; int32 c_type = 4;
   string content = 5; int64 video_time = 6; bool has_video_time = 7;
-  string file_id = 10; int32 width = 14; int32 height = 15; int64 duration_ms = 16;
+  string file_id = 10;
   string sticker_id = 17; string pack_id = 18;
 }
 message MessageAck { string client_msg_id = 1; string message_id = 2; string status = 3; string extra = 4; int64 send_time = 5; string conversation_id = 6; int64 seq = 7; string attachment_id = 8; }

@@ -173,6 +173,9 @@ export const getVideoDanmaku = (roomId, videoId, { startTime = 0, endTime = 0, l
 export const initDirectUpload = (payload) =>
   http.post("/files/direct/init", payload);
 
+export const initUpload = (payload) =>
+  http.post("/files/uploads/init", payload);
+
 export const uploadDirectObjectToStorage = (url, file, onUploadProgress) =>
   axios.put(url, file, {
     headers: { "Content-Type": file.type || "application/octet-stream" },
@@ -181,6 +184,9 @@ export const uploadDirectObjectToStorage = (url, file, onUploadProgress) =>
 
 export const completeDirectUpload = (uploadId) =>
   http.post(`/files/direct/${uploadId}/complete`);
+
+export const completeUpload = (uploadId) =>
+  http.post(`/files/uploads/${uploadId}/complete`);
 
 export const initMultipartUpload = (payload) =>
   http.post("/files/multipart/init", payload);

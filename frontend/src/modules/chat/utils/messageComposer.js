@@ -3,39 +3,6 @@ export const createClientMessageId = () => (
   || `message-${Date.now()}-${Math.random().toString(16).slice(2)}`
 );
 
-export const getImageDimensions = (file) => new Promise((resolve, reject) => {
-  const url = URL.createObjectURL(file);
-  const image = new Image();
-  image.onload = () => {
-    URL.revokeObjectURL(url);
-    resolve({ width: image.naturalWidth || 0, height: image.naturalHeight || 0 });
-  };
-  image.onerror = (error) => {
-    URL.revokeObjectURL(url);
-    reject(error);
-  };
-  image.src = url;
-});
-
-export const getVideoMetadata = (file) => new Promise((resolve, reject) => {
-  const url = URL.createObjectURL(file);
-  const video = document.createElement("video");
-  video.preload = "metadata";
-  video.onloadedmetadata = () => {
-    URL.revokeObjectURL(url);
-    resolve({
-      width: video.videoWidth || 0,
-      height: video.videoHeight || 0,
-      durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : 0,
-    });
-  };
-  video.onerror = (error) => {
-    URL.revokeObjectURL(url);
-    reject(error);
-  };
-  video.src = url;
-});
-
 export const createOutgoingMessage = (conversation, payload, currentUser) => {
   const sendTime = Date.now();
   return {
