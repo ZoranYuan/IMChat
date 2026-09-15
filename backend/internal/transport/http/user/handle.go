@@ -182,42 +182,17 @@ func (uh *UserHandle) clearTokenCookies(c *gin.Context) {
 	c.SetCookie(refreshTokenCookieName, "", -1, refreshTokenCookiePath, "", secure, true)
 }
 
-func (uh *UserHandle) GetUserByID(c *gin.Context) {
-	userId := c.Param("userId")
-	if userId == "" {
-		c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
-		return
-	}
-
-	userApp, err := uh.app.GetUserByID(userId)
-
-	if err != nil {
-		log.Println("根据用户 ID 查询用户失败：", err)
-		c.JSON(http.StatusInternalServerError, response.Error(201, "获取失败"))
-		return
-	}
-
-	var userRes = UserProfileResponse{
-		UserID:    userApp.UserID,
-		Username:  userApp.Username,
-		Nickname:  userApp.Nickname,
-		AvatarURL: userApp.AvatarURL,
-	}
-
-	c.JSON(http.StatusOK, response.Success(userRes))
-}
-
-func (uh *UserHandle) ResolveUser(c *gin.Context) {
-	keyword := c.Query("keyword")
+func (uh *UserHandle) FindUserByPhoneAndUserName(c *gin.Context) {
+	keyword := c.Param("userId")
 	if keyword == "" {
-		c.JSON(http.StatusBadRequest, response.Error(201, "参数错误"))
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "手机号或用户名不能为空"))
 		return
 	}
 
-	userApp, err := uh.app.ResolveUser(keyword)
+	userApp, err := uh.app.FindUserByPhoneAndUserName(keyword)
 	if err != nil {
-		log.Println("解析用户信息失败：", err)
-		c.JSON(http.StatusNotFound, response.Error(201, "用户不存在"))
+		log.Println("根据手机号或用户名查询用户失败：", err)
+		c.JSON(http.StatusNotFound, response.Error(http.StatusNotFound, "用户不存在"))
 		return
 	}
 

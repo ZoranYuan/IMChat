@@ -22,18 +22,14 @@ func RegisterRoutes(ug *gin.RouterGroup, uh *UserHandle, auth *middleware.AuthMi
 		"register",
 		limiterPolicy,
 	), uh.Register)
-	ug.POST("/register", limter.ByIP(
-		"register",
-		limiterPolicy,
-	), uh.Register)
 	ug.POST("/refresh", limter.ByIP("refresh", limiterPolicy), uh.Refresh)
 
 	ug.Use(auth.JWTAuthMiddleware())
-	ug.GET("/resolve", uh.ResolveUser)
 	ug.PATCH("/me", limter.ByIP(
 		"register",
 		limiterPolicy,
 	), uh.UpdateUserProfile)
-	ug.GET("/:userId", uh.GetUserByID)
+	// 路径参数保留为 userId 以兼容现有路径，实际语义是手机号或用户名关键词。
+	ug.GET("/:userId", uh.FindUserByPhoneAndUserName)
 	ug.POST("/logout", uh.Logout)
 }

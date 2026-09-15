@@ -111,7 +111,9 @@ export const logoutUser = () => http.post("/users/logout");
 
 export const refreshSession = () => refreshAccessToken();
 
-export const getUser = (userId) => http.get(`/users/${userId}`);
+export const findUserByPhoneAndUserName = (keyword) => (
+  http.get(`/users/${encodeURIComponent((keyword || "").trim())}`)
+);
 
 export const updateUserProfile = ({ username, nickName, avatar }) => {
   const payload = {};
@@ -120,9 +122,6 @@ export const updateUserProfile = ({ username, nickName, avatar }) => {
   if (avatar !== undefined) payload.avatar = avatar;
   return http.patch("/users/me", payload);
 };
-
-export const resolveUser = (keyword) =>
-  http.get("/users/resolve", { params: { keyword } });
 
 export const getFriends = () => http.get("/friends");
 

@@ -212,27 +212,7 @@ func (ua *UserApplication) UpdateUserProfile(ctx context.Context, userId string,
 	}, nil
 }
 
-func (ua *UserApplication) GetUserByID(userId string) (*UserAppDTO, error) {
-	user, err := ua.userRepository.FindByUserID(userId)
-
-	if err != nil {
-		return nil, err
-	}
-	if user == nil {
-		return nil, ErrUserNotFound
-	}
-
-	var userApp = &UserAppDTO{
-		UserID:    user.UserId,
-		Username:  user.UserName,
-		Nickname:  user.NickName,
-		AvatarURL: user.Avatar,
-	}
-
-	return userApp, nil
-}
-
-func (ua *UserApplication) ResolveUser(keyword string) (*UserAppDTO, error) {
+func (ua *UserApplication) FindUserByPhoneAndUserName(keyword string) (*UserAppDTO, error) {
 	user, err := ua.userRepository.FindByUsernameOrPhone(keyword)
 	if err != nil {
 		return nil, err
