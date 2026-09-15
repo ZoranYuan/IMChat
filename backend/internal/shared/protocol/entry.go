@@ -33,6 +33,7 @@ const (
 	EventTypeSendMessage      = "msg"                    // 后端发送给前端，表示新的消息
 	EventRoomMessageNotice    = "room_msg_notice"        // 大群轻量新消息提醒，客户端按 seq 拉取详情
 	EventRoomMemberChanged    = "room_member_changed"
+	EventFileCardWarmup       = "file_card_warmup"
 	EventMessageBatch         = "msg_batch" // 服务端一次性发送多个数据
 	EventTypeWSError          = "ws_error"
 )
@@ -88,6 +89,25 @@ type RoomMemberChangedEvent struct {
 	Role      int    `json:"role"`
 	MuteUntil *int64 `json:"muteUntil,omitempty"`
 	Version   int64  `json:"version"`
+}
+
+// FileCardWarmupEvent 是消息事务提交后写入 Outbox 的文件附件缓存快照。
+// 事件消费者不需要再次查询 files 表，ObjectKey 仅供后端生成预签名 URL。
+type FileCardWarmupEvent struct {
+	AttachmentID   string `json:"attachmentId"`
+	MessageID      string `json:"messageId"`
+	ConversationID string `json:"conversationId"`
+
+	FileID      string `json:"fileId"`
+	ObjectKey   string `json:"objectKey"`
+	FileName    string `json:"fileName"`
+	ContentType string `json:"contentType"`
+	Size        int64  `json:"size"`
+	Status      string `json:"status"`
+
+	CType int `json:"cType"`
+
+	AttachmentExpireAt int64 `json:"attachmentExpireAt"`
 }
 
 type MessageEvent struct {

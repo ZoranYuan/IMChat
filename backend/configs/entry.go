@@ -33,11 +33,16 @@ type UserProfile struct {
 }
 
 type CacheConfig struct {
-	UserProfile      UserProfile            `yaml:"user_profile"`
-	AttachmentAccess AttachmentAccessConfig `yaml:"attachment_access"`
+	UserProfile        UserProfile              `yaml:"user_profile"`
+	AttachmentAccess   AttachmentAccessConfig   `yaml:"attachment_access"`
+	AttachmentFileCard AttachmentFileCardConfig `yaml:"attachment_file_card"`
 }
 
 type AttachmentAccessConfig struct {
+	TTLSeconds int `yaml:"ttl_seconds"`
+}
+
+type AttachmentFileCardConfig struct {
 	TTLSeconds int `yaml:"ttl_seconds"`
 }
 
@@ -58,6 +63,7 @@ type KafkaTopics struct {
 	ReadMessageCommitted string `yaml:"read_message_committed"`
 	FriendRequestCreated string `yaml:"friend_request_created"`
 	RoomMemberChanged    string `yaml:"room_member_changed"`
+	FileCardWarmup       string `yaml:"file_card_warmup"`
 }
 
 type KafkaConsumerConfig struct {

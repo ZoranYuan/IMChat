@@ -7,7 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"strconv"
+	"encoding/json"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -21,13 +21,16 @@ func NewFileCache(client *redis.Client) filecache.FileCache {
 	return &FileCache{store: shared.NewStore(client)}
 }
 
-func (c *FileCache) Set(ctx context.Context, file *fileentity.File, ttl time.Duration) error {
-	return c.store.SetJSON(ctx, FileKey(file.FileId), file, ttl)
+func (c *FileCache) SetFileMetadata(ctx context.Context, file *fileentity.File, ttl time.Duration) error {
+	if file == nil || file.FileId == "" {
+		return nil
+	}
+	return c.store.SetJSON(ctx, FileMetadataKey(file.FileId), file, ttl)
 }
 
-func (c *FileCache) Get(ctx context.Context, fileId string) (*fileentity.File, error) {
+func (c *FileCache) GetFileMetadata(ctx context.Context, fileID string) (*fileentity.File, error) {
 	var file fileentity.File
-	ok, err := c.store.GetJSON(ctx, FileKey(fileId), &file)
+	ok, err := c.store.GetJSON(ctx, FileMetadataKey(fileID), &file)
 	if err != nil {
 		return nil, err
 	}
@@ -37,52 +40,142 @@ func (c *FileCache) Get(ctx context.Context, fileId string) (*fileentity.File, e
 	return &file, nil
 }
 
-func (c *FileCache) GetAttachmentAccessBatch(ctx context.Context, attachmentIDs []string) (map[string]*filecache.AttachmentAccess, error) {
-	result := make(map[string]*filecache.AttachmentAccess, len(attachmentIDs))
+func (c *FileCache) SetFileByUploaderAndHash(
+	ctx context.Context,
+	uploaderID string,
+	fileHash string,
+	file *fileentity.File,
+	ttl time.Duration,
+) error {
+	if uploaderID == "" || fileHash == "" || file == nil || file.FileId == "" {
+		return nil
+	}
+	return c.store.SetJSON(ctx, FileByUploaderAndHashKey(uploaderID, fileHash), file, ttl)
+}
+
+func (c *FileCache) GetFileByUploaderAndHash(
+	ctx context.Context,
+	uploaderID string,
+	fileHash string,
+) (*fileentity.File, error) {
+	if uploaderID == "" || fileHash == "" {
+		return nil, nil
+	}
+
+	var file fileentity.File
+	ok, err := c.store.GetJSON(ctx, FileByUploaderAndHashKey(uploaderID, fileHash), &file)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return &file, nil
+}
+
+func (c *FileCache) DeleteFileByUploaderAndHash(ctx context.Context, uploaderID string, fileHash string) error {
+	if uploaderID == "" || fileHash == "" {
+		return nil
+	}
+	return c.store.Del(ctx, FileByUploaderAndHashKey(uploaderID, fileHash))
+}
+
+func (c *FileCache) GetAttachmentFileCardBatch(ctx context.Context, attachmentIDs []string) (map[string]*filecache.AttachmentFileCard, error) {
+	result := make(map[string]*filecache.AttachmentFileCard, len(attachmentIDs))
 	if len(attachmentIDs) == 0 {
 		return result, nil
 	}
 
 	pipe := c.store.Client().Pipeline()
-	commands := make(map[string]*redis.MapStringStringCmd, len(attachmentIDs))
+	commands := make(map[string]*redis.StringCmd, len(attachmentIDs))
 	for _, attachmentID := range attachmentIDs {
 		if attachmentID == "" {
 			continue
 		}
-		commands[attachmentID] = pipe.HGetAll(ctx, AttachmentAccessKey(attachmentID))
+		commands[attachmentID] = pipe.Get(ctx, AttachmentFileCardKey(attachmentID))
 	}
-	if _, err := pipe.Exec(ctx); err != nil {
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return nil, err
+	}
+
+	for attachmentID, command := range commands {
+		value, err := command.Bytes()
+		if err != nil {
+			continue
+		}
+		var card filecache.AttachmentFileCard
+		if err := json.Unmarshal(value, &card); err != nil {
+			continue
+		}
+		if card.AttachmentID == "" {
+			card.AttachmentID = attachmentID
+		}
+		result[attachmentID] = &card
+	}
+	return result, nil
+}
+
+func (c *FileCache) SetAttachmentFileCardBatch(ctx context.Context, values []*filecache.AttachmentFileCard, ttl time.Duration) error {
+	if len(values) == 0 || ttl <= 0 {
+		return nil
+	}
+
+	pipe := c.store.Client().Pipeline()
+	for _, value := range values {
+		if value == nil || value.AttachmentID == "" || value.FileID == "" {
+			continue
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		pipe.Set(ctx, AttachmentFileCardKey(value.AttachmentID), encoded, ttl)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+func (c *FileCache) DeleteAttachmentFileCard(ctx context.Context, attachmentIDs []string) error {
+	return c.deleteAttachmentKeys(ctx, attachmentIDs, AttachmentFileCardKey)
+}
+
+func (c *FileCache) GetAttachmentURLBatch(ctx context.Context, attachmentIDs []string) (map[string]*filecache.AttachmentURL, error) {
+	result := make(map[string]*filecache.AttachmentURL, len(attachmentIDs))
+	if len(attachmentIDs) == 0 {
+		return result, nil
+	}
+
+	pipe := c.store.Client().Pipeline()
+	commands := make(map[string]*redis.StringCmd, len(attachmentIDs))
+	for _, attachmentID := range attachmentIDs {
+		if attachmentID == "" {
+			continue
+		}
+		commands[attachmentID] = pipe.Get(ctx, AttachmentURLKey(attachmentID))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
 		return nil, err
 	}
 
 	now := time.Now().Unix()
 	for attachmentID, command := range commands {
-		fields, err := command.Result()
-		if err != nil || len(fields) == 0 {
-			continue
-		}
-		size, err := strconv.ParseInt(fields["size"], 10, 64)
+		value, err := command.Bytes()
 		if err != nil {
 			continue
 		}
-		expiresAt, err := strconv.ParseInt(fields["expiresAt"], 10, 64)
-		if err != nil || expiresAt <= now || fields["mediaUrl"] == "" {
+		var item filecache.AttachmentURL
+		if err := json.Unmarshal(value, &item); err != nil || item.MediaURL == "" || item.ExpiresAt <= now {
 			continue
 		}
-		result[attachmentID] = &filecache.AttachmentAccess{
-			AttachmentID: attachmentID,
-			FileName:     fields["fileName"],
-			ContentType:  fields["contentType"],
-			Size:         size,
-			MediaURL:     fields["mediaUrl"],
-			ThumbURL:     fields["thumbUrl"],
-			ExpiresAt:    expiresAt,
+		if item.AttachmentID == "" {
+			item.AttachmentID = attachmentID
 		}
+		result[attachmentID] = &item
 	}
 	return result, nil
 }
 
-func (c *FileCache) SetAttachmentAccessBatch(ctx context.Context, values []*filecache.AttachmentAccess, ttl time.Duration) error {
+func (c *FileCache) SetAttachmentURLBatch(ctx context.Context, values []*filecache.AttachmentURL, ttl time.Duration) error {
 	if len(values) == 0 || ttl <= 0 {
 		return nil
 	}
@@ -92,27 +185,38 @@ func (c *FileCache) SetAttachmentAccessBatch(ctx context.Context, values []*file
 		if value == nil || value.AttachmentID == "" || value.MediaURL == "" {
 			continue
 		}
-		key := AttachmentAccessKey(value.AttachmentID)
-		pipe.HSet(ctx, key, map[string]interface{}{
-			"attachmentId": value.AttachmentID,
-			"fileName":     value.FileName,
-			"contentType":  value.ContentType,
-			"size":         strconv.FormatInt(value.Size, 10),
-			"mediaUrl":     value.MediaURL,
-			"thumbUrl":     value.ThumbURL,
-			"expiresAt":    strconv.FormatInt(value.ExpiresAt, 10),
-		})
-		pipe.Expire(ctx, key, ttl)
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		pipe.Set(ctx, AttachmentURLKey(value.AttachmentID), encoded, ttl)
 	}
 	_, err := pipe.Exec(ctx)
 	return err
 }
 
-func (c *FileCache) Delete(ctx context.Context, fileId string) error {
-	return c.store.Del(ctx, FileKey(fileId))
+func (c *FileCache) DeleteAttachmentURL(ctx context.Context, attachmentIDs []string) error {
+	return c.deleteAttachmentKeys(ctx, attachmentIDs, AttachmentURLKey)
 }
 
-func (c *FileCache) RenewFileCompleteLock(ctx context.Context, uploadId string, token string, ttl time.Duration) (bool, error) {
+func (c *FileCache) deleteAttachmentKeys(ctx context.Context, attachmentIDs []string, keyFn func(string) string) error {
+	keys := make([]string, 0, len(attachmentIDs))
+	for _, attachmentID := range attachmentIDs {
+		if attachmentID != "" {
+			keys = append(keys, keyFn(attachmentID))
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return c.store.Client().Del(ctx, keys...).Err()
+}
+
+func (c *FileCache) DeleteFileMetadata(ctx context.Context, fileID string) error {
+	return c.store.Del(ctx, FileMetadataKey(fileID))
+}
+
+func (c *FileCache) RenewFileCompleteLock(ctx context.Context, uploadID string, token string, ttl time.Duration) (bool, error) {
 	luaScript := `
 		local token = ARGV[1]
 		local ttl = ARGV[2]
@@ -126,7 +230,7 @@ func (c *FileCache) RenewFileCompleteLock(ctx context.Context, uploadId string, 
 	result, err := c.store.Eval(
 		ctx,
 		luaScript,
-		[]string{FileCompleteLockKey(uploadId)},
+		[]string{FileCompleteLockKey(uploadID)},
 		token,
 		ttl.Milliseconds(),
 	)
@@ -137,43 +241,43 @@ func (c *FileCache) RenewFileCompleteLock(ctx context.Context, uploadId string, 
 	return ok && renewed == 1, nil
 }
 
-func (c *FileCache) SetMultipartUploadMeta(ctx context.Context, meta filecache.MultipartUploadMeta, ttl time.Duration) error {
-	return c.store.SetJSON(ctx, MultipartUploadMetaKey(meta.UploadId), meta, ttl)
+func (c *FileCache) SetUploadMeta(ctx context.Context, meta filecache.UploadMeta, ttl time.Duration) error {
+	return c.store.SetJSON(ctx, UploadMetaKey(meta.UploadId), meta, ttl)
 }
 
-func (c *FileCache) GetMultipartUploadMeta(ctx context.Context, uploadId string) (*filecache.MultipartUploadMeta, error) {
-	var meta filecache.MultipartUploadMeta
-	ok, err := c.store.GetJSON(ctx, MultipartUploadMetaKey(uploadId), &meta)
+func (c *FileCache) GetUploadMeta(ctx context.Context, uploadID string) (*filecache.UploadMeta, error) {
+	var meta filecache.UploadMeta
+	ok, err := c.store.GetJSON(ctx, UploadMetaKey(uploadID), &meta)
 	if err != nil || !ok {
 		return nil, err
 	}
 	return &meta, nil
 }
 
-func (c *FileCache) AcquireFileInitLock(ctx context.Context, uploaderId string, fileHash string, ttl time.Duration) (string, bool, error) {
+func (c *FileCache) AcquireFileInitLock(ctx context.Context, uploaderID string, fileHash string, ttl time.Duration) (string, bool, error) {
 	token, err := newLockToken()
 	if err != nil {
 		return "", false, err
 	}
-	locked, err := c.store.SetNXString(ctx, FileInitLockKey(uploaderId, fileHash), token, ttl)
+	locked, err := c.store.SetNXString(ctx, FileInitLockKey(uploaderID, fileHash), token, ttl)
 	return token, locked, err
 }
 
-func (c *FileCache) ReleaseFileInitLock(ctx context.Context, uploaderId string, fileHash string, token string) error {
-	return c.releaseLock(ctx, FileInitLockKey(uploaderId, fileHash), token)
+func (c *FileCache) ReleaseFileInitLock(ctx context.Context, uploaderID string, fileHash string, token string) error {
+	return c.releaseLock(ctx, FileInitLockKey(uploaderID, fileHash), token)
 }
 
-func (c *FileCache) AcquireFileCompleteLock(ctx context.Context, uploadId string, ttl time.Duration) (string, bool, error) {
+func (c *FileCache) AcquireFileCompleteLock(ctx context.Context, uploadID string, ttl time.Duration) (string, bool, error) {
 	token, err := newLockToken()
 	if err != nil {
 		return "", false, err
 	}
-	locked, err := c.store.SetNXString(ctx, FileCompleteLockKey(uploadId), token, ttl)
+	locked, err := c.store.SetNXString(ctx, FileCompleteLockKey(uploadID), token, ttl)
 	return token, locked, err
 }
 
-func (c *FileCache) ReleaseFileCompleteLock(ctx context.Context, uploadId string, token string) error {
-	return c.releaseLock(ctx, FileCompleteLockKey(uploadId), token)
+func (c *FileCache) ReleaseFileCompleteLock(ctx context.Context, uploadID string, token string) error {
+	return c.releaseLock(ctx, FileCompleteLockKey(uploadID), token)
 }
 
 func (c *FileCache) releaseLock(ctx context.Context, key string, token string) error {
@@ -196,33 +300,26 @@ func newLockToken() (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
-func (c *FileCache) DeleteMultipartUploadMeta(ctx context.Context, uploadId string) error {
-	return c.store.Del(ctx, MultipartUploadMetaKey(uploadId))
+func (c *FileCache) DeleteUploadMeta(ctx context.Context, uploadID string) error {
+	return c.store.Del(ctx, UploadMetaKey(uploadID))
 }
 
-func (c *FileCache) SetActiveUpload(ctx context.Context, uploaderId string, fileHash string, uploadId string, ttl time.Duration) error {
-	if fileHash == "" || uploadId == "" {
+func (c *FileCache) SetActiveFileUpload(ctx context.Context, uploaderID string, fileHash string, uploadID string, ttl time.Duration) error {
+	if uploaderID == "" || fileHash == "" || uploadID == "" {
 		return nil
 	}
-	return c.store.SetString(ctx, ActiveUploadKey(uploaderId, fileHash), uploadId, ttl)
+	return c.store.SetString(ctx, ActiveFileUploadKey(uploaderID, fileHash), uploadID, ttl)
 }
 
-func (c *FileCache) GetActiveUploadId(ctx context.Context, uploaderId string, fileHash string) (string, error) {
+func (c *FileCache) GetActiveFileUploadID(ctx context.Context, uploaderID string, fileHash string) (string, error) {
 	if fileHash == "" {
 		return "", nil
 	}
-	return c.store.GetString(ctx, ActiveUploadKey(uploaderId, fileHash))
+	return c.store.GetString(ctx, ActiveFileUploadKey(uploaderID, fileHash))
 }
 
-func (c *FileCache) DeleteActiveUpload(ctx context.Context, uploaderId string, fileHash string) error {
-	if fileHash == "" {
-		return nil
-	}
-	return c.store.Del(ctx, ActiveUploadKey(uploaderId, fileHash))
-}
-
-func (c *FileCache) DeleteActiveUploadIfMatches(ctx context.Context, uploaderId string, fileHash string, uploadId string) error {
-	if fileHash == "" || uploadId == "" {
+func (c *FileCache) DeleteActiveFileUploadIfMatches(ctx context.Context, uploaderID string, fileHash string, uploadID string) error {
+	if fileHash == "" || uploadID == "" {
 		return nil
 	}
 
@@ -232,20 +329,6 @@ func (c *FileCache) DeleteActiveUploadIfMatches(ctx context.Context, uploaderId 
 		end
 		return 0
 	`
-	_, err := c.store.Eval(ctx, script, []string{ActiveUploadKey(uploaderId, fileHash)}, uploadId)
+	_, err := c.store.Eval(ctx, script, []string{ActiveFileUploadKey(uploaderID, fileHash)}, uploadID)
 	return err
-}
-
-func (c *FileCache) SetFileIDByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string, fileId string, ttl time.Duration) error {
-	if fileHash == "" || fileId == "" || uploaderId == "" {
-		return nil
-	}
-	return c.store.SetString(ctx, FileHashKey(uploaderId, fileHash), fileId, ttl)
-}
-
-func (c *FileCache) GetFileIDByUploaderAndHash(ctx context.Context, uploaderId string, fileHash string) (string, error) {
-	if fileHash == "" || uploaderId == "" {
-		return "", nil
-	}
-	return c.store.GetString(ctx, FileHashKey(uploaderId, fileHash))
 }

@@ -2,30 +2,34 @@ package file
 
 import cachekey "IM_backend/internal/infrastructure/persistence/redis/cache/key"
 
-func FileKey(fileId string) string {
-	return cachekey.FileMeta(fileId)
+func FileMetadataKey(fileID string) string {
+	return cachekey.FileMeta(fileID)
 }
 
-func MultipartUploadMetaKey(uploadId string) string {
-	return "im:file:multipart:" + uploadId + ":meta"
+func FileByUploaderAndHashKey(uploaderID string, fileHash string) string {
+	return "im:file:by-hash:" + uploaderID + ":" + fileHash
 }
 
-func FileHashKey(uploaderId string, fileHash string) string {
-	return "im:file:hash:" + uploaderId + ":" + fileHash
+func UploadMetaKey(uploadID string) string {
+	return "im:file:upload:" + uploadID + ":meta"
 }
 
-func FileInitLockKey(uploaderId string, fileHash string) string {
-	return "im:file:init:" + uploaderId + ":" + fileHash
+func FileInitLockKey(uploaderID string, fileHash string) string {
+	return "im:file:init:" + uploaderID + ":" + fileHash
 }
 
-func FileCompleteLockKey(uploadId string) string {
-	return "im:file:complete:" + uploadId
+func FileCompleteLockKey(uploadID string) string {
+	return "im:file:complete:" + uploadID
 }
 
-func ActiveUploadKey(uploaderId string, fileHash string) string {
-	return "im:file:multipart:hash:" + uploaderId + ":" + fileHash
+func ActiveFileUploadKey(uploaderID string, fileHash string) string {
+	return "im:file:upload:" + uploaderID + ":" + fileHash
 }
 
-func AttachmentAccessKey(attachmentID string) string {
-	return cachekey.Build("attachment", "access", attachmentID)
+func AttachmentFileCardKey(attachmentID string) string {
+	return cachekey.Build("attachment", attachmentID, "file")
+}
+
+func AttachmentURLKey(attachmentID string) string {
+	return cachekey.Build("attachment", attachmentID, "url")
 }

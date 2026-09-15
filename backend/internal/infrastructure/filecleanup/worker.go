@@ -25,6 +25,7 @@ type Worker struct {
 	staleAfter       time.Duration
 	baseRetryWait    time.Duration
 	operationTimeout time.Duration
+	completeLockTTL  time.Duration
 	maxRetries       int
 	orphanAfter      time.Duration
 }
@@ -36,7 +37,16 @@ func NewWorker(
 	fileCache filecache.FileCache,
 	storage objectstorage.ObjectStorage,
 	config configs.FileCleanupConfig,
+	completeLockTTL time.Duration,
 ) *Worker {
+	operationTimeout := time.Duration(config.OperationTimeoutSeconds) * time.Second
+	if completeLockTTL <= 0 {
+		completeLockTTL = 30 * time.Second
+	}
+	if operationTimeout > 0 && completeLockTTL <= operationTimeout {
+		completeLockTTL = operationTimeout + 5*time.Second
+	}
+
 	return &Worker{
 		txManager:        txManager,
 		fileUploadRepo:   fileUploadRepo,
@@ -47,7 +57,8 @@ func NewWorker(
 		batchSize:        config.BatchSize,
 		staleAfter:       time.Duration(config.StaleAfterSeconds) * time.Second,
 		baseRetryWait:    time.Duration(config.BaseRetryWaitSeconds) * time.Second,
-		operationTimeout: time.Duration(config.OperationTimeoutSeconds) * time.Second,
+		operationTimeout: operationTimeout,
+		completeLockTTL:  completeLockTTL,
 		maxRetries:       config.MaxRetries,
 		orphanAfter:      time.Duration(config.OrphanAfterSeconds) * time.Second,
 	}
@@ -127,8 +138,11 @@ func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64, now int64
 			log.Printf("删除未引用文件记录失败：文件=%s 错误=%v", file.FileId, err)
 			continue
 		}
-		if err := w.fileCache.Delete(ctx, file.FileId); err != nil {
+		if err := w.fileCache.DeleteFileMetadata(ctx, file.FileId); err != nil {
 			log.Printf("删除未引用文件缓存失败：文件=%s 错误=%v", file.FileId, err)
+		}
+		if err := w.fileCache.DeleteFileByUploaderAndHash(ctx, file.UploaderId, file.FileHash); err != nil {
+			log.Printf("删除文件哈希缓存失败：文件=%s 错误=%v", file.FileId, err)
 		}
 	}
 	return nil
@@ -137,6 +151,23 @@ func (w *Worker) cleanupOrphanFiles(ctx context.Context, before int64, now int64
 func (w *Worker) cleanupOne(ctx context.Context, upload filerepo.FileUploadRecord) error {
 	cleanupCtx, cancel := context.WithTimeout(ctx, w.operationTimeout)
 	defer cancel()
+
+	completeLockToken, locked, err := w.fileCache.AcquireFileCompleteLock(
+		cleanupCtx,
+		upload.UploadId,
+		w.completeLockTTL,
+	)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return errors.New("上传完成操作正在进行")
+	}
+	defer func() {
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer releaseCancel()
+		_ = w.fileCache.ReleaseFileCompleteLock(releaseCtx, upload.UploadId, completeLockToken)
+	}()
 
 	if upload.StorageUploadId != "" {
 		if err := w.storage.AbortMultipartUpload(cleanupCtx, upload.ObjectKey, upload.StorageUploadId); err != nil {
@@ -147,10 +178,10 @@ func (w *Worker) cleanupOne(ctx context.Context, upload filerepo.FileUploadRecor
 			return err
 		}
 	}
-	if err := w.fileCache.DeleteMultipartUploadMeta(cleanupCtx, upload.UploadId); err != nil {
+	if err := w.fileCache.DeleteUploadMeta(cleanupCtx, upload.UploadId); err != nil {
 		return err
 	}
-	if err := w.fileCache.DeleteActiveUploadIfMatches(cleanupCtx, upload.UploaderId, upload.FileHash, upload.UploadId); err != nil {
+	if err := w.fileCache.DeleteActiveFileUploadIfMatches(cleanupCtx, upload.UploaderId, upload.FileHash, upload.UploadId); err != nil {
 		return err
 	}
 

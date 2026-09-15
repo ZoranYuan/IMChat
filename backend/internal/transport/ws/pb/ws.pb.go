@@ -179,9 +179,6 @@ type MessageReq struct {
 	VideoTime     int64                  `protobuf:"varint,6,opt,name=video_time,json=videoTime,proto3" json:"video_time,omitempty"`
 	HasVideoTime  bool                   `protobuf:"varint,7,opt,name=has_video_time,json=hasVideoTime,proto3" json:"has_video_time,omitempty"`
 	FileId        string                 `protobuf:"bytes,10,opt,name=file_id,json=fileId,proto3" json:"file_id,omitempty"`
-	Width         int32                  `protobuf:"varint,14,opt,name=width,proto3" json:"width,omitempty"`
-	Height        int32                  `protobuf:"varint,15,opt,name=height,proto3" json:"height,omitempty"`
-	DurationMs    int64                  `protobuf:"varint,16,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
 	StickerId     string                 `protobuf:"bytes,17,opt,name=sticker_id,json=stickerId,proto3" json:"sticker_id,omitempty"`
 	PackId        string                 `protobuf:"bytes,18,opt,name=pack_id,json=packId,proto3" json:"pack_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -272,27 +269,6 @@ func (x *MessageReq) GetFileId() string {
 		return x.FileId
 	}
 	return ""
-}
-
-func (x *MessageReq) GetWidth() int32 {
-	if x != nil {
-		return x.Width
-	}
-	return 0
-}
-
-func (x *MessageReq) GetHeight() int32 {
-	if x != nil {
-		return x.Height
-	}
-	return 0
-}
-
-func (x *MessageReq) GetDurationMs() int64 {
-	if x != nil {
-		return x.DurationMs
-	}
-	return 0
 }
 
 func (x *MessageReq) GetStickerId() string {
@@ -697,7 +673,7 @@ const file_ws_proto_rawDesc = "" +
 	"\x06frames\x18\x01 \x03(\v2\x0e.im.ws.WsFrameR\x06frames\"`\n" +
 	"\x11MessageReadAckReq\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\"\n" +
-	"\rlast_read_seq\x18\x02 \x01(\x03R\vlastReadSeq\"\xfc\x02\n" +
+	"\rlast_read_seq\x18\x02 \x01(\x03R\vlastReadSeq\"\xad\x02\n" +
 	"\n" +
 	"MessageReq\x12\"\n" +
 	"\rclient_msg_id\x18\x01 \x01(\tR\vclientMsgId\x12\x17\n" +
@@ -709,11 +685,7 @@ const file_ws_proto_rawDesc = "" +
 	"video_time\x18\x06 \x01(\x03R\tvideoTime\x12$\n" +
 	"\x0ehas_video_time\x18\a \x01(\bR\fhasVideoTime\x12\x17\n" +
 	"\afile_id\x18\n" +
-	" \x01(\tR\x06fileId\x12\x14\n" +
-	"\x05width\x18\x0e \x01(\x05R\x05width\x12\x16\n" +
-	"\x06height\x18\x0f \x01(\x05R\x06height\x12\x1f\n" +
-	"\vduration_ms\x18\x10 \x01(\x03R\n" +
-	"durationMs\x12\x1d\n" +
+	" \x01(\tR\x06fileId\x12\x1d\n" +
 	"\n" +
 	"sticker_id\x18\x11 \x01(\tR\tstickerId\x12\x17\n" +
 	"\apack_id\x18\x12 \x01(\tR\x06packId\"\xfa\x01\n" +

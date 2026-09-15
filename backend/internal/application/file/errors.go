@@ -34,6 +34,6 @@ var (
 	ErrUnsupportedFileType  = errors.New("不支持该文件类型")
 	ErrUploadUnauthorized   = errors.New("无权操作该上传任务")
 	ErrUploadBusy           = errors.New("文件正在上传")
-	ErrMultipartLockLost    = errors.New("分片合并锁已失效")
+	ErrFileCompleteLockLost = errors.New("文件完成锁已失效")
 	ErrTooManyParts         = errors.New("分片数量超过限制")
 )

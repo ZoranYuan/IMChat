@@ -27,7 +27,7 @@ type FileUploadRepository interface {
 	MarkCleanupRetry(ctx context.Context, uploadId, lockToken string, nextRetryAt int64, lastError string, updatedAt int64) (bool, error)
 	MarkCleanupFailed(ctx context.Context, uploadId, lockToken string, lastError string, updatedAt int64) (bool, error)
 	MarkCompleted(ctx context.Context, uploadId, fileId string, completedAt int64) (bool, error)
-	DeleteFileUploadByID(ctx context.Context, uploadId string) error
+	DeleteFileUploadByUploadID(ctx context.Context, uploadID string) error
 	WithTx(tx any) FileUploadRepository
 }
 

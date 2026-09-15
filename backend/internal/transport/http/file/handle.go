@@ -18,6 +18,92 @@ func NewHandle(app *fileapp.FileApplication) *Handle {
 	return &Handle{app: app}
 }
 
+func (h *Handle) InitUpload(c *gin.Context) {
+	userId := c.GetString("userId")
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		return
+	}
+
+	var req UploadInitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+
+	dto, err := h.app.InitUpload(c.Request.Context(), fileapp.UploadInitDTO{
+		UploaderID:  userId,
+		FileName:    req.FileName,
+		ContentType: req.ContentType,
+		Size:        req.Size,
+		FileHash:    req.FileHash,
+		ChunkSize:   req.ChunkSize,
+		TotalChunks: req.TotalChunks,
+	})
+	if err != nil {
+		h.writeUploadInitError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, response.Success(toUploadInitResponse(dto)))
+}
+
+func (h *Handle) CompleteUpload(c *gin.Context) {
+	userId := c.GetString("userId")
+	if userId == "" {
+		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
+		return
+	}
+	uploadId := c.Param("uploadId")
+	if uploadId == "" {
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
+		return
+	}
+
+	dto, err := h.app.CompleteUpload(c.Request.Context(), uploadId, userId)
+	if err != nil {
+		h.writeUploadCompleteError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, response.Success(toFileResponse(dto)))
+}
+
+func (h *Handle) writeUploadInitError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, fileapp.ErrInvalidUpload), errors.Is(err, fileapp.ErrInvalidPart), errors.Is(err, fileapp.ErrInvalidMIME):
+		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+	case errors.Is(err, fileapp.ErrFileTooLarge), errors.Is(err, fileapp.ErrTooManyParts):
+		c.JSON(http.StatusRequestEntityTooLarge, response.Error(http.StatusRequestEntityTooLarge, err.Error()))
+	case errors.Is(err, fileapp.ErrUploadBusy):
+		c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
+	default:
+		log.Println("初始化上传失败：", err)
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "初始化上传失败"))
+	}
+}
+
+func (h *Handle) writeUploadCompleteError(c *gin.Context, err error) {
+	var incompleteErr *fileapp.UploadIncompleteError
+	if errors.As(err, &incompleteErr) {
+		c.JSON(http.StatusConflict, response.ErrorWithData(
+			http.StatusConflict,
+			incompleteErr.Error(),
+			toUploadIncompleteResponse(c.Param("uploadId"), incompleteErr),
+		))
+		return
+	}
+	switch {
+	case errors.Is(err, fileapp.ErrUploadUnauthorized):
+		c.JSON(http.StatusForbidden, response.Error(http.StatusForbidden, err.Error()))
+	case errors.Is(err, fileapp.ErrUploadNotCompleted), errors.Is(err, fileapp.ErrInvalidUpload), errors.Is(err, fileapp.ErrUploadBusy):
+		c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
+	case errors.Is(err, fileapp.ErrFileSizeMismatch), errors.Is(err, fileapp.ErrFileHashMismatch), errors.Is(err, fileapp.ErrUnsupportedFileType):
+		c.JSON(http.StatusUnprocessableEntity, response.Error(http.StatusUnprocessableEntity, err.Error()))
+	default:
+		log.Println("完成上传失败：", err)
+		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "完成上传失败"))
+	}
+}
+
 func (h *Handle) InitDirectUpload(c *gin.Context) {
 	userId := c.GetString("userId")
 	if userId == "" {
@@ -182,7 +268,14 @@ func (h *Handle) CompleteMultipartUpload(c *gin.Context) {
 	if err != nil {
 		var incompleteErr *fileapp.UploadIncompleteError
 		if errors.As(err, &incompleteErr) {
-			c.JSON(http.StatusConflict, response.ErrorWithData(http.StatusConflict, incompleteErr.Error(), incompleteErr))
+			c.JSON(
+				http.StatusConflict,
+				response.ErrorWithData(
+					http.StatusConflict,
+					incompleteErr.Error(),
+					toUploadIncompleteResponse(uploadId, incompleteErr),
+				),
+			)
 			return
 		}
 		if errors.Is(err, fileapp.ErrInvalidUpload) || errors.Is(err, fileapp.ErrUploadBusy) {

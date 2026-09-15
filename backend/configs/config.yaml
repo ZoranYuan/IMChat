@@ -68,6 +68,7 @@ kafka:
     read_message_committed: "im.read"
     friend_request_created: "im.friend"
     room_member_changed: "im.room"
+    file_card_warmup: "im.file-card-warmup"
 
   consumer:
     group_id: "im-chat-consumer-group"
@@ -124,3 +125,6 @@ cache:
   attachment_access:
     # 访问 URL 缓存时间，略短于 storage.minio.url_ttl_seconds。
     ttl_seconds: 3570
+  attachment_file_card:
+    # 附件文件卡片缓存时间；实际不会超过附件自身的有效期。
+    ttl_seconds: 86400

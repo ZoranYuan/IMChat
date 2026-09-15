@@ -19,11 +19,6 @@ func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
 		v := pb.GetVideoTime()
 		videoTime = &v
 	}
-	var durationMs *int64
-	if v := pb.GetDurationMs(); v > 0 {
-		durationMs = &v
-	}
-
 	return MessageReq{
 		ClientMsgId: pb.GetClientMsgId(),
 		RecvId:      pb.GetRecvId(),
@@ -31,9 +26,6 @@ func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
 		CType:       int(pb.GetCType()),
 		Content:     pb.GetContent(),
 		FileId:      pb.GetFileId(),
-		Width:       int(pb.GetWidth()),
-		Height:      int(pb.GetHeight()),
-		DurationMs:  durationMs,
 		StickerId:   pb.GetStickerId(),
 		PackId:      pb.GetPackId(),
 		VideoTime:   videoTime,

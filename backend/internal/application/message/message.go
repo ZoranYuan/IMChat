@@ -4,6 +4,7 @@ import (
 	"IM_backend/configs"
 	idport "IM_backend/internal/application/ports/id"
 	outboxport "IM_backend/internal/application/ports/outbox"
+	filecache "IM_backend/internal/application/ports/persistence/cache/file"
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	messagecache "IM_backend/internal/application/ports/persistence/cache/message"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
@@ -18,6 +19,7 @@ import (
 	objectstorage "IM_backend/internal/application/ports/storage/object"
 	conversationentity "IM_backend/internal/domain/conversation/entity"
 	conversationvo "IM_backend/internal/domain/conversation/value_object"
+	fileentity "IM_backend/internal/domain/file/entity"
 	friendvo "IM_backend/internal/domain/friend/value_object"
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
@@ -54,6 +56,7 @@ type MessageApplication struct {
 	conversationRepository       conversationrepo.ConversationRepository
 	friendRepository             friendrepo.FriendRepository
 	fileRepository               filerepo.FileRepository
+	fileCache                    filecache.FileCache
 	objectStorage                objectstorage.ObjectStorage
 	messageImageRepository       messagerepo.MessageImageRepository
 	messageFileRepository        messagerepo.MessageFileRepository
@@ -81,6 +84,7 @@ func NewMessageApplication(
 	messageOutboxRepository outboxport.Repository,
 	friendRepository friendrepo.FriendRepository,
 	fileRepository filerepo.FileRepository,
+	fileCache filecache.FileCache,
 	objectStorage objectstorage.ObjectStorage,
 	messageImageRepository messagerepo.MessageImageRepository,
 	messageFileRepository messagerepo.MessageFileRepository,
@@ -111,6 +115,7 @@ func NewMessageApplication(
 		roomUserRepository:         roomUserRepository,
 		friendRepository:           friendRepository,
 		fileRepository:             fileRepository,
+		fileCache:                  fileCache,
 		objectStorage:              objectStorage,
 		messageImageRepository:     messageImageRepository,
 		messageFileRepository:      messageFileRepository,
@@ -303,7 +308,7 @@ func (ma *MessageApplication) normalizeMediaDTO(ctx context.Context, dto *SendMe
 		if dto.FileID == "" || ma.fileRepository == nil {
 			return fmt.Errorf("文件引用不能为空")
 		}
-		file, err := ma.fileRepository.FindUploadedFileByIDAndUploader(ctx, dto.FileID, dto.SenderID)
+		file, err := ma.findUploadedFile(ctx, dto.FileID, dto.SenderID)
 		if err != nil {
 			return err
 		}
@@ -311,17 +316,66 @@ func (ma *MessageApplication) normalizeMediaDTO(ctx context.Context, dto *SendMe
 			return fmt.Errorf("文件不存在或不可用：%s", dto.FileID)
 		}
 
-		// 不再相信前端传递过来的媒体文件元信息
+		// 文件名、大小和 MIME 以服务端文件记录为准；客户端媒体元数据全部忽略。
 		dto.FileName = file.FileName
 		dto.FileSize = file.Size
 		dto.MimeType = file.ContentType
 		dto.Content = file.FileName
+		dto.Width = 0
+		dto.Height = 0
+		dto.DurationMs = nil
+
+		switch messagevo.CType(dto.Type) {
+		case messagevo.Image:
+			if !strings.HasPrefix(strings.ToLower(file.ContentType), "image/") {
+				return fmt.Errorf("图片消息引用的文件类型不匹配")
+			}
+		case messagevo.Video:
+			if !strings.HasPrefix(strings.ToLower(file.ContentType), "video/") {
+				return fmt.Errorf("视频消息引用的文件类型不匹配")
+			}
+		}
 	case messagevo.Sticker:
 		if dto.StickerID == "" {
 			return fmt.Errorf("表情内容不能为空")
 		}
 	}
 	return nil
+}
+
+// findUploadedFile 优先读取按 fileId 预热的文件缓存，缓存未命中或不满足
+// 当前用户归属校验时再回源数据库。事务内仍会通过 FOR UPDATE 再次确认，
+// 防止文件清理与发送消息并发导致引用到已删除文件。
+func (ma *MessageApplication) findUploadedFile(ctx context.Context, fileID, uploaderID string) (*fileentity.File, error) {
+	if ma.fileCache != nil {
+		cached, cacheErr := ma.fileCache.GetFileMetadata(ctx, fileID)
+		if cacheErr != nil {
+			log.Printf("读取文件元数据缓存失败: fileId=%s err=%v", fileID, cacheErr)
+		} else if cached != nil &&
+			cached.Status == fileentity.FileStatusUploaded &&
+			cached.UploaderId == uploaderID {
+			return cached, nil
+		}
+	}
+
+	if ma.fileRepository == nil {
+		return nil, errors.New("文件仓储未配置")
+	}
+	file, err := ma.fileRepository.FindUploadedFileByIDAndUploader(ctx, fileID, uploaderID)
+	if err != nil || file == nil {
+		return file, err
+	}
+	if ma.fileCache != nil {
+		_ = ma.fileCache.SetFileMetadata(ctx, file, ma.fileMetadataCacheTTL())
+	}
+	return file, nil
+}
+
+func (ma *MessageApplication) fileMetadataCacheTTL() time.Duration {
+	if ma.config.Storage.MinIO.CacheTTLSeconds > 0 {
+		return time.Duration(ma.config.Storage.MinIO.CacheTTLSeconds) * time.Second
+	}
+	return 24 * time.Hour
 }
 
 func (ma *MessageApplication) buildAttachment(dto *SendMessageDTO, messageId string) (*messageentity.MessageAttachment, error) {
@@ -631,24 +685,26 @@ func (ma *MessageApplication) validateMessageCType(dto SendMessageDTO) error {
 			return err
 		}
 
-		if dto.Width <= 0 || dto.Width > ma.config.Message.MaxWidth ||
-			dto.Height <= 0 || dto.Height > ma.config.Message.MaxHeight {
-			return errors.New("图片尺寸无效")
+		if dto.StickerID != "" ||
+			dto.PackID != "" {
+			return errors.New("图片消息包含非法字段")
+		}
+	case messagevo.Video:
+		if err := ma.validateFileReference(dto); err != nil {
+			return err
 		}
 
-		if dto.DurationMs != nil ||
-			dto.StickerID != "" ||
-			dto.PackID != "" {
+		if dto.StickerID != "" || dto.PackID != "" {
+			return errors.New("视频消息包含非法字段")
 		}
 	case messagevo.File:
-		ma.validateFileReference(dto)
+		if err := ma.validateFileReference(dto); err != nil {
+			return err
+		}
 
-		if dto.Width != 0 ||
-			dto.Height != 0 ||
-			dto.DurationMs != nil ||
-			dto.StickerID != "" ||
+		if dto.StickerID != "" ||
 			dto.PackID != "" {
-			return errors.New("文件消息包含非法媒体字段")
+			return errors.New("文件消息包含非法字段")
 		}
 
 	case messagevo.Sticker:
@@ -824,6 +880,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMes
 		convRepo := ma.conversationRepository.WithTx(tx)
 		userConvRepo := ma.userConversationRepository.WithTx(tx)
 		outboxRepo := ma.messageOutboxRepository.WithTx(tx)
+		var mediaFile *fileentity.File
 
 		if messagevo.CType(dto.Type) == messagevo.Image || messagevo.CType(dto.Type) == messagevo.Video || messagevo.CType(dto.Type) == messagevo.File {
 			lockedFile, lockErr := ma.fileRepository.WithTx(tx).FindUploadedFileByIDAndUploaderForUpdate(ctx, dto.FileID, dto.SenderID)
@@ -839,6 +896,7 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMes
 			dto.Content = lockedFile.FileName
 			message.Content = dto.Content
 			messageEvent.Content = dto.Content
+			mediaFile = lockedFile
 		}
 
 		nextSeq, err = convRepo.UpdateLatestSequence(ctx, conversationId, messageId)
@@ -895,6 +953,41 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMes
 		}
 		if err := outboxRepo.Create(ctx, outbox); err != nil {
 			return err
+		}
+
+		if mediaFile != nil && dto.AttachmentID != "" {
+			warmupEvent := protocol.FileCardWarmupEvent{
+				AttachmentID:       dto.AttachmentID,
+				MessageID:          messageId,
+				ConversationID:     conversationId,
+				FileID:             mediaFile.FileId,
+				ObjectKey:          mediaFile.ObjectKey,
+				FileName:           mediaFile.FileName,
+				ContentType:        mediaFile.ContentType,
+				Size:               mediaFile.Size,
+				Status:             mediaFile.Status,
+				CType:              dto.Type,
+				AttachmentExpireAt: time.Now().Add(time.Duration(ma.config.Message.AttachmentTTLSeconds) * time.Second).UnixMilli(),
+			}
+			warmupPayload, err := json.Marshal(warmupEvent)
+			if err != nil {
+				return err
+			}
+			warmupEnvelope, err := json.Marshal(protocol.Envelope{
+				From:    messageEvent.SenderId,
+				To:      mediaFile.FileId,
+				Payload: warmupPayload,
+			})
+			if err != nil {
+				return err
+			}
+			if err := outboxRepo.Create(ctx, &outboxport.Entry{
+				EventType:  string(protocol.EventFileCardWarmup),
+				MessageKey: mediaFile.FileId,
+				Payload:    warmupEnvelope,
+			}); err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -1013,6 +1106,9 @@ func buildMessageRequestHash(dto SendMessageDTO) (string, error) {
 	case messagevo.Image, messagevo.Video, messagevo.File:
 		// 媒体消息的身份由 FileId 表示，不依赖文件名等数据库元数据。
 		content = ""
+		dto.Width = 0
+		dto.Height = 0
+		dto.DurationMs = nil
 	}
 
 	payload, err := json.Marshal(messageRequestFingerprint{

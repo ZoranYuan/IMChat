@@ -206,6 +206,7 @@ func (s *ObjectStorage) PresignedGetURL(ctx context.Context,
 		return "", err
 	}
 
+	// url 由 3 部分组成，publicpoint、bucket、objectKey、scheme
 	return s.rewritePublicURL(u), nil
 }
 

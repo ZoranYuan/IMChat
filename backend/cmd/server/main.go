@@ -165,6 +165,7 @@ func main() {
 	fileApplication := fileapp.NewFileApplication(fileapp.Options{
 		MultipartTTL:             time.Duration(cfg.Storage.MinIO.MultipartTTL) * time.Second,
 		CacheTTL:                 time.Duration(cfg.Storage.MinIO.CacheTTLSeconds) * time.Second,
+		AttachmentFileCardTTL:    time.Duration(cfg.Cache.AttachmentFileCard.TTLSeconds) * time.Second,
 		URLTTL:                   time.Duration(cfg.Storage.MinIO.URLTTLSeconds) * time.Second,
 		AttachmentAccessCacheTTL: time.Duration(cfg.Cache.AttachmentAccess.TTLSeconds) * time.Second,
 		PartURLTTL:               time.Duration(cfg.Storage.MinIO.PartURLTTLSeconds) * time.Second,
@@ -184,6 +185,7 @@ func main() {
 		fileCache,
 		objectStorage,
 		cfg.FileCleanup,
+		time.Duration(cfg.Storage.MinIO.MultipartCompleteLockTTLSeconds)*time.Second,
 	)
 	cleanupDone := make(chan struct{})
 	go func() {
@@ -259,11 +261,18 @@ func main() {
 	readNotifyHandler := mqhandler.NewReadHandler(realtimeGateway)
 	friendRequestHandler := mqhandler.NewFriendRequestHandler(realtimeGateway)
 	roomMemberChangedHandler := mqhandler.NewRoomMemberChangedHandler(roomApp)
+	fileCardWarmupHandler := mqhandler.NewFileCardWarmupHandler(
+		fileCache,
+		objectStorage,
+		time.Duration(cfg.Cache.AttachmentFileCard.TTLSeconds)*time.Second,
+		time.Duration(cfg.Storage.MinIO.URLTTLSeconds)*time.Second,
+	)
 	topicRouter, routerErr := kafka.NewTopicRouter(map[string]string{
 		string(protocol.EventTypeSendMessage):      cfg.Kafka.Topics.Message,
 		string(protocol.EventReadMessageCommitted): cfg.Kafka.Topics.ReadMessageCommitted,
 		string(protocol.EventFriendRequestCreated): cfg.Kafka.Topics.FriendRequestCreated,
 		string(protocol.EventRoomMemberChanged):    cfg.Kafka.Topics.RoomMemberChanged,
+		string(protocol.EventFileCardWarmup):       cfg.Kafka.Topics.FileCardWarmup,
 	})
 	if routerErr != nil {
 		log.Fatal("创建 Kafka Topic 路由失败：", routerErr)
@@ -274,6 +283,7 @@ func main() {
 		protocol.EventReadMessageCommitted: readNotifyHandler,
 		protocol.EventFriendRequestCreated: friendRequestHandler,
 		protocol.EventRoomMemberChanged:    roomMemberChangedHandler,
+		protocol.EventFileCardWarmup:       fileCardWarmupHandler,
 	},
 		inboxRepository,
 		txManager,
@@ -327,6 +337,7 @@ func main() {
 		outboxRepository,
 		friendRepository,
 		fileRepository,
+		fileCache,
 		objectStorage,
 		messageImageRepository,
 		messageFileRepository,

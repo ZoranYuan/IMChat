@@ -207,8 +207,8 @@ func (r *FileUploadRepository) MarkCompleted(ctx context.Context, uploadId, file
 	return row.Status == "completed" && row.FileID == fileId, nil
 }
 
-func (r *FileUploadRepository) DeleteFileUploadByID(ctx context.Context, uploadId string) error {
-	return r.db.WithContext(ctx).Where("upload_id = ?", uploadId).Delete(&model.FileUpload{}).Error
+func (r *FileUploadRepository) DeleteFileUploadByUploadID(ctx context.Context, uploadID string) error {
+	return r.db.WithContext(ctx).Where("upload_id = ?", uploadID).Delete(&model.FileUpload{}).Error
 }
 
 func toFileUploadRecord(row model.FileUpload) filerepo.FileUploadRecord {
