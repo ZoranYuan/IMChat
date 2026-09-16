@@ -27,10 +27,20 @@ export const createConversationRecord = (
         targetId: conversation.targetId,
         displayName: conversation.displayName,
         avatar: conversation.avatar,
-        lastMessage: conversation.lastMessage,
+        // 会话表只缓存消息摘要；未读数只保留在运行时内存。
+        lastMessage: conversation.lastMessage ? {
+            messageId: conversation.lastMessage.messageId || "",
+            conversationId: conversation.lastMessage.conversationId || conversation.conversationId,
+            senderId: conversation.lastMessage.senderId || "",
+            cType: Number(conversation.lastMessage.cType) || 1,
+            content: conversation.lastMessage.content || "",
+            sendTime: Number(conversation.lastMessage.sendTime) || 0,
+        } : null,
         peerUser: conversation.peerUser,
         room: conversation.room,
         // 本地消息同步边界，初始值为 0，之后由消息落库流程维护。
         lastContinuousSeq: Number(conversation.lastContinuousSeq) || 0,
+        // 对端最高已读水位，仅用于私聊最后一条本人消息的“已读/已发送”展示。
+        readWatermark: Number(conversation.readWatermark) || 0,
     };
 };

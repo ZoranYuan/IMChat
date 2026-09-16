@@ -6,7 +6,6 @@ export const MessageType = Object.freeze({
   FILE: 5,
 });
 
-// Message types that can be created by uploading a local file.
 export const UploadableMessageTypes = Object.freeze([
   MessageType.IMAGE,
   MessageType.VIDEO,

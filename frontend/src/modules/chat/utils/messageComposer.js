@@ -24,7 +24,7 @@ export const createOutgoingMessage = (conversation, payload, currentUser) => {
     height: payload.height || 0,
     durationMs: payload.durationMs || 0,
     sendTime,
-    status: "sending",
+    status: 1,
   };
 };
 

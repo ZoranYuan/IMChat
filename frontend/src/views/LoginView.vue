@@ -58,7 +58,7 @@ watch(mode, () => {
 
 <template>
   <main
-    class="relative isolate grid min-h-dvh place-items-center overflow-hidden bg-[#f8f7fc] px-5 py-8 text-[#19152d]">
+    class="relative isolate grid min-h-dvh place-items-center overflow-hidden bg-[#f8f7fc] px-5 py-8 text-sm text-[#19152d]">
     <span
       class="pointer-events-none absolute inset-0 -z-10 opacity-30 bg-[radial-gradient(rgba(91,53,245,0.1)_1px,transparent_1px)] bg-size-[24px_24px] mask-[linear-gradient(to_bottom,rgba(0,0,0,0.5),transparent_70%)]"
       aria-hidden="true"></span>
@@ -105,7 +105,7 @@ watch(mode, () => {
               :autocomplete="mode === 'register' ? 'tel' : 'username'" :maxlength="mode === 'register' ? 11 : 64"
               :placeholder="mode === 'register' ? '请输入手机号' : '请输入手机号或用户名'"
               :aria-invalid="Boolean(errors.account)"
-              class="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#19152d] outline-0 placeholder:text-[#b4b0bc]" />
+              class="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#19152d] outline-0 placeholder:text-[#b4b0bc]" />
           </div>
           <small v-if="errors.account" class="text-[11px] text-[#c34d65]">{{ errors.account }}</small>
         </label>
@@ -118,7 +118,7 @@ watch(mode, () => {
             <input v-model="form.password" :type="showPassword ? 'text' : 'password'"
               :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" placeholder="请输入密码"
               :aria-invalid="Boolean(errors.password)"
-              class="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#19152d] outline-0 placeholder:text-[#b4b0bc]" />
+              class="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#19152d] outline-0 placeholder:text-[#b4b0bc]" />
             <button
               class="grid size-7.25 flex-none place-items-center rounded-lg bg-transparent text-[#aaa5b7] transition-colors hover:bg-[#f3f0ff] hover:text-[#5b35f5]"
               type="button" :title="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword">
@@ -136,7 +136,7 @@ watch(mode, () => {
             <LockKeyhole :size="18" />
             <input v-model="form.reconfirmPassword" :type="showPassword ? 'text' : 'password'"
               autocomplete="new-password" placeholder="请再次输入密码" :aria-invalid="Boolean(errors.reconfirmPassword)"
-              class="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#19152d] outline-0 placeholder:text-[#b4b0bc]" />
+              class="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#19152d] outline-0 placeholder:text-[#b4b0bc]" />
           </div>
           <small v-if="errors.reconfirmPassword" class="text-[11px] text-[#c34d65]">{{ errors.reconfirmPassword
             }}</small>
@@ -147,12 +147,6 @@ watch(mode, () => {
               class="size-3.75 accent-[#5b35f5]" /> <span>记住我</span></label>
           <button type="button" class="bg-transparent font-semibold text-[#5b35f5]"
             @click="messageTips.info('暂未提供找回密码接口')">忘记密码?</button>
-        </div>
-
-        <div v-if="errors.submit"
-          class="rounded-[10px] border border-[#f2cdd5] bg-[#fff5f7] px-2.75 py-2.25 text-[11px] leading-normal text-[#c34d65]"
-          role="alert">
-          {{ errors.submit }}
         </div>
 
         <button

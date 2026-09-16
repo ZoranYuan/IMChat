@@ -10,7 +10,7 @@ export const MESSAGE_INDEXES = {
     CONVERSATION_SEQ: "conversationSeq",
 };
 
-/** 将消息转换为 IndexedDB 记录，只保留消息字段和 attachmentId。 */
+/** 将消息转换为 IndexedDB 记录，只保留消息本体和业务状态。 */
 export const createMessageRecord = (message) => {
     const seq = Number(message?.seq);
     // 正常消息使用 conversationId + seq 作为 IndexedDB 主键。
@@ -27,10 +27,11 @@ export const createMessageRecord = (message) => {
         cType: Number(message.cType) || 1,
         content: message.content || "",
 
-        // 弹幕相关接口兼容
-        videoId: message.videoId || "",
-        videoTime: message.videoTime ?? null,
-        status: message.status || "sent",
+        // // 弹幕相关接口兼容
+        // videoId: message.videoId || "",
+        // videoTime: message.videoTime ?? null,
+        // 后端消息业务状态：1=normal，2=recall。
+        status: Number(message.status) || 1,
         sendTime: Number(message.sendTime) || 0,
         attachmentId: message.attachmentId || "",
     };

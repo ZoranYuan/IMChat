@@ -6,7 +6,7 @@ defineEmits(["close", "clear"]);
 </script>
 
 <template>
-  <aside v-if="conversation" class="details-panel col-[5] flex min-w-0 w-full flex-col overflow-hidden bg-white max-[767px]:fixed max-[767px]:inset-0 max-[767px]:z-[45]">
+  <aside v-if="conversation" class="details-panel col-[5] flex min-w-0 w-full flex-col overflow-hidden bg-white text-sm max-[767px]:fixed max-[767px]:inset-0 max-[767px]:z-[45]">
     <header class="flex min-h-[68px] items-center justify-between border-b border-[#ebe9f7] px-4 text-[13px] font-semibold"><strong>会话详情</strong><button class="grid size-9 place-items-center rounded-lg bg-transparent text-[#9893a6] hover:bg-[#f8f7ff] hover:text-[#5b35f5]" type="button" title="关闭" @click="$emit('close')"><X :size="19" /></button></header>
     <div class="min-h-0 overflow-auto px-[18px] py-[22px]">
       <section class="flex flex-col items-center border-b border-[#ebe9f7] pb-[22px] text-center">

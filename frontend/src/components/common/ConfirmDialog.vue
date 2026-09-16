@@ -48,7 +48,7 @@ const closeDialog = () => {
     >
       <div
         v-if="props.open"
-        class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 px-4"
+        class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 px-4 text-sm"
         @click.self="closeDialog"
       >
         <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.18)]">

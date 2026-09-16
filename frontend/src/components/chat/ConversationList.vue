@@ -1,6 +1,7 @@
 <script setup>
 import { LoaderCircle, Plus, Search, Users } from "@lucide/vue";
 import { computed, ref } from "vue";
+import { messageTypeLabel } from "../../constants/message.js";
 
 const props = defineProps({
   conversations: { type: Array, default: () => [] },
@@ -12,7 +13,12 @@ defineEmits(["select", "create-room"]);
 
 const query = ref("");
 const conversationDisplayName = (conversation) => conversation.displayName || "未命名会话";
-const conversationPreview = (conversation) => conversation.lastMessage?.content || "暂无消息";
+const conversationPreview = (conversation) => {
+  const lastMessage = conversation.lastMessage;
+  if (!lastMessage) return "暂无消息";
+
+  return messageTypeLabel(lastMessage.cType) || lastMessage.content || "暂无消息";
+};
 const conversationTime = (conversation) => {
   if (!conversation.lastMessage?.sendTime) return "";
   return new Date(Number(conversation.lastMessage.sendTime)).toLocaleTimeString("zh-CN", {
@@ -31,7 +37,7 @@ const filtered = computed(() => {
 </script>
 
 <template>
-  <section class="flex h-full min-w-0 flex-col bg-white">
+  <section class="flex h-full min-w-0 flex-col bg-white text-sm">
     <header class="flex items-center justify-between px-5 pb-4 pt-6">
       <div>
         <p class="mb-1 text-[10px] font-bold tracking-[0.16em] text-[#5b35f5]">IMCHAT</p>
@@ -46,7 +52,7 @@ const filtered = computed(() => {
     <label class="mx-4 flex min-h-10 items-center gap-2 rounded-[10px] border border-transparent bg-[#f8f8fb] px-3 text-[#a3a0b0] transition-[border-color,box-shadow] duration-150 focus-within:border-[#cfc5ff] focus-within:ring-4 focus-within:ring-[rgba(91,53,245,0.08)]">
       <Search :size="17" />
       <input v-model="query" type="search" placeholder="搜索会话或消息"
-        class="min-w-0 flex-1 border-0 bg-transparent text-[11px] text-[#17122c] outline-0 placeholder:text-[#aaa6b5]" />
+        class="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#17122c] outline-0 placeholder:text-[#aaa6b5]" />
       <kbd class="rounded border border-[#e7e4ef] bg-white px-1.5 py-0.5 text-[10px] text-[#aaa6b5]">⌘ K</kbd>
     </label>
 

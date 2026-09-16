@@ -127,8 +127,8 @@ export const getFriends = () => http.get("/friends");
 
 export const getFriendRequests = () => http.get("/friend-requests");
 
-export const createFriendRequest = ({ targetUserId, message }) =>
-  http.post("/friend-requests", { targetUserId, message });
+export const createFriendRequest = ({ peerUserId, message }) =>
+  http.post("/friend-requests", { peerUserId, message });
 
 export const operateFriendRequest = ({ requestId, action }) =>
   http.post("/friend-requests/actions", { requestId, action });
@@ -144,22 +144,12 @@ export const leaveRoom = (roomId) => http.post(`/rooms/${roomId}/leave`);
 
 export const getConversations = () => http.get("/conversations");
 
-export const getMessageHistory = (conversationId, cursor = 0, limit = 30) =>
-  http.get("/messages/history", {
-    params: { conversationId, cursor, limit },
-  });
-
 export const syncMessages = (conversationId, afterSeq = 0) =>
-	http.get("/messages/sync", {
-		params: {
-			conversationId,
-			afterSeq,
-		},
-	});
-
-export const getMessagesBySeqs = (conversationId, seqs = []) =>
-  http.get("/messages/seqs", {
-    params: { conversationId, seqs: seqs.join(",") },
+  http.get("/messages/sync", {
+    params: {
+      conversationId,
+      afterSeq,
+    },
   });
 
 export const getRoomVideoHistory = (roomId, limit = 20) =>
@@ -176,10 +166,10 @@ export const initDirectUpload = (payload) =>
 export const initUpload = (payload) =>
   http.post("/files/uploads/init", payload);
 
-export const uploadDirectObjectToStorage = (url, file, onUploadProgress) =>
+export const uploadDirectObjectToStorage = (url, file, signal) =>
   axios.put(url, file, {
     headers: { "Content-Type": file.type || "application/octet-stream" },
-    onUploadProgress,
+    signal,
   });
 
 export const completeDirectUpload = (uploadId) =>
@@ -194,17 +184,18 @@ export const initMultipartUpload = (payload) =>
 export const presignMultipartParts = (uploadId, partNumbers) =>
   http.post(`/files/multipart/${uploadId}/parts/presign`, { partNumbers });
 
-export const uploadMultipartPartToStorage = (url, chunk) =>
+export const uploadMultipartPartToStorage = (url, chunk, signal) =>
   axios.put(url, chunk, {
     headers: { "Content-Type": "application/octet-stream" },
+    signal,
   });
 
 export const completeMultipartUpload = (uploadId) =>
   http.post(`/files/multipart/${uploadId}/complete`);
 
 export const getAttachmentAccessURLs = (attachmentIds = []) =>
-	http.post("/files/attachments/access-urls", {
-		attachmentIds,
-	});
+  http.post("/files/attachments/access-urls", {
+    attachmentIds,
+  });
 
 export default http;

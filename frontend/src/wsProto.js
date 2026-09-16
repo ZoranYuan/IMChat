@@ -5,7 +5,7 @@ syntax = "proto3";
 package im.ws;
 message WsFrame { string op = 1; bytes data = 2; }
 message WsBatch { repeated WsFrame frames = 1; }
-message MessageReadAckReq { string conversation_id = 1; int64 last_read_seq = 2; }
+message MessageReadAckReq { string message_id = 1; }
 message MessageReq {
   string client_msg_id = 1; string recv_id = 2; int32 conv_type = 3; int32 c_type = 4;
   string content = 5; int64 video_time = 6; bool has_video_time = 7;
@@ -14,7 +14,7 @@ message MessageReq {
 }
 message MessageAck { string client_msg_id = 1; string message_id = 2; string status = 3; string extra = 4; int64 send_time = 5; string conversation_id = 6; int64 seq = 7; string attachment_id = 8; }
 message RoomMessageNotice { string conversation_id = 1; string message_id = 2; int64 seq = 3; }
-message MessageReadAckEvent { string user_id = 1; string conversation_id = 2; int64 last_read_seq = 3; int32 conv_type = 4; string sender_id = 5; string avatar = 6; }
+message MessageReadAckEvent { string user_id = 1; string conversation_id = 2; int64 last_read_seq = 3; int32 conv_type = 4; string avatar = 6; }
 message MessageEvent {
   string message_id = 1; string conversation_id = 2; string sender_id = 3;
   int64 seq = 5; int32 c_type = 7; string content = 8; int64 send_time = 9;

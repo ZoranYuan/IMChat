@@ -5,56 +5,34 @@ export const findConversation = (conversations, conversationId) => (
 export const sortConversations = (conversations = []) => [...conversations].sort((left, right) => {
   const rightTime = Number(right.lastMessage?.sendTime) || 0;
   const leftTime = Number(left.lastMessage?.sendTime) || 0;
-  if (rightTime !== leftTime) return rightTime - leftTime;
-  return (Number(right.latestSeq) || 0) - (Number(left.latestSeq) || 0);
+  return rightTime - leftTime;
 });
 
-export const applyIncomingMessageToConversation = (
+/** 用已确认的新消息更新会话列表的内存预览和未读展示。 */
+export const applyRealtimeMessageToConversation = (
   conversation,
   message,
-  { active = false } = {},
+  { active = false, increaseUnread = false } = {},
 ) => {
   if (!conversation || !message) return false;
 
-  const seq = Number(message.seq) || 0;
-  const currentLatestSeq = Number(conversation.latestSeq) || 0;
-  const currentLastMessageSeq = Number(conversation.lastMessage?.seq) || 0;
-  const isNew = seq > currentLatestSeq;
-
-  conversation.latestSeq = Math.max(currentLatestSeq, seq);
-  if (!conversation.lastMessage || seq > currentLastMessageSeq) {
-    conversation.lastMessage = { ...message };
-  }
+  conversation.lastMessage = {
+    messageId: message.messageId,
+    conversationId: message.conversationId,
+    senderId: message.senderId,
+    cType: message.cType,
+    content: message.content,
+    sendTime: message.sendTime,
+    status: message.status,
+  };
 
   if (active) {
     conversation.unread = 0;
-  } else if (isNew) {
+  } else if (increaseUnread) {
     conversation.unread = (Number(conversation.unread) || 0) + 1;
   }
 
-  return isNew;
-};
-
-export const applySyncedMessagesToConversation = (
-  conversation,
-  messages,
-  { active = false } = {},
-) => {
-  if (!conversation || !messages?.length) return;
-
-  const latest = messages.reduce((current, message) => (
-    !current || Number(message.seq) > Number(current.seq) ? message : current
-  ), null);
-  if (latest) applyIncomingMessageToConversation(conversation, latest, { active });
-
-  if (active) {
-    conversation.unread = 0;
-  } else {
-    conversation.unread = Math.max(
-      (Number(conversation.latestSeq) || 0) - (Number(conversation.lastReadSeq) || 0),
-      0,
-    );
-  }
+  return true;
 };
 
 export const createDirectConversation = (currentUserId, contact) => {
@@ -65,8 +43,6 @@ export const createDirectConversation = (currentUserId, contact) => {
     convType: 1,
     displayName: contact.name,
     unread: 0,
-    latestSeq: 0,
-    lastReadSeq: 0,
     lastMessage: null,
     avatar: contact.avatar || "",
     peerUser: {
@@ -78,5 +54,6 @@ export const createDirectConversation = (currentUserId, contact) => {
     },
     room: null,
     isMuted: false,
+    readWatermark: 0,
   };
 };
