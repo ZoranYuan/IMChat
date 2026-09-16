@@ -135,6 +135,10 @@ func (h *Handle) InitDirectUpload(c *gin.Context) {
 			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
 			return
 		}
+		if errors.Is(err, fileapp.ErrInvalidMIME) {
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
+			return
+		}
 		log.Println("初始化直传失败：", err)
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "初始化上传失败"))
 		return
@@ -164,7 +168,7 @@ func (h *Handle) CompleteDirectUpload(c *gin.Context) {
 			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
 		case errors.Is(err, fileapp.ErrUploadBusy):
 			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
-		case errors.Is(err, fileapp.ErrFileSizeMismatch), errors.Is(err, fileapp.ErrFileHashMismatch):
+		case errors.Is(err, fileapp.ErrFileSizeMismatch), errors.Is(err, fileapp.ErrFileHashMismatch), errors.Is(err, fileapp.ErrUnsupportedFileType):
 			c.JSON(http.StatusUnprocessableEntity, response.Error(http.StatusUnprocessableEntity, err.Error()))
 		default:
 			log.Println("完成直传失败：", err)
@@ -208,6 +212,10 @@ func (h *Handle) InitMultipartUpload(c *gin.Context) {
 		}
 		if errors.Is(err, fileapp.ErrUploadBusy) {
 			c.JSON(http.StatusConflict, response.Error(http.StatusConflict, err.Error()))
+			return
+		}
+		if errors.Is(err, fileapp.ErrInvalidMIME) {
+			c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, err.Error()))
 			return
 		}
 		log.Println("初始化分片上传失败：", err)
@@ -284,6 +292,10 @@ func (h *Handle) CompleteMultipartUpload(c *gin.Context) {
 		}
 		if errors.Is(err, fileapp.ErrUploadUnauthorized) {
 			c.JSON(http.StatusForbidden, response.Error(http.StatusForbidden, "无权操作该上传任务"))
+			return
+		}
+		if errors.Is(err, fileapp.ErrFileSizeMismatch) || errors.Is(err, fileapp.ErrFileHashMismatch) || errors.Is(err, fileapp.ErrUnsupportedFileType) {
+			c.JSON(http.StatusUnprocessableEntity, response.Error(http.StatusUnprocessableEntity, err.Error()))
 			return
 		}
 		log.Println("完成分片上传失败：", err)

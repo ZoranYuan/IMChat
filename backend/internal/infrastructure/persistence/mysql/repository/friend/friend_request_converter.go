@@ -9,7 +9,7 @@ import (
 func requestToDomain(m model.FriendRequest) *friendentity.FriendRequest {
 	return &friendentity.FriendRequest{
 		ApplicantUserId: m.ApplicantUserId,
-		TargetUserId:    m.TargetUserId,
+		PeerUserId:      m.PeerUserId,
 		RequestId:       m.RequestId,
 		Message:         m.Message,
 		Status:          friendvo.RequestStatus(m.Status),
@@ -21,7 +21,7 @@ func requestToModel(e *friendentity.FriendRequest) model.FriendRequest {
 	return model.FriendRequest{
 		ApplicantUserId: e.ApplicantUserId,
 		RequestId:       e.RequestId,
-		TargetUserId:    e.TargetUserId,
+		PeerUserId:      e.PeerUserId,
 		Message:         e.Message,
 		Status:          int(e.Status),
 		ApplyTime:       e.ApplyTime,

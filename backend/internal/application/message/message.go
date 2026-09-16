@@ -58,10 +58,7 @@ type MessageApplication struct {
 	fileRepository               filerepo.FileRepository
 	fileCache                    filecache.FileCache
 	objectStorage                objectstorage.ObjectStorage
-	messageImageRepository       messagerepo.MessageImageRepository
-	messageFileRepository        messagerepo.MessageFileRepository
 	messageStickerRepository     messagerepo.MessageStickerRepository
-	messageVideoRepository       messagerepo.MessageVideoRepository
 	messageAttachmentsRepository messagerepo.MessageAttachmentsRepository
 	messageOutboxRepository      outboxport.Repository
 	userRepository               userrepo.UserRepository
@@ -86,10 +83,7 @@ func NewMessageApplication(
 	fileRepository filerepo.FileRepository,
 	fileCache filecache.FileCache,
 	objectStorage objectstorage.ObjectStorage,
-	messageImageRepository messagerepo.MessageImageRepository,
-	messageFileRepository messagerepo.MessageFileRepository,
 	messageStickerRepository messagerepo.MessageStickerRepository,
-	messageVideoRepository messagerepo.MessageVideoRepository,
 	userRepository userrepo.UserRepository,
 	messageRepository messagerepo.MessageRepository,
 	roomUserRepository roomrepo.RoomUserRepository,
@@ -117,10 +111,7 @@ func NewMessageApplication(
 		fileRepository:             fileRepository,
 		fileCache:                  fileCache,
 		objectStorage:              objectStorage,
-		messageImageRepository:     messageImageRepository,
-		messageFileRepository:      messageFileRepository,
 		messageStickerRepository:   messageStickerRepository,
-		messageVideoRepository:     messageVideoRepository,
 		idGenerator:                idGenerator,
 		config:                     config,
 	}
@@ -133,128 +124,85 @@ func NewMessageApplication(
 func (ma *MessageApplication) HandleReadMessage(
 	ctx context.Context,
 	userId string,
-	conversationId string,
-	lastReadSeq int64,
+	messageId string,
 ) error {
+	message, err := ma.messageRepository.FindByMessageID(ctx, messageId)
+	if err != nil {
+		return err
+	}
+	if message == nil {
+		return ErrMessageNotFound
+	}
+
+	conversationId := message.ConversationId
+	lastReadSeq := message.Seq
+	if lastReadSeq <= 0 {
+		return ErrMessageSeq
+	}
+	if ma.txManager == nil || ma.messageOutboxRepository == nil {
+		return fmt.Errorf("消息出箱组件未配置")
+	}
+
 	uconv, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
 	if err != nil {
 		return ErrConversationNotFound
 	}
 
-	oldLastReadSeq := uconv.LastReadSeq
-	if lastReadSeq <= oldLastReadSeq {
-		return nil
+	if uconv == nil {
+		return ErrUserConversationNotFound
 	}
 
 	conv, err := ma.conversationRepository.GetByID(ctx, conversationId)
 	if err != nil {
 		return err
 	}
+
 	if conv == nil {
 		return ErrConversationNotFound
 	}
-	if lastReadSeq > conv.LatestSeq {
-		lastReadSeq = conv.LatestSeq
-	}
-	if lastReadSeq <= oldLastReadSeq {
-		return nil
-	}
-
-	notifyUserIds, err := ma.messageRepository.ListDistinctSendersBySeqRange(
-		ctx,
-		conversationId,
-		oldLastReadSeq,
-		lastReadSeq,
-		userId,
-	)
+	canAccess, err := ma.canAccessConversation(ctx, conv, userId)
 	if err != nil {
 		return err
 	}
+	if !canAccess {
+		return ErrForbidden
+	}
+
+	// 当前只为私聊维护对端已读水位，群聊已读语义单独处理。
+	if conv.Convtype != conversationvo.PrivateChat {
+		return nil
+	}
+
+	if lastReadSeq > conv.LatestSeq {
+		return ErrMessageSeq
+	}
+
+	var peerUserId string
+	switch userId {
+	case conv.UserId1:
+		peerUserId = conv.UserId2
+	case conv.UserId2:
+		peerUserId = conv.UserId1
+	default:
+		return ErrForbidden
+	}
+
+	if peerUserId == "" || peerUserId == userId {
+		return ErrForbidden
+	}
+
+	peerProfiles, err := ma.loadReadUserProfiles(ctx, []string{peerUserId})
+	if err != nil {
+		return err
+	}
+	if peerProfiles[peerUserId] == nil {
+		return ErrUserNotFonund
+	}
+	if lastReadSeq <= uconv.LastReadSeq {
+		return nil
+	}
 
 	uconv.UpdateReadSeq(lastReadSeq)
-
-	if ma.txManager == nil || ma.messageOutboxRepository == nil {
-		return fmt.Errorf("消息出箱组件未配置")
-	}
-
-	sfKey := "user-profile:" + userId
-	result := ma.sf.DoChan(sfKey, func() (any, error) {
-		ctx, cancel := context.WithTimeout(
-			context.WithoutCancel(ctx),
-			3*time.Second,
-		)
-		defer cancel()
-
-		var (
-			user        *userentity.User
-			userProfile *usercach.UserProfile
-			exist       bool
-			err         error
-		)
-
-		userProfile, exist, err = ma.userCache.GetUserProfile(ctx, userId)
-
-		if err != nil {
-			log.Println("获取用户资料缓存失败：", err)
-		}
-
-		if !exist {
-			// 缓存中不存在，回查数据库
-			user, err = ma.userRepository.FindByUserID(userId)
-
-			if err != nil {
-				return nil, err
-			}
-
-			if user == nil {
-				// 防止缓存穿透
-				ma.userCache.SetUserProfileNotFound(
-					ctx,
-					userId,
-					time.Duration(ma.config.Cache.UserProfile.NegativeTTL)*time.Second,
-				)
-				return nil, ErrUserNotFonund
-			}
-
-			userProfile = userProfileFromEntity(*user)
-
-			if err := ma.userCache.SetUserProfile(
-				ctx,
-				userProfile,
-				time.Duration(ma.config.Cache.UserProfile.TTL)*time.Second,
-			); err != nil {
-				log.Println("写入用户资料缓存失败：", err)
-			}
-
-			return userProfile, nil
-		}
-
-		if !userProfile.Found {
-			return nil, ErrUserNotFonund
-		}
-
-		return userProfile, nil
-	})
-
-	var userProfile *usercach.UserProfile
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case result := <-result:
-		if result.Err != nil {
-			return result.Err
-		}
-
-		state, ok := result.Val.(*usercach.UserProfile)
-		if !ok || state == nil {
-			// 缓存不生效，需要删除当前缓存
-			ma.userCache.DeleteUserProfiles(ctx, []string{userId})
-			return ErrUserNotFonund
-		}
-
-		userProfile = state
-	}
-
 	return ma.txManager.WithinTransaction(ctx, func(tx any) error {
 		advanced, err := ma.userConversationRepository.WithTx(tx).AdvanceReadSeq(ctx, uconv)
 		if err != nil {
@@ -264,28 +212,25 @@ func (ma *MessageApplication) HandleReadMessage(
 			return nil
 		}
 
-		if len(notifyUserIds) == 0 {
-			return nil
-		}
-
 		readEvent := protocol.MessageReadCommittedEvent{
 			ReaderId:       userId,
 			ConversationId: conversationId,
-			OldReadSeq:     oldLastReadSeq,
 			LastReadSeq:    lastReadSeq,
 			ConvType:       protocol.ConvType(conv.Convtype),
-			NotifyUserIds:  notifyUserIds,
-			Avatar:         userProfile.Avatar,
+			// 私聊目前只推送已读水位。群聊已读通知应根据 ReaderId 填阅读者头像，
+			// 不能把本次查询的对端头像误当成阅读者头像。
 		}
 
 		eventPayload, err := json.Marshal(readEvent)
 		if err != nil {
 			return err
 		}
+
 		payload, err := json.Marshal(protocol.Envelope{
-			To:      conversationId,
+			To:      peerUserId,
 			Payload: eventPayload,
 		})
+
 		if err != nil {
 			return err
 		}
@@ -409,48 +354,15 @@ func (ma *MessageApplication) buildMediaWriter(dto *SendMessageDTO, messageId st
 	}
 
 	switch messagevo.CType(dto.Type) {
-	case messagevo.Image:
-		if ma.messageImageRepository == nil {
-			return nil, fmt.Errorf("消息图片仓储未配置")
-		}
+	case messagevo.Image, messagevo.File, messagevo.Video:
 		if dto.FileID == "" {
-			return nil, fmt.Errorf("图片内容不能为空")
+			return nil, fmt.Errorf("媒体文件不能为空")
 		}
 		attachment, err := ma.buildAttachment(dto, messageId)
 		if err != nil {
 			return nil, err
 		}
-		item := messageentity.NewMessageImage(
-			messageId,
-			dto.MimeType,
-			dto.Width,
-			dto.Height,
-		)
 		return func(ctx context.Context, tx any) error {
-			if err := ma.messageImageRepository.WithTx(tx).Create(ctx, item); err != nil {
-				return err
-			}
-			return ma.messageAttachmentsRepository.WithTx(tx).Create(ctx, attachment)
-		}, nil
-	case messagevo.File:
-		if ma.messageFileRepository == nil {
-			return nil, fmt.Errorf("消息文件仓储未配置")
-		}
-		if dto.FileID == "" {
-			return nil, fmt.Errorf("文件内容不能为空")
-		}
-		attachment, err := ma.buildAttachment(dto, messageId)
-		if err != nil {
-			return nil, err
-		}
-		item := messageentity.NewMessageFile(
-			messageId,
-			dto.FileName,
-		)
-		return func(ctx context.Context, tx any) error {
-			if err := ma.messageFileRepository.WithTx(tx).Create(ctx, item); err != nil {
-				return err
-			}
 			return ma.messageAttachmentsRepository.WithTx(tx).Create(ctx, attachment)
 		}, nil
 	case messagevo.Sticker:
@@ -469,33 +381,6 @@ func (ma *MessageApplication) buildMediaWriter(dto *SendMessageDTO, messageId st
 		)
 		return func(ctx context.Context, tx any) error {
 			return ma.messageStickerRepository.WithTx(tx).Create(ctx, item)
-		}, nil
-	case messagevo.Video:
-		if ma.messageVideoRepository == nil {
-			return nil, fmt.Errorf("消息视频仓储未配置")
-		}
-		if dto.FileID == "" {
-			return nil, fmt.Errorf("视频内容不能为空")
-		}
-		attachment, err := ma.buildAttachment(dto, messageId)
-		if err != nil {
-			return nil, err
-		}
-		duration := int64(0)
-		if dto.DurationMs != nil {
-			duration = *dto.DurationMs
-		}
-		item := messageentity.NewMessageVideo(
-			messageId,
-			duration,
-			dto.Width,
-			dto.Height,
-		)
-		return func(ctx context.Context, tx any) error {
-			if err := ma.messageVideoRepository.WithTx(tx).Create(ctx, item); err != nil {
-				return err
-			}
-			return ma.messageAttachmentsRepository.WithTx(tx).Create(ctx, attachment)
 		}, nil
 	default:
 		return nil, nil
@@ -835,7 +720,6 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMes
 		dto.SenderID,
 		conversationId,
 		0,
-		conversationvo.ConvType(dto.ConversationType),
 	)
 
 	// 弹幕需要同时满足前端发送有视频时间以及在房间内
@@ -1599,6 +1483,98 @@ func userProfileFromEntity(user userentity.User) *usercach.UserProfile {
 		Avatar:   user.Avatar,
 		Status:   int(user.Status),
 	}
+}
+
+func (ma *MessageApplication) loadReadUserProfiles(
+	ctx context.Context,
+	userIDs []string,
+) (map[string]*usercach.UserProfile, error) {
+	profiles := make(map[string]*usercach.UserProfile, len(userIDs))
+	missUserIDs := make([]string, 0, len(userIDs))
+	missSeen := make(map[string]struct{}, len(userIDs))
+
+	cachedProfiles := map[string]*usercach.UserProfile{}
+	if ma.userCache != nil {
+		cachedProfiles = ma.userCache.GetUserProfiles(ctx, userIDs)
+	}
+	for _, userID := range userIDs {
+		if userID == "" {
+			continue
+		}
+		if profile, ok := cachedProfiles[userID]; ok {
+			if profile == nil || !profile.Found {
+				return nil, ErrUserNotFonund
+			}
+			profiles[userID] = profile
+			continue
+		}
+		if _, exists := missSeen[userID]; exists {
+			continue
+		}
+		missSeen[userID] = struct{}{}
+		missUserIDs = append(missUserIDs, userID)
+	}
+
+	if len(missUserIDs) == 0 {
+		return profiles, nil
+	}
+	if ma.userRepository == nil {
+		return nil, fmt.Errorf("用户仓储未配置")
+	}
+
+	users, err := ma.userRepository.FindByUserIDs(missUserIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	missSet := make(map[string]struct{}, len(missUserIDs))
+	for _, userID := range missUserIDs {
+		missSet[userID] = struct{}{}
+	}
+	loadedProfiles := make([]*usercach.UserProfile, 0, len(users))
+	for _, user := range users {
+		userProfile := userProfileFromEntity(user)
+		profiles[userProfile.UserID] = userProfile
+		loadedProfiles = append(loadedProfiles, userProfile)
+		delete(missSet, userProfile.UserID)
+	}
+
+	missingUserIDs := make([]string, 0, len(missSet))
+	for userID := range missSet {
+		missingUserIDs = append(missingUserIDs, userID)
+	}
+	if ma.userCache != nil {
+		cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer cancel()
+
+		cacheTTL := time.Duration(ma.config.Cache.UserProfile.TTL) * time.Second
+		if cacheTTL <= 0 {
+			cacheTTL = 10 * time.Minute
+		}
+		if len(loadedProfiles) > 0 {
+			if err := ma.userCache.SetUserProfiles(cacheCtx, loadedProfiles, cacheTTL); err != nil {
+				log.Printf("批量写入用户资料缓存失败: err=%v", err)
+			}
+		}
+
+		negativeTTL := time.Duration(ma.config.Cache.UserProfile.NegativeTTL) * time.Second
+		if negativeTTL <= 0 {
+			negativeTTL = 2 * time.Minute
+		}
+		if len(missingUserIDs) > 0 {
+			if err := ma.userCache.SetUserProfilesNotFound(cacheCtx, missingUserIDs, negativeTTL); err != nil {
+				log.Printf("批量写入用户不存在缓存失败: err=%v", err)
+			}
+		}
+	}
+
+	for _, userID := range userIDs {
+		profile := profiles[userID]
+		if profile == nil || !profile.Found {
+			return nil, ErrUserNotFonund
+		}
+	}
+	return profiles, nil
 }
 
 func (ma *MessageApplication) fillAttachmentIDs(ctx context.Context, messages []MessageDTO) error {

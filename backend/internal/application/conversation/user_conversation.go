@@ -120,7 +120,6 @@ func (uc *UserConvApplication) GetUserConversationsByUserID(ctx context.Context,
 			MessageID:      msg.MessageId,
 			ConversationID: msg.ConversationId,
 			SenderID:       msg.SenderId,
-			Seq:            msg.Seq,
 			Type:           msg.Type,
 			Content:        msg.Content,
 			SendTime:       msg.SendTime,
@@ -184,8 +183,6 @@ func (uc *UserConvApplication) GetUserConversationsByUserID(ctx context.Context,
 			ConversationType: int8(conv.Convtype),
 			IsMuted:          userConv.IsMuted,
 			Unread:           unreadCount(userConv.LastReadSeq, conv.LatestSeq),
-			LastReadSeq:      userConv.LastReadSeq,
-			LatestSeq:        conv.LatestSeq,
 		}
 
 		if latestMessage, ok := messageByConversationID[userConv.ConversationId]; ok {

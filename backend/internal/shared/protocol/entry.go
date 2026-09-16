@@ -43,24 +43,21 @@ type MessageReadAckEvent struct {
 	ConversationId string   `json:"conversationId"`
 	LastReadSeq    int64    `json:"lastReadSeq"`
 	ConvType       ConvType `json:"convType"`
-	SenderId       string   `json:"senderId"`
 	Avatar         string   `json:"avatar,omitempty"`
 }
 
 type MessageReadCommittedEvent struct {
 	ReaderId       string   `json:"readerId"`
 	ConversationId string   `json:"conversationId"`
-	OldReadSeq     int64    `json:"oldReadSeq"`
 	LastReadSeq    int64    `json:"lastReadSeq"`
 	ConvType       ConvType `json:"convType"`
-	NotifyUserIds  []string `json:"notifyUserIds"`
 	Avatar         string   `json:"avatar,omitempty"`
 }
 
 type FriendRequestCreatedEvent struct {
 	RequestId       string `json:"requestId"`
 	ApplicantUserId string `json:"applicantUserId"`
-	TargetUserId    string `json:"targetUserId"`
+	PeerUserId      string `json:"peerUserId"`
 	Message         string `json:"message,omitempty"`
 	ApplyTime       int64  `json:"applyTime"`
 }

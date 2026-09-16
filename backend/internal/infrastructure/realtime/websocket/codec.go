@@ -58,7 +58,7 @@ func messageAckToPB(event protocol.MessageAckEvent) *wspb.MessageAck {
 
 // messageReadAckEventToPB 将内部已读事件编码为前端使用的 protobuf 消息。
 func messageReadAckEventToPB(event protocol.MessageReadAckEvent) *wspb.MessageReadAckEvent {
-	return &wspb.MessageReadAckEvent{UserId: event.UserId, ConversationId: event.ConversationId, LastReadSeq: event.LastReadSeq, ConvType: int32(event.ConvType), SenderId: event.SenderId, Avatar: event.Avatar}
+	return &wspb.MessageReadAckEvent{UserId: event.UserId, ConversationId: event.ConversationId, LastReadSeq: event.LastReadSeq, ConvType: int32(event.ConvType), Avatar: event.Avatar}
 }
 
 // roomMessageNoticeToPB 将大群轻量通知编码为 protobuf。

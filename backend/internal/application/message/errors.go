@@ -11,7 +11,11 @@ var (
 	ErrUnknownConversationType = errors.New("未知的会话类型")
 	ErrMessageSave             = errors.New("保存消息失败")
 
+	ErrMessageSeq           = errors.New("错误的消息序号")
 	ErrConversationNotFound = errors.New("会话不存在")
+
+	ErrUserConversationNotFound = errors.New("用户会话不存在")
+	ErrMessageNotFound          = errors.New("消息不存在")
 
 	ErrUserNotFonund = userentity.ErrUserNotFound
 	ErrNotFriends    = friendentity.ErrNotFriends

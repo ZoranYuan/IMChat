@@ -105,6 +105,7 @@ type FileCleanupConfig struct {
 type MinIOConfig struct {
 	Endpoint                        string  `yaml:"endpoint"`
 	PublicEndpoint                  string  `yaml:"public_endpoint"`
+	Region                          string  `yaml:"region"`
 	AccessKeyID                     string  `yaml:"access_key_id"`
 	SecretAccessKey                 string  `yaml:"secret_access_key"`
 	Bucket                          string  `yaml:"bucket"`

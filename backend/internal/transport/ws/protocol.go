@@ -1,8 +1,7 @@
 package ws
 
 type MessageReadAckReq struct {
-	ConversationId string `json:"conversationId"`
-	LastReadSeq    int64  `json:"lastReadSeq"`
+	MessageId string `json:"messageId"`
 }
 
 type MessageReq struct {

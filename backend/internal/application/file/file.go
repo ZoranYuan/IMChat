@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"sort"
 	"strings"
 	"time"
@@ -95,6 +96,10 @@ var allowedContentTypes = map[string]struct{}{
 }
 
 func validateContentType(contentType string) error {
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	if mediaType, _, err := mime.ParseMediaType(contentType); err == nil {
+		contentType = mediaType
+	}
 	if _, ok := allowedContentTypes[contentType]; !ok {
 		return ErrUnsupportedFileType
 	}

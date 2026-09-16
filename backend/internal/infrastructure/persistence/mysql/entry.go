@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -56,6 +57,9 @@ func Migrate(db *gorm.DB) error {
 		return err
 	}
 	prepareFriendRequestUniquePair(db)
+	if err := prepareConversationIndexes(db); err != nil {
+		return err
+	}
 	prepareLegacyOutboxColumns(db)
 	prepareFileUploadColumns(db)
 	prepareFileHashColumn(db)
@@ -76,10 +80,7 @@ func Migrate(db *gorm.DB) error {
 		&model.Conversation{},
 		&model.UserConversation{},
 		&model.Message{},
-		&model.MessageImage{},
-		&model.MessageFile{},
 		&model.MessageSticker{},
-		&model.MessageVideo{},
 		&model.MessageAttachment{},
 		&model.File{},
 		&model.FileUpload{},
@@ -103,8 +104,41 @@ func Migrate(db *gorm.DB) error {
 	if err := backfillMessageAttachments(db); err != nil {
 		return err
 	}
+	if err := dropObsoleteMediaTables(db); err != nil {
+		return err
+	}
+	if err := dropRedundantIndexes(db); err != nil {
+		return err
+	}
 	dropLegacyColumns(db)
 	return nil
+}
+
+// prepareConversationIndexes removes the historical unique index from
+// latest_message_id. Empty latest message IDs are valid for new conversations
+// and must be allowed to repeat across conversations.
+func prepareConversationIndexes(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.Conversation{}) {
+		return nil
+	}
+
+	const latestMessageIndex = "idx_conversations_latest_message_id"
+	var uniqueIndexCount int64
+	if err := db.Raw(`
+		SELECT COUNT(*)
+		FROM information_schema.statistics
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'conversations'
+		  AND index_name = ?
+		  AND non_unique = 0
+	`, latestMessageIndex).Scan(&uniqueIndexCount).Error; err != nil {
+		return err
+	}
+	if uniqueIndexCount == 0 {
+		return nil
+	}
+
+	return db.Migrator().DropIndex(&model.Conversation{}, latestMessageIndex)
 }
 
 func backfillDefaultUserNicknames(db *gorm.DB) error {
@@ -283,11 +317,7 @@ func backfillMemberAndOutboxState(db *gorm.DB) error {
 	`).Error; err != nil {
 		return err
 	}
-	return db.Exec(`
-		UPDATE outboxes
-		SET topic = event_type
-		WHERE topic IS NULL OR topic = ''
-	`).Error
+	return nil
 }
 
 func backfillMessageAttachments(db *gorm.DB) error {
@@ -426,7 +456,7 @@ func prepareFriendRequestUniquePair(db *gorm.DB) {
 		FROM friend_requests fr
 		JOIN friend_requests newer
 		  ON newer.applicant_user_id = fr.applicant_user_id
-		 AND newer.target_user_id = fr.target_user_id
+			 AND newer.peer_user_id = fr.peer_user_id
 		 AND (
 		     newer.created_at > fr.created_at
 		  OR (newer.created_at = fr.created_at AND newer.request_id > fr.request_id)
@@ -448,8 +478,14 @@ func prepareFriendRequestColumns(db *gorm.DB) error {
 		}
 	}
 	if db.Migrator().HasColumn(&model.FriendRequest{}, "to_user_id") &&
-		!db.Migrator().HasColumn(&model.FriendRequest{}, "target_user_id") {
-		if err := db.Migrator().RenameColumn(&model.FriendRequest{}, "to_user_id", "target_user_id"); err != nil {
+		!db.Migrator().HasColumn(&model.FriendRequest{}, "peer_user_id") {
+		if err := db.Migrator().RenameColumn(&model.FriendRequest{}, "to_user_id", "peer_user_id"); err != nil {
+			return err
+		}
+	}
+	if db.Migrator().HasColumn(&model.FriendRequest{}, "target_user_id") &&
+		!db.Migrator().HasColumn(&model.FriendRequest{}, "peer_user_id") {
+		if err := db.Migrator().RenameColumn(&model.FriendRequest{}, "target_user_id", "peer_user_id"); err != nil {
 			return err
 		}
 	}
@@ -458,13 +494,7 @@ func prepareFriendRequestColumns(db *gorm.DB) error {
 }
 
 func dropLegacyColumns(db *gorm.DB) {
-	for _, table := range []string{
-		"files",
-		"message_image_metadata",
-		"message_video_metadata",
-		"message_file_metadata",
-		"message_stickers",
-	} {
+	for _, table := range []string{"files", "message_stickers"} {
 		if db.Migrator().HasColumn(table, "url") {
 			if err := db.Migrator().DropColumn(table, "url"); err != nil {
 				log.Printf("删除 %s.url 失败：%v", table, err)
@@ -481,20 +511,19 @@ func dropLegacyColumns(db *gorm.DB) {
 			log.Printf("删除 user_conversations.latest_sync_seq 失败：%v", err)
 		}
 	}
-
-	legacyMessageColumns := map[string][]string{
-		"message_image_metadata": {"file_id", "thumb_file_id"},
-		"message_video_metadata": {"file_id", "cover_file_id"},
-		"message_file_metadata":  {"file_id", "file_name", "mime_type", "size"},
-	}
-	for table, columns := range legacyMessageColumns {
-		for _, column := range columns {
-			if !db.Migrator().HasColumn(table, column) {
-				continue
-			}
-			if err := db.Migrator().DropColumn(table, column); err != nil {
-				log.Printf("删除 %s.%s 失败：%v", table, column, err)
-			}
+	for _, item := range []struct {
+		table  string
+		column string
+	}{
+		{table: "outboxes", column: "topic"},
+		{table: "user_conversations", column: "convtype"},
+		{table: "rooms", column: "version"},
+	} {
+		if !db.Migrator().HasColumn(item.table, item.column) {
+			continue
+		}
+		if err := db.Migrator().DropColumn(item.table, item.column); err != nil {
+			log.Printf("删除 %s.%s 失败：%v", item.table, item.column, err)
 		}
 	}
 
@@ -508,4 +537,59 @@ func dropLegacyColumns(db *gorm.DB) {
 			log.Printf("删除 file_uploads.%s 失败：%v", column, err)
 		}
 	}
+}
+
+// dropObsoleteMediaTables removes the old per-message media metadata tables.
+// Existing legacy file references are copied to message_attachments before this
+// function is called by Migrate.
+func dropObsoleteMediaTables(db *gorm.DB) error {
+	for _, table := range []string{
+		"message_image_metadata",
+		"message_video_metadata",
+		"message_file_metadata",
+	} {
+		if !db.Migrator().HasTable(table) {
+			continue
+		}
+		if err := db.Migrator().DropTable(table); err != nil {
+			return fmt.Errorf("删除废弃媒体表 %s 失败：%w", table, err)
+		}
+	}
+	return nil
+}
+
+func dropRedundantIndexes(db *gorm.DB) error {
+	indexes := []struct {
+		model any
+		name  string
+	}{
+		{model: &model.OutboxRecord{}, name: "idx_message_outboxes_event_type"},
+		{model: &model.OutboxRecord{}, name: "idx_message_outboxes_locked_at"},
+		{model: &model.OutboxRecord{}, name: "idx_message_outboxes_next_retry_at"},
+		{model: &model.OutboxRecord{}, name: "idx_message_outboxes_sent_at"},
+		{model: &model.OutboxRecord{}, name: "idx_message_outboxes_status"},
+		{model: &model.OutboxRecord{}, name: "idx_message_outboxes_topic"},
+		{model: &model.Room{}, name: "idx_room_room_name"},
+		{model: &model.Room{}, name: "idx_rooms_room_name"},
+		{model: &model.Room{}, name: "idx_owner_id_room_name"},
+		{model: &model.RoomUser{}, name: "idx_room_user_room_id"},
+		{model: &model.Conversation{}, name: "idx_conversations_user_id1"},
+		{model: &model.Conversation{}, name: "idx_conversations_user_id2"},
+		{model: &model.Conversation{}, name: "idx_conversations_room_id"},
+		{model: &model.Message{}, name: "idx_conv_seq"},
+		{model: &model.Message{}, name: "idx_sender"},
+		{model: &model.Message{}, name: "idx_messages_request_hash"},
+		{model: &model.File{}, name: "idx_file_uploader"},
+		{model: &model.FileUpload{}, name: "idx_file_upload_uploader"},
+	}
+
+	for _, item := range indexes {
+		if !db.Migrator().HasIndex(item.model, item.name) {
+			continue
+		}
+		if err := db.Migrator().DropIndex(item.model, item.name); err != nil {
+			return fmt.Errorf("删除冗余索引 %s 失败：%w", item.name, err)
+		}
+	}
+	return nil
 }

@@ -46,7 +46,6 @@ func toModel(e *outboxport.Entry) *model.OutboxRecord {
 	return &model.OutboxRecord{
 		ID:          e.ID,
 		EventType:   e.EventType,
-		Topic:       e.EventType,
 		MessageKey:  e.MessageKey,
 		Payload:     e.Payload,
 		Status:      e.Status,

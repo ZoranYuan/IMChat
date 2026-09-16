@@ -24,7 +24,6 @@ type LatestMessageDTO struct {
 	MessageID      string
 	ConversationID string
 	SenderID       string
-	Seq            int64
 	Type           messagevo.CType
 	Content        string
 	SendTime       int64
@@ -37,8 +36,6 @@ type ConversationItemDTO struct {
 	DisplayName      string
 	AvatarURL        string
 	Unread           int64
-	LastReadSeq      int64
-	LatestSeq        int64
 	LastMessage      *LatestMessageDTO
 
 	PeerUser *PeerUserDTO

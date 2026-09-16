@@ -34,7 +34,7 @@ func (fh *FriendRequestHandle) Create(c *gin.Context) {
 		return
 	}
 
-	friendRequestApp, err := fh.app.CreateFriendRequest(userId, newFriendRequest.TargetUserID, newFriendRequest.Message)
+	friendRequestApp, err := fh.app.CreateFriendRequest(userId, newFriendRequest.PeerUserID, newFriendRequest.Message)
 
 	if err != nil {
 		c.JSON(http.StatusConflict, response.Error(http.StatusBadRequest, err.Error()))

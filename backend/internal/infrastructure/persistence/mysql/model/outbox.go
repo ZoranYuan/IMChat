@@ -5,7 +5,6 @@ import "time"
 type OutboxRecord struct {
 	ID          string     `json:"id" gorm:"size:32;primaryKey"`
 	EventType   string     `json:"eventType" gorm:"size:64;index"`
-	Topic       string     `json:"topic" gorm:"size:64;index"`
 	MessageKey  string     `json:"messageKey" gorm:"size:128"`
 	Payload     []byte     `json:"payload" gorm:"type:longblob"`
 	Status      string     `json:"status" gorm:"size:16;not null;default:'pending';index:idx_outbox_pending,priority:1;index:idx_outbox_processing,priority:1"`

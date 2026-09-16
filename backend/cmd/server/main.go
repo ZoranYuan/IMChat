@@ -195,10 +195,7 @@ func main() {
 	fileHandle := filehttp.NewHandle(fileApplication)
 
 	messageRepository := messagemysql.NewMessageRepository(db)
-	messageImageRepository := messagemysql.NewMessageImageRepository(db)
-	messageFileRepository := messagemysql.NewMessageFileRepository(db)
 	messageStickerRepository := messagemysql.NewMessageStickerRepository(db)
-	messageVideoRepository := messagemysql.NewMessageVideoRepository(db)
 	outboxRepository := outboxmysql.NewRepository(db, idGenerator)
 	inboxRepository := inboxmysql.NewRepository(db)
 	conversationRepository := conversationmysql.NewConversationRepository(db)
@@ -339,10 +336,7 @@ func main() {
 		fileRepository,
 		fileCache,
 		objectStorage,
-		messageImageRepository,
-		messageFileRepository,
 		messageStickerRepository,
-		messageVideoRepository,
 		userRepository,
 		messageRepository,
 		roomUserRepository,

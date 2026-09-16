@@ -91,7 +91,8 @@ kafka:
 storage:
   minio:
     endpoint: "minio:9000"
-    public_endpoint: "http://127.0.0.1:9000"
+    public_endpoint: "http://localhost:9000"
+    region: "us-east-1"
     access_key_id: "minioadmin"
     secret_access_key: "minioadmin"
     bucket: "imchat"

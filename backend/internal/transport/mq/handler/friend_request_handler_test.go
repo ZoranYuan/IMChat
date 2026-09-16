@@ -21,11 +21,11 @@ func (stub *friendRequestDeliveryStub) DeliverToUser(eventType, userID string, p
 	return nil
 }
 
-func TestFriendRequestHandlerDeliversToTargetUser(t *testing.T) {
+func TestFriendRequestHandlerDeliversToPeerUser(t *testing.T) {
 	notification := protocol.FriendRequestCreatedEvent{
 		RequestId:       "r1",
 		ApplicantUserId: "u1",
-		TargetUserId:    "u2",
+		PeerUserId:      "u2",
 		Message:         "hi",
 		ApplyTime:       123,
 	}

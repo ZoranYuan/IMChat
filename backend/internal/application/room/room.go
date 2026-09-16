@@ -89,7 +89,6 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		userId,
 		conversationId,
 		0,
-		conversationvo.RoomChat,
 	)
 
 	inviteCode, err := ra.roomCache.UpdateInviteCode(ctx, roomId, 5*time.Minute)
@@ -259,7 +258,6 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 			userId,
 			conversationId,
 			conv.LatestSeq,
-			conversationvo.RoomChat,
 		)
 
 		// 用户退出后，重新加入房间需要重新创建一个 userConversation

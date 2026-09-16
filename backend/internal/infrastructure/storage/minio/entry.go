@@ -18,11 +18,11 @@ import (
 )
 
 type ObjectStorage struct {
-	client         *minio.Client
-	core           *minio.Core
-	bucket         string
-	publicEndpoint string
-	useSSL         bool
+	client        *minio.Client
+	core          *minio.Core
+	presignClient *minio.Client
+	presignCore   *minio.Core
+	bucket        string
 }
 
 func (s *ObjectStorage) Health(ctx context.Context) error {
@@ -37,9 +37,15 @@ func (s *ObjectStorage) Health(ctx context.Context) error {
 }
 
 func NewObjectStorage(ctx context.Context, cfg configs.MinIOConfig) (objectport.ObjectStorage, error) {
+	region := strings.TrimSpace(cfg.Region)
+	if region == "" {
+		region = "us-east-1"
+	}
+
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
 		Secure: cfg.UseSSL,
+		Region: region,
 	})
 
 	if err != nil {
@@ -56,22 +62,59 @@ func NewObjectStorage(ctx context.Context, cfg configs.MinIOConfig) (objectport.
 		}
 	}
 
-	publicEndpoint := cfg.PublicEndpoint
-	if publicEndpoint == "" {
-		publicEndpoint = cfg.Endpoint
-	}
-	publicEndpoint = strings.TrimPrefix(publicEndpoint, "http://")
-	publicEndpoint = strings.TrimPrefix(publicEndpoint, "https://")
-
 	core := &minio.Core{Client: client}
+	var (
+		presignClient *minio.Client
+		presignCore   *minio.Core
+	)
+	if strings.TrimSpace(cfg.PublicEndpoint) != "" {
+		publicEndpoint, publicSecure, err := parseEndpoint(cfg.PublicEndpoint, cfg.UseSSL)
+		if err != nil {
+			return nil, fmt.Errorf("解析 MinIO public_endpoint 失败：%w", err)
+		}
+
+		presignClient, err = minio.New(publicEndpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
+			Secure: publicSecure,
+			Region: region,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("创建 MinIO 预签名客户端失败：%w", err)
+		}
+		presignCore = &minio.Core{Client: presignClient}
+	}
 
 	return &ObjectStorage{
-		client:         client,
-		core:           core,
-		bucket:         cfg.Bucket,
-		publicEndpoint: strings.TrimRight(publicEndpoint, "/"),
-		useSSL:         cfg.UseSSL,
+		client:        client,
+		core:          core,
+		presignClient: presignClient,
+		presignCore:   presignCore,
+		bucket:        cfg.Bucket,
 	}, nil
+}
+
+func parseEndpoint(raw string, defaultSecure bool) (string, bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", defaultSecure, fmt.Errorf("endpoint 不能为空")
+	}
+
+	parsedRaw := raw
+	if !strings.Contains(parsedRaw, "://") {
+		parsedRaw = "http://" + parsedRaw
+	}
+	parsed, err := url.Parse(parsedRaw)
+	if err != nil || parsed.Host == "" {
+		return "", false, fmt.Errorf("地址无效：%s", raw)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", false, fmt.Errorf("仅支持 http 或 https：%s", raw)
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return "", false, fmt.Errorf("endpoint 不支持路径：%s", raw)
+	}
+
+	return parsed.Host, parsed.Scheme == "https", nil
 }
 
 func isInlineContentType(contentType string) bool {
@@ -103,12 +146,11 @@ func (s *ObjectStorage) Bucket() string {
 }
 
 func (s *ObjectStorage) PresignedPutURL(ctx context.Context, objectKey string, ttl time.Duration) (string, error) {
-	// 后端容器只能访问内部 endpoint；签名完成后再替换成浏览器可访问的 Host。
-	u, err := s.client.PresignedPutObject(ctx, s.bucket, objectKey, ttl)
+	u, err := s.presignClient.PresignedPutObject(ctx, s.bucket, objectKey, ttl)
 	if err != nil {
 		return "", err
 	}
-	return s.rewritePublicURL(u), nil
+	return u.String(), nil
 }
 
 func (s *ObjectStorage) StatObject(ctx context.Context, objectKey string) (*objectport.ObjectInfo, error) {
@@ -140,14 +182,14 @@ func (s *ObjectStorage) PresignMultipartPart(ctx context.Context, objectKey stri
 	if uploadId == "" || partNumber <= 0 {
 		return "", fmt.Errorf("参数错误")
 	}
-	u, err := s.core.Presign(ctx, http.MethodPut, s.bucket, objectKey, ttl, url.Values{
+	u, err := s.presignCore.Presign(ctx, http.MethodPut, s.bucket, objectKey, ttl, url.Values{
 		"uploadId":   []string{uploadId},
 		"partNumber": []string{strconv.Itoa(partNumber)},
 	})
 	if err != nil {
 		return "", err
 	}
-	return s.rewritePublicURL(u), nil
+	return u.String(), nil
 }
 
 func (s *ObjectStorage) ListMultipartParts(ctx context.Context, objectKey string, uploadId string) ([]objectport.MultipartPart, error) {
@@ -201,29 +243,10 @@ func (s *ObjectStorage) PresignedGetURL(ctx context.Context,
 		params.Set("response-content-type", "application/octet-stream")
 	}
 
-	u, err := s.client.PresignedGetObject(ctx, s.bucket, objectKey, ttl, params)
+	u, err := s.presignClient.PresignedGetObject(ctx, s.bucket, objectKey, ttl, params)
 	if err != nil {
 		return "", err
 	}
 
-	// url 由 3 部分组成，publicpoint、bucket、objectKey、scheme
-	return s.rewritePublicURL(u), nil
-}
-
-func (s *ObjectStorage) rewritePublicURL(u *url.URL) string {
-	if s.publicEndpoint == "" {
-		return u.String()
-	}
-
-	scheme := u.Scheme
-	if s.useSSL {
-		scheme = "https"
-	} else {
-		scheme = "http"
-	}
-
-	publicURL := *u
-	publicURL.Scheme = scheme
-	publicURL.Host = strings.TrimRight(s.publicEndpoint, "/")
-	return publicURL.String()
+	return u.String(), nil
 }

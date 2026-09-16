@@ -24,7 +24,6 @@ type LatestMessageResponse struct {
 	MessageID      string `json:"messageId"`
 	ConversationID string `json:"conversationId"`
 	SenderID       string `json:"senderId"`
-	Seq            int64  `json:"seq"`
 	Type           int8   `json:"cType"`
 	Content        string `json:"content"`
 	SendTime       int64  `json:"sendTime"`
@@ -37,8 +36,6 @@ type ConversationItemResponse struct {
 	DisplayName      string                 `json:"displayName"`
 	AvatarURL        string                 `json:"avatar"`
 	Unread           int64                  `json:"unread"`
-	LastReadSeq      int64                  `json:"lastReadSeq"`
-	LatestSeq        int64                  `json:"latestSeq"`
 	LastMessage      *LatestMessageResponse `json:"lastMessage,omitempty"`
 	PeerUser         *PeerUserResponse      `json:"peerUser,omitempty"`
 	Room             *RoomResponse          `json:"room,omitempty"`
@@ -55,8 +52,6 @@ func toConversationResponses(items []conversationapp.ConversationItemDTO) []Conv
 			DisplayName:      item.DisplayName,
 			AvatarURL:        item.AvatarURL,
 			Unread:           item.Unread,
-			LastReadSeq:      item.LastReadSeq,
-			LatestSeq:        item.LatestSeq,
 			IsMuted:          item.IsMuted,
 		}
 
@@ -65,7 +60,6 @@ func toConversationResponses(items []conversationapp.ConversationItemDTO) []Conv
 				MessageID:      item.LastMessage.MessageID,
 				ConversationID: item.LastMessage.ConversationID,
 				SenderID:       item.LastMessage.SenderID,
-				Seq:            item.LastMessage.Seq,
 				Type:           int8(item.LastMessage.Type),
 				Content:        item.LastMessage.Content,
 				SendTime:       item.LastMessage.SendTime,

@@ -8,6 +8,7 @@ import (
 type MessageRepository interface {
 	CreateNewMessages(ctx context.Context, msgs []*messageentity.Message) error
 	CreateNewMessage(ctx context.Context, msg *messageentity.Message) error
+	FindByMessageID(ctx context.Context, messageID string) (*messageentity.Message, error)
 	FindByClientMsgID(ctx context.Context, senderID, clientMsgID string) (*messageentity.Message, error)
 
 	GetHistoryMessage(
@@ -63,29 +64,7 @@ type MessageRepository interface {
 		conversationIDs []string,
 	) ([]*messageentity.Message, error)
 
-	ListDistinctSendersBySeqRange(
-		ctx context.Context,
-		conversationId string,
-		minSeqExclusive int64,
-		maxSeqInclusive int64,
-		excludeUserId string,
-	) ([]string, error)
-
 	WithTx(tx any) MessageRepository
-}
-
-type MessageImageRepository interface {
-	Create(ctx context.Context, item *messageentity.MessageImage) error
-	GetByMessageID(ctx context.Context, messageId string) (*messageentity.MessageImage, error)
-	BatchGetByMessageIDs(ctx context.Context, messageIds []string) (map[string]*messageentity.MessageImage, error)
-	WithTx(tx any) MessageImageRepository
-}
-
-type MessageFileRepository interface {
-	Create(ctx context.Context, item *messageentity.MessageFile) error
-	GetByMessageID(ctx context.Context, messageId string) (*messageentity.MessageFile, error)
-	BatchGetByMessageIDs(ctx context.Context, messageIds []string) (map[string]*messageentity.MessageFile, error)
-	WithTx(tx any) MessageFileRepository
 }
 
 type MessageStickerRepository interface {
@@ -93,11 +72,4 @@ type MessageStickerRepository interface {
 	GetByMessageID(ctx context.Context, messageId string) (*messageentity.MessageSticker, error)
 	BatchGetByMessageIDs(ctx context.Context, messageIds []string) (map[string]*messageentity.MessageSticker, error)
 	WithTx(tx any) MessageStickerRepository
-}
-
-type MessageVideoRepository interface {
-	Create(ctx context.Context, item *messageentity.MessageVideo) error
-	GetByMessageID(ctx context.Context, messageId string) (*messageentity.MessageVideo, error)
-	BatchGetByMessageIDs(ctx context.Context, messageIds []string) (map[string]*messageentity.MessageVideo, error)
-	WithTx(tx any) MessageVideoRepository
 }

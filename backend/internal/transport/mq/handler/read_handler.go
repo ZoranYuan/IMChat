@@ -6,6 +6,7 @@ import (
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 type ReadHandler struct {
@@ -26,8 +27,8 @@ func (handler *ReadHandler) Handle(ctx context.Context, message eventbus.Incomin
 	if err := json.Unmarshal(envelope.Payload, &event); err != nil {
 		return eventbus.NonRetryable(err)
 	}
-	if len(event.NotifyUserIds) == 0 {
-		return nil
+	if envelope.To == "" {
+		return eventbus.NonRetryable(fmt.Errorf("已读事件缺少通知接收者"))
 	}
 
 	notify := protocol.MessageReadAckEvent{
@@ -42,14 +43,12 @@ func (handler *ReadHandler) Handle(ctx context.Context, message eventbus.Incomin
 		return err
 	}
 
-	for _, userID := range event.NotifyUserIds {
-		if err := handler.delivery.DeliverToUser(
-			protocol.EventReadMessageNotify,
-			userID,
-			payload,
-		); err != nil {
-			return err
-		}
+	if err := handler.delivery.DeliverToUser(
+		protocol.EventReadMessageNotify,
+		envelope.To,
+		payload,
+	); err != nil {
+		return err
 	}
 	return nil
 }

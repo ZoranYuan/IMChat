@@ -61,6 +61,24 @@ func (r *MessageRepository) FindByClientMsgID(
 	return toMessageDomain(&m), nil
 }
 
+func (r *MessageRepository) FindByMessageID(
+	ctx context.Context,
+	messageID string,
+) (*messageentity.Message, error) {
+	if messageID == "" {
+		return nil, nil
+	}
+	var m model.Message
+	err := r.db.WithContext(ctx).Where("message_id = ?", messageID).First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return toMessageDomain(&m), nil
+}
+
 func (r *MessageRepository) CreateNewMessages(ctx context.Context, msgs []*messageentity.Message) error {
 	if len(msgs) == 0 {
 		return nil
@@ -299,37 +317,4 @@ func (r *MessageRepository) GetLatestMessagesByConversationIDs(
 	}
 
 	return domains, err
-}
-
-func (r *MessageRepository) ListDistinctSendersBySeqRange(
-	ctx context.Context,
-	conversationId string,
-	minSeqExclusive int64,
-	maxSeqInclusive int64,
-	excludeUserId string,
-) ([]string, error) {
-	if maxSeqInclusive <= minSeqExclusive {
-		return nil, nil
-	}
-
-	var userIds []string
-	query := r.db.WithContext(ctx).
-		Model(&model.Message{}).
-		Distinct("sender_id").
-		Where(
-			"conversation_id = ? AND seq > ? AND seq <= ?",
-			conversationId,
-			minSeqExclusive,
-			maxSeqInclusive,
-		)
-
-	if excludeUserId != "" {
-		query = query.Where("sender_id <> ?", excludeUserId)
-	}
-
-	if err := query.Pluck("sender_id", &userIds).Error; err != nil {
-		return nil, err
-	}
-
-	return userIds, nil
 }

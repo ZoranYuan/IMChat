@@ -183,12 +183,6 @@ func (ua *UserApplication) UpdateUserProfile(ctx context.Context, userId string,
 		return nil, errors.New("用户资料更新事务管理器未配置")
 	}
 
-	userM := ua.userCache.GetUserProfiles(ctx, []string{userId})
-
-	if len(userM) == 0 {
-		return nil, ErrUserNotFound
-	}
-
 	var user *userentity.User
 	err := ua.txManager.WithinTransaction(ctx, func(tx any) error {
 		var err error

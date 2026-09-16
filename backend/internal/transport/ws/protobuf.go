@@ -51,7 +51,6 @@ func messageReadAckEventToPB(event protocol.MessageReadAckEvent) *wspb.MessageRe
 		ConversationId: event.ConversationId,
 		LastReadSeq:    event.LastReadSeq,
 		ConvType:       int32(event.ConvType),
-		SenderId:       event.SenderId,
 		Avatar:         event.Avatar,
 	}
 }

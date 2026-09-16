@@ -1,8 +1,8 @@
 package friendrequest
 
 type FriendRequestRequest struct {
-	TargetUserID string `json:"targetUserId" binding:"required"`
-	Message      string `json:"message"` // 可选留言
+	PeerUserID string `json:"peerUserId" binding:"required"`
+	Message    string `json:"message"` // 可选留言
 }
 
 type ActionType int

@@ -107,7 +107,7 @@ func (wh *WSHandler) handleReadMessageAck(ctx context.Context, session *realtime
 		return err
 	}
 
-	if err := wh.app.HandleReadMessage(ctx, session.UserID(), pb.GetConversationId(), pb.GetLastReadSeq()); err != nil {
+	if err := wh.app.HandleReadMessage(ctx, session.UserID(), pb.GetMessageId()); err != nil {
 		return err
 	}
 	return nil

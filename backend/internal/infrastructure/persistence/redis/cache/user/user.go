@@ -36,7 +36,6 @@ func (u *UserCache) GetUserProfile(
 	if err != nil {
 		return nil, false, err
 	}
-
 	if userProfile.UserID == "" {
 		userProfile.UserID = userId
 	}
@@ -90,15 +89,15 @@ func (u *UserCache) GetUserProfiles(
 		default:
 			continue
 		}
-		var profile user.UserProfile
-		if err := json.Unmarshal(raw, &profile); err != nil {
+		var userProfile user.UserProfile
+		if err := json.Unmarshal(raw, &userProfile); err != nil {
 			continue
 		}
 		userId := keyUserIds[i]
-		if profile.UserID == "" {
-			profile.UserID = userId
+		if userProfile.UserID == "" {
+			userProfile.UserID = userId
 		}
-		userProfileM[userId] = &profile
+		userProfileM[userId] = &userProfile
 	}
 
 	return userProfileM
@@ -109,6 +108,9 @@ func (u *UserCache) SetUserProfile(
 	profile *user.UserProfile,
 	ttl time.Duration,
 ) error {
+	if profile == nil || profile.UserID == "" {
+		return ErrEmptyUserId
+	}
 	profile.Found = true
 	return u.store.SetJSON(ctx, UserProfileKey(profile.UserID), profile, ttl)
 }

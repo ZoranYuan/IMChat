@@ -24,10 +24,10 @@ func (r *FriendRequestRepo) WithTx(tx any) friendrepo.FriendRequestRepository {
 	return &FriendRequestRepo{db: tx.(*gorm.DB)}
 }
 
-func (fr *FriendRequestRepo) FindLatestRequest(applicantUserId, targetUserId string) (*friendentity.FriendRequest, error) {
+func (fr *FriendRequestRepo) FindLatestRequest(applicantUserId, peerUserId string) (*friendentity.FriendRequest, error) {
 	var friendRequestModel model.FriendRequest
 	err := fr.db.
-		Where("applicant_user_id = ? AND target_user_id = ?", applicantUserId, targetUserId).
+		Where("applicant_user_id = ? AND peer_user_id = ?", applicantUserId, peerUserId).
 		Order("created_at DESC").
 		First(&friendRequestModel).Error
 
@@ -59,9 +59,9 @@ func (fr *FriendRequestRepo) ReRequest(domain *friendentity.FriendRequest) error
 
 	result := fr.db.Model(&model.FriendRequest{}).
 		Where(
-			"applicant_user_id = ? AND target_user_id = ?",
+			"applicant_user_id = ? AND peer_user_id = ?",
 			m.ApplicantUserId,
-			m.TargetUserId,
+			m.PeerUserId,
 		).
 		Updates(map[string]interface{}{
 			"request_id": m.RequestId,
@@ -111,9 +111,9 @@ func (fr *FriendRequestRepo) OperateRequest(requestId string, expectStatus, newS
 	return nil
 }
 
-func (fr *FriendRequestRepo) ListByUserID(targetUserId string) ([]*friendentity.FriendRequest, error) {
+func (fr *FriendRequestRepo) ListByUserID(peerUserId string) ([]*friendentity.FriendRequest, error) {
 	var m []model.FriendRequest
-	if err := fr.db.Where("target_user_id = ?", targetUserId).
+	if err := fr.db.Where("peer_user_id = ?", peerUserId).
 		Order("updated_at DESC").
 		Find(&m).Error; err != nil {
 		return nil, err
