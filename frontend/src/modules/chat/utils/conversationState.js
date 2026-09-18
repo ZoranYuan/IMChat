@@ -1,3 +1,5 @@
+import { ConversationType } from "../../../constants/conversation.js";
+
 export const findConversation = (conversations, conversationId) => (
   (conversations || []).find((item) => item.conversationId === conversationId) || null
 );
@@ -40,7 +42,7 @@ export const createDirectConversation = (currentUserId, contact) => {
   return {
     conversationId,
     targetId: contact.id,
-    convType: 1,
+    convType: ConversationType.PRIVATE_CHAT,
     displayName: contact.name,
     unread: 0,
     lastMessage: null,

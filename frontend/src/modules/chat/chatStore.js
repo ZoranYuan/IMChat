@@ -17,6 +17,7 @@ import {
   updateUserProfile,
 } from "../../api.js";
 import { useChunkUpload } from "../../composables/useChunkUpload.js";
+import { ConversationType } from "../../constants/conversation.js";
 import { MessageType } from "../../constants/message.js";
 import {
   clearConversations,
@@ -450,7 +451,7 @@ const processRealtimeMessage = async (
     await persistConversation(conversation, session);
 
     if (active && sendRead && latestMessage.senderId !== currentUserId()) {
-      sendReadAck();
+      sendReadAck(conversationId);
     }
     return true;
   });
@@ -516,7 +517,7 @@ const handleReadNotify = (receipt) => {
   const conversationId = receipt?.conversationId || "";
   const lastReadSeq = Number(receipt?.lastReadSeq) || 0;
   const conversation = findConversation(state.conversations, conversationId);
-  if (!conversation || conversation.convType !== 1 || lastReadSeq <= 0) return;
+  if (!conversation || conversation.convType !== ConversationType.PRIVATE_CHAT || lastReadSeq <= 0) return;
 
   const previous = Number(conversation.readWatermark) || 0;
   if (lastReadSeq <= previous) return;
@@ -600,7 +601,7 @@ const syncRoomMessageNotice = async (notice) => {
       updateConversationList();
       await persistConversation(conversation, session);
     }
-    if (active && latest?.senderId !== currentUserId()) sendReadAck();
+    if (active && latest?.senderId !== currentUserId()) sendReadAck(conversationId);
   });
 };
 
@@ -651,6 +652,29 @@ const wsClient = createWsClient({
     syncRoomMessageNotice(notice).catch(() => { });
   },
 });
+
+/** 发送当前会话的已读回执；实时消息和点击会话共用此方法。 */
+const sendReadAck = (conversationId = state.activeConversationId) => {
+  const conversation = findConversation(state.conversations, conversationId);
+  const lastContinuousSeq = Number(conversation?.lastContinuousSeq) || 0;
+  if (
+    !conversation
+    || state.activeConversationId !== conversationId
+    || conversation.convType !== ConversationType.PRIVATE_CHAT
+    || lastContinuousSeq <= 0
+    || !wsClient.isConnected()
+  ) return;
+
+  const boundaryMessage = (state.messages[conversationId] || []).find(
+    (message) => Number(message.seq) === lastContinuousSeq,
+  );
+  if (!boundaryMessage?.messageId) return;
+
+  const sent = wsClient.sendReadAck({
+    messageId: boundaryMessage.messageId,
+  });
+  if (sent) conversation.unread = 0;
+};
 
 const connectSocket = () => {
   if (state.authenticated && !wsClient.isConnected()) wsClient.connect(true);
@@ -1051,27 +1075,6 @@ export const useChatStore = defineStore("chat", () => {
       markPendingMessageFailed(clientMsgId, task.conversationId, new Error("上传已取消"));
       task.reject?.(new Error("上传已取消"));
     }
-  };
-
-  const sendReadAck = () => {
-    const conversation = activeConversation.value;
-    const lastContinuousSeq = Number(conversation?.lastContinuousSeq) || 0;
-    if (
-      !conversation
-      || conversation.convType !== 1
-      || lastContinuousSeq <= 0
-      || !wsClient.isConnected()
-    ) return;
-
-    const boundaryMessage = (state.messages[conversation.conversationId] || []).find(
-      (message) => Number(message.seq) === lastContinuousSeq,
-    );
-    if (!boundaryMessage?.messageId) return;
-
-    const sent = wsClient.sendReadAck({
-      messageId: boundaryMessage.messageId,
-    });
-    if (sent) conversation.unread = 0;
   };
 
   const clearConversation = async (conversationId) => {
