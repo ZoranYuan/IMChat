@@ -3,6 +3,7 @@ import { ArrowLeft, Download, FileText, Folder, Image as ImageIcon, Info, Loader
 import { ElImage } from "element-plus";
 import "element-plus/es/components/image/style/css";
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { ConversationType } from "../../constants/conversation.js";
 import { MessageType, messageViewType } from "../../constants/message.js";
 
 const props = defineProps({
@@ -37,9 +38,9 @@ const composerHeight = ref(200);
 const isResizingComposer = ref(false);
 const resizeStartY = ref(0);
 const resizeStartHeight = ref(160);
-const MIN_COMPOSER_HEIGHT = 200;
+const MIN_COMPOSER_HEIGHT = 180;
 const MAX_COMPOSER_HEIGHT = 300;
-const BOTTOM_THRESHOLD = 40;
+const BOTTOM_THRESHOLD = 20;
 let messageResizeObserver = null;
 
 const scrollToBottom = () => {
@@ -105,12 +106,14 @@ const shouldShowMessageStatus = (message) => {
   if (message.error) return true;
   return props.messages.at(-1) === message;
 };
-const shouleShouldRead = (message) => (
-  Number(message.seq) > 0
-  &&
-  Number(message.seq) == (Number(props.conversation?.readWatermark) || 0)
-);
-const isGroup = (conversation) => conversation?.convType === 2;
+const isLastMineMessageRead = (message) => {
+  if (!isMine(message) || Number(props.conversation?.convType) !== ConversationType.PRIVATE_CHAT) return false;
+
+  const seq = Number(message.seq) || 0;
+  const readWatermark = Number(props.conversation?.readWatermark) || 0;
+  return seq > 0 && seq <= readWatermark;
+};
+const isGroup = (conversation) => Number(conversation?.convType) === ConversationType.ROOM_CHAT;
 const conversationDisplayName = (conversation) => conversation?.displayName || "未命名会话";
 const memberCount = (conversation) => conversation?.room?.memberCount || 0;
 const displayType = (message) => messageViewType(message.cType);
@@ -145,6 +148,7 @@ const messageStatusText = (message) => {
     return `${uploadStageText(message)} ${Number(message.uploadProgress) || 0}%`;
   }
   if (message.error) return "发送失败";
+
   if (!message.messageId || Number(message.seq) <= 0) return "发送中";
   return isLastMineMessageRead(message) ? "已读" : "已发送";
 };

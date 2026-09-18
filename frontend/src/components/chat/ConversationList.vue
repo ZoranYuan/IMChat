@@ -1,6 +1,7 @@
 <script setup>
 import { LoaderCircle, Plus, Search, Users } from "@lucide/vue";
 import { computed, ref } from "vue";
+import { ConversationType } from "../../constants/conversation.js";
 import { messageTypeLabel } from "../../constants/message.js";
 
 const props = defineProps({
@@ -63,9 +64,9 @@ const filtered = computed(() => {
         ? 'border-[#cfc5ff] bg-[#f4f1ff] shadow-[0_8px_20px_rgba(91,53,245,0.07)]'
         : 'border-transparent hover:bg-[#faf9fd]'" class="group flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-[background,border-color,box-shadow] duration-150"
         type="button" @click="$emit('select', conversation.conversationId)">
-        <span :class="conversation.convType === 2 ? 'bg-[#6d4aff]' : 'bg-[#8b72d6]'" class="relative grid size-11 flex-none place-items-center overflow-visible rounded-xl text-sm font-bold text-white">
+        <span :class="Number(conversation.convType) === ConversationType.ROOM_CHAT ? 'bg-[#6d4aff]' : 'bg-[#8b72d6]'" class="relative grid size-11 flex-none place-items-center overflow-visible rounded-xl text-sm font-bold text-white">
           <img v-if="conversation.avatar" class="size-full rounded-xl object-cover" :src="conversation.avatar" :alt="conversationDisplayName(conversation)" />
-          <Users v-else-if="conversation.convType === 2" :size="19" />
+          <Users v-else-if="Number(conversation.convType) === ConversationType.ROOM_CHAT" :size="19" />
           <span v-else>{{ conversationDisplayName(conversation).slice(0, 1) }}</span>
         </span>
         <span class="min-w-0 flex-1">

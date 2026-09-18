@@ -1,5 +1,6 @@
 <script setup>
 import { Trash2, Users, X } from "@lucide/vue";
+import { ConversationType } from "../../constants/conversation.js";
 
 defineProps({ conversation: { type: Object, default: null } });
 defineEmits(["close", "clear"]);
@@ -10,12 +11,12 @@ defineEmits(["close", "clear"]);
     <header class="flex min-h-[68px] items-center justify-between border-b border-[#ebe9f7] px-4 text-[13px] font-semibold"><strong>会话详情</strong><button class="grid size-9 place-items-center rounded-lg bg-transparent text-[#9893a6] hover:bg-[#f8f7ff] hover:text-[#5b35f5]" type="button" title="关闭" @click="$emit('close')"><X :size="19" /></button></header>
     <div class="min-h-0 overflow-auto px-[18px] py-[22px]">
       <section class="flex flex-col items-center border-b border-[#ebe9f7] pb-[22px] text-center">
-        <span :class="conversation.convType === 2 ? 'bg-[#6d4aff]' : 'bg-[#8b72d6]'" class="grid size-16 place-items-center overflow-hidden rounded-[13px] text-2xl font-bold text-white"><img v-if="conversation.avatar" class="size-full object-cover" :src="conversation.avatar" :alt="conversation.displayName" /><Users v-else-if="conversation.convType === 2" :size="26" /><b v-else>{{ (conversation.displayName || "未命名会话").slice(0, 1) }}</b></span>
+        <span :class="Number(conversation.convType) === ConversationType.ROOM_CHAT ? 'bg-[#6d4aff]' : 'bg-[#8b72d6]'" class="grid size-16 place-items-center overflow-hidden rounded-[13px] text-2xl font-bold text-white"><img v-if="conversation.avatar" class="size-full object-cover" :src="conversation.avatar" :alt="conversation.displayName" /><Users v-else-if="Number(conversation.convType) === ConversationType.ROOM_CHAT" :size="26" /><b v-else>{{ (conversation.displayName || "未命名会话").slice(0, 1) }}</b></span>
         <h3 class="mb-1 mt-[13px] text-base font-bold">{{ conversation.displayName || "未命名会话" }}</h3>
-        <p class="m-0 text-[10px] text-[#8d889d]">{{ conversation.convType === 2 ? `${conversation.room?.memberCount || 0} 位成员` : "私聊" }}</p>
+        <p class="m-0 text-[10px] text-[#8d889d]">{{ Number(conversation.convType) === ConversationType.ROOM_CHAT ? `${conversation.room?.memberCount || 0} 位成员` : "私聊" }}</p>
       </section>
 
-      <section v-if="conversation.convType === 2" class="border-b border-[#ebe9f7] py-[18px]">
+      <section v-if="Number(conversation.convType) === ConversationType.ROOM_CHAT" class="border-b border-[#ebe9f7] py-[18px]">
         <div class="mb-3 flex items-center justify-between"><strong class="text-xs">群聊信息</strong><span class="text-[10px] text-[#aaa6b5]">{{ conversation.room?.memberCount || 0 }} 人</span></div>
         <p class="m-0 text-[11px] leading-[1.7] text-[#7c7891]">{{ conversation.room?.description || "用于团队日常沟通与项目协作。" }}</p>
       </section>
