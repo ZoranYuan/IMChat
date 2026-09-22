@@ -15,6 +15,8 @@
 - Redis 7
 - Kafka 3.9
 - MinIO
+- gRPC
+- Server-Sent Events (SSE)
 - Vue 3
 - Vite
 
@@ -281,6 +283,112 @@ message WsBatch {
 
 ---
 
+## 摘要 Agent
+
+摘要功能采用“HTTP 初始化任务 + gRPC 调用 Agent + SSE 获取结果”的组合方式：
+
+- HTTP 负责鉴权、房间成员校验、任务状态管理和 SSE 连接
+- gRPC 负责调用独立的 Room Summary Agent
+- SSE 负责把已保存的摘要结果或 Agent 处理结果推送给前端
+- MySQL 保存摘要任务的当前状态和最新响应，Redis 保存未读消息快照以及同一用户同一房间的任务绑定
+
+### 摘要接口
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/rooms/:roomId/summaries` | JWT | 初始化摘要任务，返回 `summaryRunId` |
+| GET | `/rooms/:roomId/summaries/:summaryRunId/events` | JWT | 建立 SSE，接收摘要结果 |
+| POST | `/rooms/:roomId/summaries/:summaryRunId/retry` | JWT | 对等待人工决策的任务执行重试 |
+| POST | `/rooms/:roomId/summaries/:summaryRunId/cancel` | JWT | 取消等待人工决策的任务 |
+
+### 摘要任务链路
+
+```text
+[前端]
+   │
+   │ POST /rooms/:roomId/summaries
+   ▼
+[HTTP Handler]
+   │ 1. JWT 鉴权、校验房间成员
+   │ 2. 读取用户未读范围（fromSeq ~ toSeq）
+   │ 3. 查询消息，过滤已撤回消息
+   ▼
+[Redis scope 租约]
+   │ key = userId + roomId，TTL 2 分钟，带 lockToken
+   │ 已存在任务时直接复用原 summaryRunId
+   ▼
+[MySQL summary_runs]
+   │ 创建 RUNNING 任务，保存消息序号范围
+   ▼
+[后台 goroutine]
+   │ RunSummary(START + room_messages)
+   ▼
+[Agent gRPC]
+   │ 返回 SUCCEEDED / WAITING_USER_DECISION / FAILED
+   ▼
+[MySQL]
+   │ 保存最新 requestId、状态和 response_payload
+   ▼
+[SSE subscribers]
+   │ 向同一个 summaryRunId 下的 SSE 连接广播结果
+   ▼
+[前端]
+```
+
+初始化接口返回 `202 Accepted` 和 `summaryRunId`。当前实现会在初始化成功后立即异步预热调用 Agent，前端随后建立 SSE；因此 SSE 建立时如果 Agent 已经完成，会先从 `summary_runs.response_payload` 回放最新结果，如果仍在执行，则等待内存订阅收到结果。
+
+### SSE 行为
+
+- SSE 建立时会再次校验 `summaryRunId` 的房间和用户归属，防止越权访问。
+- 连接建立后先发送 `ready` 事件，随后每 15 秒发送注释心跳 `: ping`。
+- Agent 完成后，后端先落 MySQL，再向当前任务的所有 SSE 订阅者广播。
+- SSE 断开只会移除当前订阅，不会取消 Agent 任务；客户端可以使用同一个 `summaryRunId` 重新连接并读取已保存结果。
+- 同一个任务允许多个设备建立 SSE，但它们消费的是同一条任务结果，不会各自生成摘要。
+
+### 状态和用户决策
+
+```text
+RUNNING
+  ├── SUCCEEDED
+  ├── FAILED
+  └── WAITING_USER_DECISION
+          ├── RETRY  → RUNNING → Agent RunSummary(RETRY)
+          └── CANCEL → FAILED  → Agent RunSummary(CANCEL)
+```
+
+`RETRY` 和 `CANCEL` 使用原来的 `summaryRunId`，不重新提交房间消息。后端在 MySQL 事务中使用 `SELECT ... FOR UPDATE` 锁定任务，并且只允许 `WAITING_USER_DECISION` 状态执行操作，提交状态变更后再异步调用 Agent。
+
+### 持久化与幂等
+
+`summary_runs` 当前保存：
+
+- `summary_run_id`、`room_id`、`user_id`
+- 任务状态和摘要使用的 `from_seq`、`to_seq`
+- 最近一次 `request_id`
+- Agent 返回的完整 `response_payload`
+- 创建、更新时间和完成时间
+
+Redis 主要保存两类数据：
+
+- 未读摘要快照：`summary:active:room:unread:{userId}:{roomId}`，固定本次摘要的消息范围
+- 任务 scope 租约：`summary:scope:run:{userId}:{roomId}`，保证同一个用户在同一个房间只绑定一个活动 `summaryRunId`
+
+scope 租约由初始化请求创建，Agent 执行期间使用原 `lockToken` 按 TTL 的一半周期续期；初始化落库失败时立即释放，Agent 返回成功或失败后停止续期并等待 TTL 过期。Redis 丢失时，后端还会查询 MySQL 中 `RUNNING` 或 `WAITING_USER_DECISION` 的活动任务作为兜底。
+
+### 当前 MVP 边界
+
+当前实现保存的是 `summary_runs` 的最新响应，还没有独立的 `summary_events` 事件表和 `event_seq` 历史，因此 SSE 重连采用“回放最新结果”的方式，不是按 `Last-Event-ID` 补发多条历史事件。gRPC 客户端已具备 `ResumeSummaryState` 映射能力，后续可以在服务重启恢复、事件历史和断点续传场景中接入。
+
+相关代码：
+
+- 应用编排：[summary_application.go](backend/internal/application/agent/summary_application.go)
+- HTTP/SSE：[handle.go](backend/internal/transport/http/agent/handle.go)、[router.go](backend/internal/transport/http/agent/router.go)
+- gRPC 客户端：[client.go](backend/internal/infrastructure/agent/grpc/client.go)
+- 摘要任务仓储：[summary.go](backend/internal/infrastructure/persistence/mysql/repository/summary/summary.go)
+- Redis 快照与 scope 租约：[summary.go](backend/internal/infrastructure/persistence/redis/cache/summary/summary.go)
+
+---
+
 ## Kafka 架构
 
 ### Topic 一览
@@ -430,6 +538,15 @@ type ConversationSyncSeqEvent struct {
 | POST | `/rooms` | JWT | 创建房间 |
 | GET | `/rooms/:roomId/invite-code` | JWT | 获取或刷新房间邀请码 |
 | POST | `/rooms/join` | JWT | 通过邀请码加入房间 |
+
+### 摘要模块
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/rooms/:roomId/summaries` | JWT | 初始化并预热摘要任务 |
+| GET | `/rooms/:roomId/summaries/:summaryRunId/events` | JWT | 建立摘要 SSE 连接 |
+| POST | `/rooms/:roomId/summaries/:summaryRunId/retry` | JWT | 重试摘要任务 |
+| POST | `/rooms/:roomId/summaries/:summaryRunId/cancel` | JWT | 取消摘要任务 |
 
 ### 视频模块
 
