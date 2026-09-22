@@ -23,6 +23,7 @@ require (
 	github.com/eapache/go-resiliency v1.7.0 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
@@ -40,6 +41,8 @@ require (
 	github.com/tinylib/msgp v1.3.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
+	google.golang.org/grpc v1.75.0 // indirect
 )
 
 require (

@@ -84,6 +84,7 @@ func Migrate(db *gorm.DB) error {
 		&model.MessageAttachment{},
 		&model.File{},
 		&model.FileUpload{},
+		&model.SummaryRun{},
 	); err != nil {
 		return err
 	}
