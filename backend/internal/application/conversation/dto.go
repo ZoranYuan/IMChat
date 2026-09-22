@@ -24,6 +24,7 @@ type LatestMessageDTO struct {
 	MessageID      string
 	ConversationID string
 	SenderID       string
+	Seq            int64
 	Type           messagevo.CType
 	Content        string
 	SendTime       int64

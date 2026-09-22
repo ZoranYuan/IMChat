@@ -6,6 +6,8 @@ app:
   machineId: 1
 server:
   port: ":8081"
+agent:
+  room_summary_endpoint: "dl_container:50051"
 database:
   mysql:
     dsn: "user:123456@tcp(mysql:3306)/IMChat?charset=utf8mb4&parseTime=True&loc=Local"
@@ -129,3 +131,6 @@ cache:
   attachment_file_card:
     # 附件文件卡片缓存时间；实际不会超过附件自身的有效期。
     ttl_seconds: 86400
+  room_unread_snapshot:
+    # 用户进入房间前的未读摘要范围缓存时间。
+    ttl_seconds: 120

@@ -8,6 +8,7 @@ import (
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	messagecache "IM_backend/internal/application/ports/persistence/cache/message"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
+	roomunreadcache "IM_backend/internal/application/ports/persistence/cache/summary"
 	usercach "IM_backend/internal/application/ports/persistence/cache/user"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	filerepo "IM_backend/internal/application/ports/persistence/repository/file"
@@ -49,6 +50,7 @@ type MessageApplication struct {
 	messageCache                 messagecache.MessageCache
 	roomMemberCache              roomcache.RoomMemberCache
 	roomCache                    roomcache.RoomCache
+	roomUnreadSnapshotCache      roomunreadcache.RoomUnreadSnapshotCache
 	messageRepository            messagerepo.MessageRepository
 	txManager                    txmanager.TxManager
 	userCache                    usercach.UserCache
@@ -90,6 +92,7 @@ func NewMessageApplication(
 	roomRepository roomrepo.RoomRepository,
 	idGenerator idport.Generator,
 	config configs.Config,
+	roomUnreadSnapshotCache roomunreadcache.RoomUnreadSnapshotCache,
 	messageAttachmentsRepositories ...messagerepo.MessageAttachmentsRepository,
 
 ) *MessageApplication {
@@ -98,6 +101,7 @@ func NewMessageApplication(
 		messageCache:               messageCache,
 		roomMemberCache:            roomMemberCache,
 		roomCache:                  roomCache,
+		roomUnreadSnapshotCache:    roomUnreadSnapshotCache,
 		userCache:                  userCache,
 		txManager:                  txManager,
 		messageOutboxRepository:    messageOutboxRepository,
@@ -134,13 +138,28 @@ func (ma *MessageApplication) HandleReadMessage(
 		return ErrMessageNotFound
 	}
 
-	conversationId := message.ConversationId
 	lastReadSeq := message.Seq
 	if lastReadSeq <= 0 {
 		return ErrMessageSeq
 	}
-	if ma.txManager == nil || ma.messageOutboxRepository == nil {
-		return fmt.Errorf("消息出箱组件未配置")
+
+	conversationId := message.ConversationId
+
+	conv, err := ma.conversationRepository.GetByID(ctx, conversationId)
+	if err != nil {
+		return err
+	}
+
+	if conv == nil {
+		return ErrConversationNotFound
+	}
+
+	canAccess, err := ma.canAccessConversation(ctx, conv, userId)
+	if err != nil {
+		return err
+	}
+	if !canAccess {
+		return ErrForbidden
 	}
 
 	uconv, err := ma.userConversationRepository.GetUserConversation(ctx, userId, conversationId)
@@ -152,58 +171,14 @@ func (ma *MessageApplication) HandleReadMessage(
 		return ErrUserConversationNotFound
 	}
 
-	conv, err := ma.conversationRepository.GetByID(ctx, conversationId)
-	if err != nil {
-		return err
-	}
-
-	if conv == nil {
-		return ErrConversationNotFound
-	}
-	canAccess, err := ma.canAccessConversation(ctx, conv, userId)
-	if err != nil {
-		return err
-	}
-	if !canAccess {
-		return ErrForbidden
-	}
-
-	// 当前只为私聊维护对端已读水位，群聊已读语义单独处理。
-	if conv.Convtype != conversationvo.PrivateChat {
-		return nil
-	}
+	oldLastReadSeq := uconv.LastReadSeq
+	uconv.UpdateReadSeq(lastReadSeq)
 
 	if lastReadSeq > conv.LatestSeq {
 		return ErrMessageSeq
 	}
 
-	var peerUserId string
-	switch userId {
-	case conv.UserId1:
-		peerUserId = conv.UserId2
-	case conv.UserId2:
-		peerUserId = conv.UserId1
-	default:
-		return ErrForbidden
-	}
-
-	if peerUserId == "" || peerUserId == userId {
-		return ErrForbidden
-	}
-
-	peerProfiles, err := ma.loadReadUserProfiles(ctx, []string{peerUserId})
-	if err != nil {
-		return err
-	}
-	if peerProfiles[peerUserId] == nil {
-		return ErrUserNotFonund
-	}
-	if lastReadSeq <= uconv.LastReadSeq {
-		return nil
-	}
-
-	uconv.UpdateReadSeq(lastReadSeq)
-	return ma.txManager.WithinTransaction(ctx, func(tx any) error {
+	if err := ma.txManager.WithinTransaction(ctx, func(tx any) error {
 		advanced, err := ma.userConversationRepository.WithTx(tx).AdvanceReadSeq(ctx, uconv)
 		if err != nil {
 			return err
@@ -212,36 +187,57 @@ func (ma *MessageApplication) HandleReadMessage(
 			return nil
 		}
 
-		readEvent := protocol.MessageReadCommittedEvent{
-			ReaderId:       userId,
-			ConversationId: conversationId,
-			LastReadSeq:    lastReadSeq,
-			ConvType:       protocol.ConvType(conv.Convtype),
-			// 私聊目前只推送已读水位。群聊已读通知应根据 ReaderId 填阅读者头像，
-			// 不能把本次查询的对端头像误当成阅读者头像。
-		}
+		if message.SenderId != "" && message.SenderId != userId {
+			readEvent := protocol.MessageReadCommittedEvent{
+				ReaderId:       userId,
+				ConversationId: conversationId,
+				LastReadSeq:    lastReadSeq,
+				ConvType:       protocol.ConvType(conv.Convtype),
+			}
 
-		eventPayload, err := json.Marshal(readEvent)
-		if err != nil {
-			return err
-		}
+			eventPayload, err := json.Marshal(readEvent)
+			if err != nil {
+				return err
+			}
 
-		payload, err := json.Marshal(protocol.Envelope{
-			To:      peerUserId,
-			Payload: eventPayload,
-		})
+			payload, err := json.Marshal(protocol.Envelope{
+				To:      message.SenderId,
+				Payload: eventPayload,
+			})
 
-		if err != nil {
-			return err
-		}
+			if err != nil {
+				return err
+			}
 
-		outbox := &outboxport.Entry{
-			EventType:  string(protocol.EventReadMessageCommitted),
-			MessageKey: userId + ":" + conversationId,
-			Payload:    payload,
+			outbox := &outboxport.Entry{
+				EventType:  string(protocol.EventReadMessageCommitted),
+				MessageKey: userId + ":" + conversationId,
+				Payload:    payload,
+			}
+			return ma.messageOutboxRepository.WithTx(tx).Create(ctx, outbox)
 		}
-		return ma.messageOutboxRepository.WithTx(tx).Create(ctx, outbox)
-	})
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	fromSeq := oldLastReadSeq + 1
+	snapshot := roomunreadcache.RoomUnreadSnapshot{
+		RoomID:  conv.RoomId,
+		FromSeq: fromSeq,
+		ToSeq:   lastReadSeq,
+	}
+	if err := ma.roomUnreadSnapshotCache.SetActive(
+		ctx,
+		userId,
+		conv.RoomId,
+		snapshot,
+		time.Duration(ma.config.Cache.RoomUnreadSnapshot.TTLSeconds)*time.Second,
+	); err != nil {
+		log.Printf("设置房间未读摘要范围缓存失败：user=%s room=%s err=%v", userId, conv.RoomId, err)
+	}
+
+	return nil
 }
 
 func (ma *MessageApplication) normalizeMediaDTO(ctx context.Context, dto *SendMessageDTO) error {

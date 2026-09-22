@@ -2,6 +2,7 @@ package main
 
 import (
 	"IM_backend/configs"
+	summaryapp "IM_backend/internal/application/agent"
 	conversationapp "IM_backend/internal/application/conversation"
 	fileapp "IM_backend/internal/application/file"
 	friendapp "IM_backend/internal/application/friend"
@@ -9,6 +10,7 @@ import (
 	eventbus "IM_backend/internal/application/ports/eventbus"
 	roomapp "IM_backend/internal/application/room"
 	userapp "IM_backend/internal/application/user"
+	agentgrpc "IM_backend/internal/infrastructure/agent/grpc"
 	filecleanup "IM_backend/internal/infrastructure/filecleanup"
 	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/infrastructure/mq/kafka"
@@ -23,6 +25,7 @@ import (
 	outboxmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/outbox"
 	roommysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room"
 	roomusermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/room_user"
+	summarymysql "IM_backend/internal/infrastructure/persistence/mysql/repository/summary"
 	usermysql "IM_backend/internal/infrastructure/persistence/mysql/repository/user"
 	"IM_backend/internal/infrastructure/persistence/redis"
 	authcache "IM_backend/internal/infrastructure/persistence/redis/cache/auth"
@@ -30,6 +33,7 @@ import (
 	friendcache "IM_backend/internal/infrastructure/persistence/redis/cache/friend"
 	messagecache "IM_backend/internal/infrastructure/persistence/redis/cache/message"
 	roomcache "IM_backend/internal/infrastructure/persistence/redis/cache/room"
+	roomunreadcache "IM_backend/internal/infrastructure/persistence/redis/cache/summary"
 	usercache "IM_backend/internal/infrastructure/persistence/redis/cache/user"
 	"IM_backend/internal/infrastructure/ratelimit"
 	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
@@ -39,6 +43,7 @@ import (
 	"IM_backend/internal/shared/protocol"
 	shared_ratelimit "IM_backend/internal/shared/ratelimit"
 	httpapi "IM_backend/internal/transport/http"
+	agenthttp "IM_backend/internal/transport/http/agent"
 	userconversationhttp "IM_backend/internal/transport/http/conversation"
 	filehttp "IM_backend/internal/transport/http/file"
 	friendhttp "IM_backend/internal/transport/http/friend"
@@ -104,6 +109,7 @@ func main() {
 
 	authCache := authcache.NewAuthCache(redisClient)
 	roomCache := roomcache.NewRoomCache(redisClient, cfg.Message)
+	roomUnreadSnapshotCache := roomunreadcache.NewRoomUnreadSnapshotCache(redisClient)
 	roomMemberCache := roomcache.NewRoomMemberCache(redisClient, cfg.Message)
 	fileCache := filecache.NewFileCache(redisClient)
 	friendCache := friendcache.NewFriendCache(redisClient)
@@ -233,6 +239,18 @@ func main() {
 
 	roomUserRepository := roomusermysql.NewRoomUserRepository(db)
 	roomRepository := roommysql.NewRoomRepository(db)
+	summaryRepository := summarymysql.NewRepository(db)
+	summaryClient, err := agentgrpc.NewClient(cfg.Agent.RoomSummaryEndpoint)
+	if err != nil {
+		log.Fatal("初始化摘要 Agent gRPC 客户端失败：", err)
+	}
+	defer summaryClient.Close()
+	summaryApplication := summaryapp.NewSummaryApplication(
+		ctx, summaryClient, idGenerator, messageRepository, conversationRepository,
+		userConversationRepository, roomUserRepository, summaryRepository, txManager, roomUnreadSnapshotCache,
+		roomUnreadSnapshotCache,
+	)
+	summaryHandle := agenthttp.NewHandle(summaryApplication)
 	roomApp := roomapp.NewRoomApplication(
 		roomRepository,
 		roomUserRepository,
@@ -343,6 +361,7 @@ func main() {
 		roomRepository,
 		idGenerator,
 		cfg,
+		roomUnreadSnapshotCache,
 		messageAttachmentsRepository,
 	)
 	messageHandle := messagehttp.NewMessageHandle(messageApplication)
@@ -401,6 +420,7 @@ func main() {
 		Rate:  cfg.Storage.MinIO.UploadRate,
 		Burst: cfg.Storage.MinIO.UploadBurst,
 	})
+	httpapi.RegisterAgentRouter(apiGroup, summaryHandle, authMiddle)
 	// if cfg.App.Env == "development" {
 	// 	httpapi.RegisterTestDataRouter(apiGroup.Group("/dev"), testdataHandle)
 	// }
@@ -408,10 +428,11 @@ func main() {
 	ws.RegisterWSRouter(apiGroup, wsHandle, authMiddle)
 
 	srv := &http.Server{
-		Addr:         cfg.Server.Port,
-		Handler:      r,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Addr:        cfg.Server.Port,
+		Handler:     r,
+		ReadTimeout: 30 * time.Second,
+		// SSE 和 WebSocket 都是长连接，写超时由各自的连接心跳/写 deadline 控制。
+		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
 		// 关键：最大连接数限制
 		MaxHeaderBytes: 1 << 20, // 1MB

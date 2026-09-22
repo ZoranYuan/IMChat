@@ -25,6 +25,11 @@ type Config struct {
 	Storage     StorageConfig     `yaml:"storage"`
 	FileCleanup FileCleanupConfig `yaml:"file_cleanup"`
 	Cache       CacheConfig       `yaml:"cache"`
+	Agent       AgentConfig       `yaml:"agent"`
+}
+
+type AgentConfig struct {
+	RoomSummaryEndpoint string `yaml:"room_summary_endpoint"`
 }
 
 type UserProfile struct {
@@ -36,6 +41,11 @@ type CacheConfig struct {
 	UserProfile        UserProfile              `yaml:"user_profile"`
 	AttachmentAccess   AttachmentAccessConfig   `yaml:"attachment_access"`
 	AttachmentFileCard AttachmentFileCardConfig `yaml:"attachment_file_card"`
+	RoomUnreadSnapshot RoomUnreadSnapshotConfig `yaml:"room_unread_snapshot"`
+}
+
+type RoomUnreadSnapshotConfig struct {
+	TTLSeconds int `yaml:"ttl_seconds"`
 }
 
 type AttachmentAccessConfig struct {

@@ -155,6 +155,30 @@ func (r *MessageRepository) ListAfterSeq(
 	return result, nil
 }
 
+func (r *MessageRepository) ListBySeqRange(
+	ctx context.Context,
+	conversationId string,
+	fromSeq int64,
+	toSeq int64,
+) ([]*messageentity.Message, error) {
+	if conversationId == "" || toSeq <= fromSeq {
+		return []*messageentity.Message{}, nil
+	}
+	var models []*model.Message
+	err := r.db.WithContext(ctx).
+		Where("conversation_id = ? AND seq >= ? AND seq <= ?", conversationId, fromSeq, toSeq).
+		Order("seq ASC").
+		Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*messageentity.Message, 0, len(models))
+	for _, m := range models {
+		result = append(result, toMessageDomain(m))
+	}
+	return result, nil
+}
+
 func (r *MessageRepository) ListBySeqs(
 	ctx context.Context,
 	conversationId string,
