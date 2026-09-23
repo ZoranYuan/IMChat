@@ -30,6 +30,21 @@ type ConsumerRouter struct {
 	deadLetterSuffix    string
 }
 
+// claimRetryInterval 根据 Inbox 租约时间推导抢占失败后的检查间隔，避免额外增加配置项。
+func (r *ConsumerRouter) claimRetryInterval() time.Duration {
+	if r == nil || r.inboxStaleAfter <= 0 {
+		return time.Second
+	}
+	interval := r.inboxStaleAfter / 10
+	if interval <= 0 {
+		interval = 100 * time.Millisecond
+	}
+	if interval > time.Second {
+		interval = time.Second
+	}
+	return interval
+}
+
 type inboxClaim struct {
 	claimed    bool
 	lockToken  string
@@ -140,6 +155,9 @@ func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEv
 			return nil
 		}
 
+		if errors.Is(err, inboxport.ErrEventInProgress) {
+			return err
+		}
 		log.Printf("消息抢占失败：event_id=%s，error=%v", message.EventID, err)
 		return err
 	}
@@ -173,7 +191,7 @@ func (r *ConsumerRouter) handle(ctx context.Context, message eventbus.IncomingEv
 		}
 
 		log.Printf(
-			"消息处理失败，等待 Kafka 重新投递：event_id=%s，error=%v",
+			"消息处理失败，释放 Inbox 租约并准备重试：event_id=%s，error=%v",
 			message.EventID,
 			handlerErr,
 		)
@@ -241,6 +259,8 @@ func (h saramaAdapter) ConsumeClaim(
 	claim sarama.ConsumerGroupClaim,
 ) error {
 	ctx := session.Context()
+	claimRetryInterval := h.router.claimRetryInterval()
+	const maxLocalRetries = 2
 
 	for {
 		select {
@@ -265,21 +285,54 @@ func (h saramaAdapter) ConsumeClaim(
 				Payload: cloneBytes(message.Value),
 			}
 
-			if err := h.router.handle(ctx, incomingEvent); err != nil {
+			localRetryCount := 0
+			for {
+				err := h.router.handle(ctx, incomingEvent)
+				if err == nil {
+					break
+				}
+
+				if errors.Is(err, inboxport.ErrEventInProgress) {
+					if err := waitForInboxRetry(ctx, claimRetryInterval); err != nil {
+						return err
+					}
+					continue
+				}
+
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				return fmt.Errorf(
-					"处理消息队列消息失败：主题=%s 分区=%d 偏移量=%d：%w",
-					message.Topic,
-					message.Partition,
-					message.Offset,
-					err,
-				)
+				if localRetryCount >= maxLocalRetries {
+					return fmt.Errorf(
+						"处理消息队列消息失败：主题=%s 分区=%d 偏移量=%d：%w",
+						message.Topic,
+						message.Partition,
+						message.Offset,
+						err,
+					)
+				}
+
+				localRetryCount++
+				retryDelay := time.Duration(1<<uint(localRetryCount-1)) * time.Second
+				if err := waitForInboxRetry(ctx, retryDelay); err != nil {
+					return err
+				}
 			}
 
 			session.MarkMessage(message, "")
 		}
+	}
+}
+
+func waitForInboxRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
@@ -330,7 +383,9 @@ func NewConsumerGroup(
 	if router == nil || topicRouter == nil {
 		return nil, errors.New("Kafka Consumer 路由器未配置")
 	}
-	if config.MaxInboxRetries <= 0 || config.InboxStaleAfterSecs <= 0 || config.ConsumeRetryIntervalSecs <= 0 {
+	if config.MaxInboxRetries <= 0 ||
+		config.InboxStaleAfterSecs <= 0 ||
+		config.ConsumeRetryIntervalSecs <= 0 {
 		return nil, errors.New("Kafka Consumer 重试配置无效")
 	}
 	if config.DeadLetterSuffix == "" {

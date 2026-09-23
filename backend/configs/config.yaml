@@ -76,8 +76,8 @@ kafka:
     group_id: "im-chat-consumer-group"
     version: "2.6.0"
     assignor: "range"   # range / roundrobin / sticky
-    max_inbox_retries: 5
-    inbox_stale_after_seconds: 30
+    max_inbox_retries: 3
+    inbox_stale_after_seconds: 10
     consume_retry_interval_seconds: 1
     dead_letter_suffix: ".dlq"
 
