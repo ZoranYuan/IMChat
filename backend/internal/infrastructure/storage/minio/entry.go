@@ -21,7 +21,6 @@ type ObjectStorage struct {
 	client        *minio.Client
 	core          *minio.Core
 	presignClient *minio.Client
-	presignCore   *minio.Core
 	bucket        string
 }
 
@@ -63,10 +62,7 @@ func NewObjectStorage(ctx context.Context, cfg configs.MinIOConfig) (objectport.
 	}
 
 	core := &minio.Core{Client: client}
-	var (
-		presignClient *minio.Client
-		presignCore   *minio.Core
-	)
+	presignClient := client
 	if strings.TrimSpace(cfg.PublicEndpoint) != "" {
 		publicEndpoint, publicSecure, err := parseEndpoint(cfg.PublicEndpoint, cfg.UseSSL)
 		if err != nil {
@@ -81,14 +77,12 @@ func NewObjectStorage(ctx context.Context, cfg configs.MinIOConfig) (objectport.
 		if err != nil {
 			return nil, fmt.Errorf("创建 MinIO 预签名客户端失败：%w", err)
 		}
-		presignCore = &minio.Core{Client: presignClient}
 	}
 
 	return &ObjectStorage{
 		client:        client,
 		core:          core,
 		presignClient: presignClient,
-		presignCore:   presignCore,
 		bucket:        cfg.Bucket,
 	}, nil
 }
@@ -101,7 +95,11 @@ func parseEndpoint(raw string, defaultSecure bool) (string, bool, error) {
 
 	parsedRaw := raw
 	if !strings.Contains(parsedRaw, "://") {
-		parsedRaw = "http://" + parsedRaw
+		if defaultSecure {
+			parsedRaw = "https://" + parsedRaw
+		} else {
+			parsedRaw = "http://" + parsedRaw
+		}
 	}
 	parsed, err := url.Parse(parsedRaw)
 	if err != nil || parsed.Host == "" {
@@ -182,7 +180,7 @@ func (s *ObjectStorage) PresignMultipartPart(ctx context.Context, objectKey stri
 	if uploadId == "" || partNumber <= 0 {
 		return "", fmt.Errorf("参数错误")
 	}
-	u, err := s.presignCore.Presign(ctx, http.MethodPut, s.bucket, objectKey, ttl, url.Values{
+	u, err := s.presignClient.Presign(ctx, http.MethodPut, s.bucket, objectKey, ttl, url.Values{
 		"uploadId":   []string{uploadId},
 		"partNumber": []string{strconv.Itoa(partNumber)},
 	})

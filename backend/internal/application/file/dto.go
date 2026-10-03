@@ -34,7 +34,7 @@ type UploadInitDTO struct {
 
 type DirectUploadInitResDTO struct {
 	UploadID  string
-	FileId    string `json:"fileId,omitempty"`
+	FileID    string `json:"fileId,omitempty"`
 	Status    string
 	URL       string
 	ExpiresAt int64

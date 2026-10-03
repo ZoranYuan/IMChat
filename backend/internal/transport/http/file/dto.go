@@ -37,22 +37,6 @@ type AttachmentAccessURLsResponse struct {
 	Attachments []AttachmentAccessURLResponse `json:"attachments"`
 }
 
-type MultipartInitRequest struct {
-	FileName    string `json:"fileName" binding:"required"`
-	ContentType string `json:"contentType"`
-	Size        int64  `json:"size" binding:"required"`
-	FileHash    string `json:"fileHash" binding:"required"`
-	ChunkSize   int64  `json:"chunkSize" binding:"required"`
-	TotalChunks int    `json:"totalChunks" binding:"required"`
-}
-
-type DirectUploadInitRequest struct {
-	FileName    string `json:"fileName" binding:"required"`
-	ContentType string `json:"contentType"`
-	Size        int64  `json:"size" binding:"required"`
-	FileHash    string `json:"fileHash" binding:"required"`
-}
-
 type UploadInitRequest struct {
 	FileName    string `json:"fileName" binding:"required"`
 	ContentType string `json:"contentType"`
@@ -60,23 +44,6 @@ type UploadInitRequest struct {
 	FileHash    string `json:"fileHash" binding:"required"`
 	ChunkSize   int64  `json:"chunkSize,omitempty"`
 	TotalChunks int    `json:"totalChunks,omitempty"`
-}
-
-type DirectUploadInitResponse struct {
-	UploadID  string `json:"uploadId"`
-	FileID    string `json:"fileId,omitempty"`
-	Status    string `json:"status"`
-	URL       string `json:"url,omitempty"`
-	ExpiresAt int64  `json:"expiresAt,omitempty"`
-}
-
-type MultipartInitResponse struct {
-	UploadID      string `json:"uploadId"`
-	FileID        string `json:"fileId,omitempty"`
-	Status        string `json:"status"`
-	ChunkSize     int64  `json:"chunkSize,omitempty"`
-	TotalChunks   int    `json:"totalChunks,omitempty"`
-	UploadedParts []int  `json:"uploadedParts"`
 }
 
 type UploadInitResponse struct {
@@ -149,17 +116,6 @@ func toAttachmentAccessURLsResponse(dtos []*fileapp.AttachmentAccessURLDTO) Atta
 	return AttachmentAccessURLsResponse{Attachments: items}
 }
 
-func toMultipartInitResponse(dto *fileapp.MultipartInitResDTO) MultipartInitResponse {
-	return MultipartInitResponse{
-		UploadID:      dto.UploadID,
-		FileID:        dto.FileID,
-		Status:        dto.Status,
-		ChunkSize:     dto.ChunkSize,
-		TotalChunks:   dto.TotalChunks,
-		UploadedParts: dto.UploadedParts,
-	}
-}
-
 func toUploadInitResponse(dto *fileapp.UploadInitResDTO) UploadInitResponse {
 	return UploadInitResponse{
 		Status:        dto.Status,
@@ -171,15 +127,5 @@ func toUploadInitResponse(dto *fileapp.UploadInitResDTO) UploadInitResponse {
 		ChunkSize:     dto.ChunkSize,
 		TotalChunks:   dto.TotalChunks,
 		UploadedParts: dto.UploadedParts,
-	}
-}
-
-func toDirectUploadInitResponse(dto *fileapp.DirectUploadInitResDTO) DirectUploadInitResponse {
-	return DirectUploadInitResponse{
-		UploadID:  dto.UploadID,
-		FileID:    dto.FileId,
-		Status:    dto.Status,
-		URL:       dto.URL,
-		ExpiresAt: dto.ExpiresAt,
 	}
 }

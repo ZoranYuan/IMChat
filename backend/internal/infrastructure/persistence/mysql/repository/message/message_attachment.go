@@ -20,7 +20,7 @@ func NewMessageAttachmentRepository(db *gorm.DB) *MessageAttachmentRepository {
 	}
 }
 
-func (m *MessageAttachmentRepository) WithTx(tx any) messageport.MessageAttachmentsRepository {
+func (m *MessageAttachmentRepository) WithTx(tx any) messageport.MessageAttachmentRepository {
 	return &MessageAttachmentRepository{db: tx.(*gorm.DB)}
 }
 

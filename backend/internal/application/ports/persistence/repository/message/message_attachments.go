@@ -5,11 +5,11 @@ import (
 	"context"
 )
 
-type MessageAttachmentsRepository interface {
+type MessageAttachmentRepository interface {
 	Create(ctx context.Context, item *messageentity.MessageAttachment) error
 	BatchGetByMessageIDs(ctx context.Context, messageIds []string, isActivate bool) (map[string]*messageentity.MessageAttachment, error)
 	FindUserAccessAttachments(ctx context.Context, userId string, attachmentIds []string) (map[string]*messageentity.MessageAttachment, error)
-	WithTx(tx any) MessageAttachmentsRepository
+	WithTx(tx any) MessageAttachmentRepository
 	CanUserAccessAttachment(ctx context.Context, userId string, attachment_id string) (bool, error)
 	FindUserAccessAttachment(ctx context.Context, userId string, attachment_id string) (*messageentity.MessageAttachment, error)
 }
