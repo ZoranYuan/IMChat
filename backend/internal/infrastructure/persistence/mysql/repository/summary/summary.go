@@ -10,19 +10,21 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var _ summaryrepo.Repository = (*Repository)(nil)
+var _ summaryrepo.SummaryRunRepository = (*SummaryRunRepository)(nil)
 
-type Repository struct{ db *gorm.DB }
+type SummaryRunRepository struct{ db *gorm.DB }
 
-func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
+func NewSummaryRunRepository(db *gorm.DB) *SummaryRunRepository { return &SummaryRunRepository{db: db} }
 
-func (r *Repository) WithTx(tx any) summaryrepo.Repository { return &Repository{db: tx.(*gorm.DB)} }
+func (r *SummaryRunRepository) WithTx(tx any) summaryrepo.SummaryRunRepository {
+	return &SummaryRunRepository{db: tx.(*gorm.DB)}
+}
 
-func (r *Repository) CreateRun(ctx context.Context, run summaryrepo.RunRecord) error {
+func (r *SummaryRunRepository) CreateRun(ctx context.Context, run summaryrepo.RunRecord) error {
 	return r.db.WithContext(ctx).Create(toRunModel(run)).Error
 }
 
-func (r *Repository) FindRun(ctx context.Context, id string) (*summaryrepo.RunRecord, error) {
+func (r *SummaryRunRepository) FindRun(ctx context.Context, id string) (*summaryrepo.RunRecord, error) {
 	var row model.SummaryRun
 	err := r.db.WithContext(ctx).Where("summary_run_id = ?", id).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -35,7 +37,7 @@ func (r *Repository) FindRun(ctx context.Context, id string) (*summaryrepo.RunRe
 	return &result, nil
 }
 
-func (r *Repository) FindRunForUpdate(ctx context.Context, id string) (*summaryrepo.RunRecord, error) {
+func (r *SummaryRunRepository) FindRunForUpdate(ctx context.Context, id string) (*summaryrepo.RunRecord, error) {
 	var row model.SummaryRun
 	err := r.db.WithContext(ctx).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -51,7 +53,7 @@ func (r *Repository) FindRunForUpdate(ctx context.Context, id string) (*summaryr
 	return &result, nil
 }
 
-func (r *Repository) FindActiveRunByScope(ctx context.Context, userID, roomID string) (*summaryrepo.RunRecord, error) {
+func (r *SummaryRunRepository) FindActiveRunByScope(ctx context.Context, userID, roomID string) (*summaryrepo.RunRecord, error) {
 	var row model.SummaryRun
 	err := r.db.WithContext(ctx).
 		Where("user_id = ? AND room_id = ? AND status IN ?", userID, roomID, []string{"RUNNING", "WAITING_USER_DECISION"}).
@@ -67,17 +69,17 @@ func (r *Repository) FindActiveRunByScope(ctx context.Context, userID, roomID st
 	return &result, nil
 }
 
-func (r *Repository) UpdateStatus(ctx context.Context, runID, status string) error {
+func (r *SummaryRunRepository) UpdateStatus(ctx context.Context, summaryRunID, status string) error {
 	return r.db.WithContext(ctx).
 		Model(&model.SummaryRun{}).
-		Where("summary_run_id = ?", runID).
+		Where("summary_run_id = ?", summaryRunID).
 		Updates(map[string]any{
 			"status":     status,
 			"updated_at": gorm.Expr("UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000"),
 		}).Error
 }
 
-func (r *Repository) SaveResponse(ctx context.Context, runID, requestID, status, payload string, finishedAt *int64) error {
+func (r *SummaryRunRepository) SaveResponse(ctx context.Context, summaryRunID, requestID, status, payload string, finishedAt *int64) error {
 	updates := map[string]any{
 		"latest_request_id": requestID,
 		"status":            status,
@@ -87,7 +89,7 @@ func (r *Repository) SaveResponse(ctx context.Context, runID, requestID, status,
 	if finishedAt != nil {
 		updates["finished_at"] = *finishedAt
 	}
-	return r.db.WithContext(ctx).Model(&model.SummaryRun{}).Where("summary_run_id = ?", runID).Updates(updates).Error
+	return r.db.WithContext(ctx).Model(&model.SummaryRun{}).Where("summary_run_id = ?", summaryRunID).Updates(updates).Error
 }
 
 func toRunModel(run summaryrepo.RunRecord) *model.SummaryRun {

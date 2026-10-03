@@ -1,7 +1,8 @@
-package summary_agent
+package agent
 
 import (
 	agentport "IM_backend/internal/application/ports/agent"
+	idport "IM_backend/internal/application/ports/id"
 	summarycache "IM_backend/internal/application/ports/persistence/cache/summary"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
@@ -19,7 +20,7 @@ import (
 )
 
 var (
-	ErrUnkonwConversation     = errors.New("未知会话")
+	ErrUnknownConversation    = errors.New("未知会话")
 	ErrSummaryRunNotFound     = errors.New("摘要任务不存在")
 	ErrSummaryRunInitializing = errors.New("摘要任务正在初始化，请稍后重试")
 	ErrSummaryForbidden       = errors.New("无权访问摘要任务")
@@ -27,13 +28,13 @@ var (
 	ErrSummaryInvalidResponse = errors.New("摘要 Agent 返回了无效响应")
 )
 
-type SummaryStreamEvent struct {
+type SummaryEvent struct {
 	Name string
 	Data agentport.SummaryResponse
 }
 
-type SummaryStream struct {
-	Stream <-chan SummaryStreamEvent
+type SummarySubscription struct {
+	Events <-chan SummaryEvent
 	Close  func()
 }
 
@@ -45,27 +46,27 @@ type SummaryRunInfo struct {
 
 const summaryScopeRunTTL = 2 * time.Minute
 
-type AgentApplication interface {
+type SummaryService interface {
 	InitSummaryRun(ctx context.Context, roomID, userID string) (*SummaryRunInfo, error)
-	OpenSummarySSE(ctx context.Context, roomID, userID, summaryRunID string) (*SummaryStream, error)
+	OpenSummarySSE(ctx context.Context, roomID, userID, summaryRunID string) (*SummarySubscription, error)
 	RetrySummary(ctx context.Context, roomID, userID, summaryRunID string) error
 	CancelSummary(ctx context.Context, roomID, userID, summaryRunID string) error
 }
 
 type subscription struct {
-	ch   chan SummaryStreamEvent
+	ch   chan SummaryEvent
 	done chan struct{}
 }
 
 type SummaryApplication struct {
 	rootCtx           context.Context
 	client            agentport.SummaryClient
-	ids               interface{ Generate() (string, error) }
+	ids               idport.Generator
 	messages          messagerepo.MessageRepository
 	conversations     conversationrepo.ConversationRepository
 	userConversations conversationrepo.UserConversationRepository
 	roomUsers         roomrepo.RoomUserRepository
-	runs              summaryrepo.Repository
+	runs              summaryrepo.SummaryRunRepository
 	txManager         txmanager.TxManager
 	snapshots         summarycache.RoomUnreadSnapshotCache
 	scopeRuns         summarycache.SummaryScopeRunStore
@@ -78,12 +79,12 @@ type SummaryApplication struct {
 func NewSummaryApplication(
 	rootCtx context.Context,
 	client agentport.SummaryClient,
-	ids interface{ Generate() (string, error) },
+	ids idport.Generator,
 	messages messagerepo.MessageRepository,
 	conversations conversationrepo.ConversationRepository,
 	userConversations conversationrepo.UserConversationRepository,
 	roomUsers roomrepo.RoomUserRepository,
-	runs summaryrepo.Repository,
+	runs summaryrepo.SummaryRunRepository,
 	txManager txmanager.TxManager,
 	snapshots summarycache.RoomUnreadSnapshotCache,
 	scopeRuns summarycache.SummaryScopeRunStore,
@@ -236,7 +237,7 @@ func toSummaryRunInfo(run *summaryrepo.RunRecord) *SummaryRunInfo {
 	}
 }
 
-func (sa *SummaryApplication) OpenSummarySSE(ctx context.Context, roomID, userID, summaryRunID string) (*SummaryStream, error) {
+func (sa *SummaryApplication) OpenSummarySSE(ctx context.Context, roomID, userID, summaryRunID string) (*SummarySubscription, error) {
 	latestRun, err := sa.runs.FindRun(ctx, summaryRunID)
 	if err != nil {
 		return nil, err
@@ -251,7 +252,7 @@ func (sa *SummaryApplication) OpenSummarySSE(ctx context.Context, roomID, userID
 	sa.mu.Lock()
 	sa.nextSubscriptionID++
 	id := sa.nextSubscriptionID
-	sub := &subscription{ch: make(chan SummaryStreamEvent, 2), done: make(chan struct{})}
+	sub := &subscription{ch: make(chan SummaryEvent, 2), done: make(chan struct{})}
 	if sa.subscribers[summaryRunID] == nil {
 		sa.subscribers[summaryRunID] = make(map[uint64]*subscription)
 	}
@@ -280,7 +281,7 @@ func (sa *SummaryApplication) OpenSummarySSE(ctx context.Context, roomID, userID
 			if json.Unmarshal([]byte(latestRun.ResponsePayload), &response) == nil {
 				sa.sendToSubscription(
 					sub,
-					SummaryStreamEvent{
+					SummaryEvent{
 						Name: "summary",
 						Data: response,
 					},
@@ -293,7 +294,7 @@ func (sa *SummaryApplication) OpenSummarySSE(ctx context.Context, roomID, userID
 		}
 	}()
 
-	return &SummaryStream{Stream: sub.ch, Close: func() { sa.removeSubscription(summaryRunID, id) }}, nil
+	return &SummarySubscription{Events: sub.ch, Close: func() { sa.removeSubscription(summaryRunID, id) }}, nil
 }
 
 func (sa *SummaryApplication) RetrySummary(ctx context.Context, roomID, userID, summaryRunID string) error {
@@ -409,7 +410,7 @@ func (sa *SummaryApplication) persistResponse(summaryRunID string, response *age
 	if err := sa.runs.SaveResponse(sa.rootCtx, summaryRunID, response.RequestID, string(response.Status), string(payload), finishedAt); err != nil {
 		return
 	}
-	sa.publish(summaryRunID, SummaryStreamEvent{Name: "summary", Data: *response})
+	sa.publish(summaryRunID, SummaryEvent{Name: "summary", Data: *response})
 	if response.Status != agentport.SummaryStatusRunning {
 		sa.finishRun(summaryRunID)
 	}
@@ -422,7 +423,7 @@ func (sa *SummaryApplication) persistFailure(summaryRunID, requestID string, err
 	})
 }
 
-func (sa *SummaryApplication) publish(summaryRunID string, event SummaryStreamEvent) {
+func (sa *SummaryApplication) publish(summaryRunID string, event SummaryEvent) {
 	sa.mu.RLock()
 	defer sa.mu.RUnlock()
 	for _, sub := range sa.subscribers[summaryRunID] {
@@ -434,7 +435,7 @@ func (sa *SummaryApplication) publish(summaryRunID string, event SummaryStreamEv
 	}
 }
 
-func (sa *SummaryApplication) sendToSubscription(sub *subscription, event SummaryStreamEvent) {
+func (sa *SummaryApplication) sendToSubscription(sub *subscription, event SummaryEvent) {
 	sa.mu.RLock()
 	defer sa.mu.RUnlock()
 	select {
@@ -490,7 +491,7 @@ func (sa *SummaryApplication) resolveRange(ctx context.Context, roomID, userID s
 		return 0, 0, err
 	}
 	if conversation == nil || conversation.Convtype != conversationvo.RoomChat {
-		return 0, 0, ErrUnkonwConversation
+		return 0, 0, ErrUnknownConversation
 	}
 	userConversation, err := sa.userConversations.GetUserConversation(ctx, userID, conversation.ConversationId)
 	if err != nil {

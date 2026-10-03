@@ -14,9 +14,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type Handle struct{ app summaryapp.AgentApplication }
+type Handle struct{ app summaryapp.SummaryService }
 
-func NewHandle(app summaryapp.AgentApplication) *Handle { return &Handle{app: app} }
+func NewHandle(app summaryapp.SummaryService) *Handle { return &Handle{app: app} }
 
 func writeSSE(writer interface{ Write([]byte) (int, error) }, eventName, eventID string, data any) error {
 	if eventID != "" {
@@ -51,24 +51,24 @@ func (h *Handle) InitSummaryRun(c *gin.Context) {
 	c.JSON(http.StatusAccepted, response.Success(run))
 }
 
-func (h *Handle) AgentStream(c *gin.Context) {
+func (h *Handle) SummaryEvents(c *gin.Context) {
 	roomID, summaryRunID, userID := strings.TrimSpace(c.Param("roomId")), strings.TrimSpace(c.Param("summaryRunId")), strings.TrimSpace(c.GetString("userId"))
 	if roomID == "" || summaryRunID == "" || userID == "" {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
 		return
 	}
-	stream, err := h.app.OpenSummarySSE(c.Request.Context(), roomID, userID, summaryRunID)
+	subscription, err := h.app.OpenSummarySSE(c.Request.Context(), roomID, userID, summaryRunID)
 	if err != nil {
 		h.writeApplicationError(c, err)
 		return
 	}
-	defer stream.Close()
+	defer subscription.Close()
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "当前响应不支持 SSE"))
 		return
 	}
-	c.Header("Content-Type", "text/event-stream")
+	c.Header("Content-Type", "text/event-subscription")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
@@ -88,7 +88,7 @@ func (h *Handle) AgentStream(c *gin.Context) {
 				return
 			}
 			flusher.Flush()
-		case event, ok := <-stream.Stream:
+		case event, ok := <-subscription.Events:
 			if !ok {
 				return
 			}

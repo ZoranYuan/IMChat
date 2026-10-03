@@ -16,12 +16,12 @@ type RunRecord struct {
 	FinishedAt      *int64
 }
 
-type Repository interface {
+type SummaryRunRepository interface {
 	CreateRun(ctx context.Context, run RunRecord) error
 	FindRun(ctx context.Context, summaryRunID string) (*RunRecord, error)
 	FindRunForUpdate(ctx context.Context, summaryRunID string) (*RunRecord, error)
 	FindActiveRunByScope(ctx context.Context, userID, roomID string) (*RunRecord, error)
-	UpdateStatus(ctx context.Context, runID, status string) error
-	SaveResponse(ctx context.Context, runID, requestID, status, payload string, finishedAt *int64) error
-	WithTx(tx any) Repository
+	UpdateStatus(ctx context.Context, summaryRunID, status string) error
+	SaveResponse(ctx context.Context, summaryRunID, requestID, status, payload string, finishedAt *int64) error
+	WithTx(tx any) SummaryRunRepository
 }
