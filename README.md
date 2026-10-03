@@ -1,287 +1,98 @@
 # SYCHAT
 
-一个面向群聊场景的实时房间协作平台。
-
-## 项目背景
-
-基于 Go + Vue 3 的实时房间协作平台，包含账号、好友、房间、聊天、视频、一起看、回放等模块，支持 WebSocket 实时同步、视频上传与分片上传、房间内共享播放、历史消息与历史视频回放。
+基于 Go + Vue 3 的即时通信项目，支持账号、好友、房间、私聊与群聊、媒体上传、离线补齐和房间摘要 Agent。
 
 ## 技术栈
 
-- Go 1.25.2
-- Gin
-- GORM
-- MySQL 8
-- Redis 7
-- Kafka 3.9
-- MinIO
-- gRPC
-- Server-Sent Events (SSE)
-- Vue 3
-- Vite
+Go、Gin、GORM、MySQL、Redis、Kafka、MinIO、Protobuf、gRPC、SSE、Vue 3、Vite。
 
----
+## 消息链路
 
-## WebSocket 实时通道
-
-```
-路径: GET /api/v1/ws  (JWT 鉴权)
-连接: 每个用户一个 WebSocket 连接，通过 sessionId 标识
-心跳: 服务端定期 Ping，客户端回复 Pong
-批量能力: 连接参数带 `batch=1` 时，服务端启用批量帧；不带参数时保持单帧兼容
+```text
+WebSocket MessageReq
+  → 鉴权、关系校验和客户端重试检查
+  → 按 conversationId 进入消息写入分片，聚合批次
+  → MySQL 事务：分配会话 seq、持久化消息与附件、写入 Outbox
+  → 返回 msg_ack（sent 表示事务提交，不代表对方已接收）
+  → Kafka Producer 领取 Outbox，按 MessageKey 分配 worker
+  → Kafka Consumer 批量处理，使用 Inbox 管理幂等与处理租约
+  → MessageDelivery / Gateway
+  → Session 出站聚合队列 → WebSocket 批量帧
 ```
 
-### WebSocket Op 一览
+会话序号由 MySQL 事务内锁定会话并批量分配，不由 Redis INCR 生成。Kafka 分区键使相同会话进入同一分区，但不能单独保证多实例 Outbox 投递时的 seq 顺序；客户端仍需按 seq 去重、排序和补齐缺口。
 
-| Op | 方向 | 说明 | Payload Proto |
-|----|------|------|---------------|
-| `msg` | 前端→后端 | 发送消息 | `MessageReq` |
-| `msg` | 后端→接收方 | 收到新消息 | `MessageEvent` |
-| `msg_ack` | 后端→发送方 | 服务端确认消息收到 | `MessageAck` |
-| `msg_read_ack` | 前端→后端 | 已读某条消息 | `MessageReadAckReq` |
-| `msg_read_notify` | 后端→发送方 | 你的消息被读了 | `MessageReadAckEvent` |
-| `conversation_sync_seq` | (Kafka 内部) | 同步会话最大 seq | `ConversationSyncSeqEvent` |
-| `watch_video_control` | 前端→后端 | 视频播放控制（播放/暂停/seek） | `WatchVideoControl` |
-| `watch_video_sync` | 后端→房间成员 | 视频播放状态同步 | `WatchVideoState` |
+普通房间推送完整消息；大群或活跃房间使用 `room_msg_notice` 合并通知，客户端通过 `/messages/sync` 补拉。房间判断和通知聚合参数位于 [config.yaml](backend/configs/config.yaml)。
 
-### WebSocket 帧格式
+## WebSocket 协议
+
+入口：`GET /api/v1/ws`，需要有效 JWT。Session 绑定用户、设备及登录会话，用户可以有多个连接。服务端维护 Ping/Pong、读写截止时间和慢客户端隔离。
+
+| Op | 方向 | Payload |
+|---|---|---|
+| `msg` | 客户端 → 服务端 | `MessageReq` |
+| `msg` | 服务端 → 接收方 | `MessageEvent` |
+| `msg_ack` | 服务端 → 发送方 | `MessageAck` |
+| `msg_read_ack` | 客户端 → 服务端 | `MessageReadAckReq` |
+| `msg_read_notify` | 服务端 → 消息发送方 | `MessageReadAckEvent` |
+| `room_msg_notice` | 服务端 → 房间成员 | `RoomMessageNotice` |
+
+帧定义以 [ws.proto](backend/internal/transport/ws/ws.proto) 为准：
 
 ```protobuf
 message WsFrame {
-  string op = 1;    // 操作类型
-  bytes data = 2;   // payload，按 op 对应不同的 proto message 编码
+  string op = 1;
+  bytes data = 2;
 }
-
 message WsBatch {
   repeated WsFrame frames = 1;
 }
 ```
 
-批量模式下外层 `WsFrame.op` 为 `msg_batch`，`data` 解码为 `WsBatch`；客户端按 `frames` 原顺序分发每个内部 `op`。
+批量下发的外层 `WsFrame.op = "msg_batch"`，`data` 为 `WsBatch`，客户端按内部帧顺序分发。媒体消息发送请求携带 `file_id`，服务端读取已验证文件信息；消息事件携带 `attachment_id`，客户端另外查询媒体卡片和访问 URL。
 
----
+### 已读水位
 
-## 数据流
+客户端发送 `MessageReadAckReq.message_id`。后端查询消息并校验会话权限，单调推进用户的 `lastReadSeq`；推进成功时在同一事务中写入已读 Outbox 事件，消费后通知对应消息发送方。重复或倒退的已读确认不重复推进水位。
 
-### 1. 发送消息 (msg)
+### 离线补齐与实时同步
 
-```
-[发送方前端]                    [后端]                         [Kafka]                    [Consumer]              [接收方前端]
-     │                            │                              │                           │                        │
-     │── ws op="msg" ──→          │                              │                           │                        │
-     │   MessageReq {              │                              │                           │                        │
-     │     clientMsgId             │                              │                           │                        │
-     │     recvId (对方/房间ID)     │                              │                           │                        │
-     │     convType                │                              │                           │                        │
-     │     cType                   │                              │                           │                        │
-     │     content                 │                              │                           │                        │
-     │     videoTime               │                              │                           │                        │
-     │   }                         │                              │                           │                        │
-     │                             │── HandleMessage               │                           │                        │
-     │                             │   │ 校验成员/好友关系          │                           │                        │
-     │                             │   │ 生成 messageId (Snowflake) │                           │                        │
-     │                             │   │ Redis INCR → seq          │                           │                        │
-     │                             │   │ DB: Save message          │                           │                        │
-     │                             │   │ DB: Upsert conversation   │                           │                        │
-     │                             │   │ DB: UpdateReadSeq/SyncSeq │                           │                        │
-     │                             │   └─ SendMessage()            │                           │                        │
-     │                             │      Envelope {                │                           │                        │
-     │                             │        From: senderId         │                           │                        │
-     │                             │        To:   recvId           │                           │                        │
-     │                             │        Payload: MessageEvent  │                           │                        │
-     │                             │      }                         │                           │                        │
-     │                             │── topic="msg", key=convId ──→ │                           │                        │
-     │   ←── ws op="msg_ack" ──    │                              │                           │                        │
-     │   MessageAck {               │                              │                           │                        │
-     │     clientMsgId, messageId,  │                              │                           │                        │
-     │     status="sent"            │                              │                           │                        │
-     │   }                         │                              │                           │                        │
-     │                             │                              │── ConsumeClaim ──→       │                        │
-     │                             │                              │   handleMessage()        │                        │
-     │                             │                              │   ├─ PrivateChat:         │                        │
-     │                             │                              │   │  SendToClient(        │── ws op="msg" ──→      │
-     │                             │                              │   │    "msg", recvId,      │   MessageEvent          │
-     │                             │                              │   │    MessageEvent)       │                        │
-     │                             │                              │   │  UpdateSyncSeq(recvId) │                        │
-     │                             │                              │   │                        │                        │
-     │                             │                              │   └─ RoomChat:            │                        │
-     │                             │                              │      并行 dispatch 给      │── ws op="msg" ──→      │
-     │                             │                              │      所有房间成员          │   (每个成员)             │
-     │                             │                              │      BatchUpdateSyncSeq    │                        │
+1. 请求 `/conversations` 获取会话快照，并保存 IndexedDB。
+2. 对每个会话，从本地 `lastContinuousSeq` 到快照 `latestSeq` 分页请求 `/messages/offline`；不同会话并发补齐，消息与扫描水位原子写入 IndexedDB。
+3. 快照补齐结束后建立 WebSocket，再追赶快照之后的新消息。断线恢复同样先补齐固定快照，不会无限追赶活跃会话。
+4. 完整实时消息存在序号缺口或收到轻量通知时，通过 `/messages/sync` 拉取增量。
+5. 页面历史消息优先查询 IndexedDB；后端仍提供独立 `/messages/history` 接口。
+
+`lastReadSeq` 表示已读位置，`lastContinuousSeq` 表示本地已经补齐的消息位置，两者不能混用。
+
+## Kafka 与持久化
+
+| 事件 | 默认 Topic |
+|---|---|
+| 新消息 | `im.message` |
+| 已读提交 | `im.read` |
+| 好友申请 | `im.friend` |
+| 房间成员变更 | `im.room` |
+| 文件卡片预热 | `im.file-card-warmup` |
+
+Producer 内部负责领取 Outbox、投递和更新任务状态；Consumer 内部负责 Inbox 抢占、处理、重试和死信。Outbox/Inbox 表保留，它们不是独立的应用层调度入口。具体批量粒度和失败处理以 [producer.go](backend/internal/infrastructure/mq/kafka/producer.go) 与 [consumer.go](backend/internal/infrastructure/mq/kafka/consumer.go) 为准。
+
+## 统一媒体上传
+
+图片、视频和文件复用相同初始化与完成入口，服务端依据文件大小选择直传或 Multipart Upload。
+
+```text
+客户端计算 SHA-256 → 初始化上传
+  ├─ 已完成：直接返回 fileId
+  ├─ 直传：返回 uploadId + 预签名 PUT URL
+  └─ 分片：返回 uploadId + 分片信息，按 partNumber 批量申请 URL
+上传至 MinIO → 调用完成接口
+  → 服务端校验大小、完整 Hash、MIME，以及分片信息
+  → 事务持久化文件并更新上传任务，提交后更新文件缓存
+  → 返回 completed + fileId → 发送媒体消息
 ```
 
-**关键字段**：
-
-| 字段 | 说明 |
-|------|------|
-| `Envelope.From` | 发送方 userId，consumer 不用于路由 |
-| `Envelope.To` | 私聊时为接收方 userId，群聊时 consumer 自取成员列表 |
-| `Envelope.Payload` | `MessageEvent` JSON，含 messageId/seq/content/senderId 等 |
-| Kafka key | conversationId，保证同一会话消息有序 |
-
----
-
-### 2. 已读回执 (msg_read_ack → msg_read_notify)
-
-```
-[读者前端]                      [后端]                          [Kafka]                    [Consumer]              [发送方前端]
-     │                            │                               │                           │                        │
-     │── ws op="msg_read_ack" ─→  │                               │                           │                        │
-     │   MessageReadAckReq {       │                               │                           │                        │
-     │     conversationId          │                               │                           │                        │
-     │     lastReadSeq             │                               │                           │                        │
-     │     senderId ← 前端已知      │                               │                           │                        │
-     │   }                         │                               │                           │                        │
-     │                             │── HandleMessageReadAck         │                           │                        │
-     │                             │   │ 校验 senderId 非空且非读者  │                           │                        │
-     │                             │   │ DB: GetUserConversation    │                           │                        │
-     │                             │   │ 若 lastReadSeq ≤ 已记录值  │                           │                        │
-     │                             │   │   → 直接 return (幂等)     │                           │                        │
-     │                             │   │ DB: UpdateReadSeq          │                           │                        │
-     │                             │   │ DB: GetByID (取 ConvType)  │                           │                        │
-     │                             │   └─ SendMessageReadAck()      │                           │                        │
-     │                             │      事件中携带:                │                           │                        │
-     │                             │        - userId (读者)          │                           │                        │
-     │                             │        - convType (前端展示用)  │                           │                        │
-     │                             │        - senderId (路由目标)    │                           │                        │
-     │                             │── topic="msg_read_ack" ────→  │                           │                        │
-     │                             │                               │── ConsumeClaim ──→       │                        │
-     │                             │                               │   handleMessageReadAck() │                        │
-     │                             │                               │   SendToClient(          │── ws op="msg_read_notify" ──→
-     │                             │                               │     "msg_read_notify",    │   MessageReadAckEvent {
-     │                             │                               │     senderId,             │     userId (读者)
-     │                             │                               │     MessageReadAckEvent)  │     conversationId
-     │                             │                               │                           │     lastReadSeq
-     │                             │                               │                           │     convType
-     │                             │                               │                           │     senderId
-     │                             │                               │                           │   }
-```
-
-**设计要点**：
-- 前端展示消息时已知发送方，直接在 ack 中回传 `senderId`，**后端无需查询消息表**
-- 私聊和群聊逻辑完全一致——都是一条消息对应一个发送方
-- `msg_read_ack` 是读者的确认，`msg_read_notify` 是给发送方的通知，两个不同 op
-- 幂等：重复 ack（seq 未增长）直接返回 nil
-
----
-
-### 3. 离线消息与会话同步
-
-```
-[前端]                              [后端]                            [Kafka]                 [Consumer]
-  │                                   │                                 │                        │
-  │── GET /messages/offline ──→       │                                 │                        │
-  │                                   │── GetOfflineMessages              │                        │
-  │                                   │   │ ListByUser(userId)            │                        │
-  │                                   │   │ → 所有 UserConversation       │                        │
-  │                                   │   │ ListByIDs(convIds)            │                        │
-  │                                   │   │ → 所有 Conversation           │                        │
-  │                                   │   │ 计算 unreadMap                │                        │
-  │                                   │   │   = latestSeq - readSeq       │                        │
-  │                                   │   │ GetLatestMessagesByConvIDs    │                        │
-  │                                   │   │ → 每个会话最新一条消息         │                        │
-  │                                   │   │                               │                        │
-  │                                   │   │ 对比 latestSeq vs syncSeq     │                        │
-  │                                   │   │ 若有差距 → 异步发 sync seq     │                        │
-  │                                   │   └─ SendConversationSyncSeq() ──→│── ConsumeClaim ──→    │
-  │                                   │      topic="conversation_sync_seq"│   handleConvSyncSeq() │
-  │                                   │                                   │   BatchUpdateSyncSeq  │
-  │   ←── { messages[], unread {} } ──│                                   │                        │
-```
-
-**ConversationSyncSeq 的用途**：当离线消息加载后，如果用户本地缓存的 `syncSeq` 落后于会话实际 `latestSeq`，通过 Kafka 批量更新 `UserConversation.LatestSyncSeq`，保证下次获取离线消息时不再重复拉到已看过的。
-
----
-
-### 4. 视频一起看 (watch_video_control → watch_video_sync)
-
-```
-[操作者前端]                        [后端]                              [房间其他成员]
-     │                                │                                      │
-     │── ws op="watch_video_control" → │                                      │
-     │   WatchVideoControl {           │── CheckRoomMember                     │
-     │     roomId                      │── 若 action="get_state"               │
-     │     action (play/pause/seek)    │     → 直接返回当前状态给操作者         │
-     │     videoId                     │── UpsertWatchVideoState (内存)         │
-     │     positionMs                  │── GetRoomMemberIDs                    │
-     │     playbackRate                │── SendWatchVideoStateToUsers ────────→│
-     │     ...                         │    op="watch_video_sync"              │
-     │                                 │    (广播给所有房间成员含操作者)         │
-```
-
-**播放状态**：目前以内存态存储（Gateway 持有），进程重启会丢失（待完善项）。
-
-**释放机制**：用户断开 WebSocket 时，`ReleaseWatchVideoStatesByUser` 遍历该用户持有的共享状态，通知房间成员状态变更。
-
----
-
-### 5. WebSocket 连接生命周期
-
-```
-[前端]                              [后端]
-  │                                   │
-  │── GET /ws (JWT token) ──→         │
-  │                                   │── 验证 JWT → userId
-  │                                   │── 创建 sessionId (UUID)
-  │                                   │── NewClient(ctx, conn, userId, sessionId)
-  │                                   │── gateway.AddClient(client)
-  │                                   │── go readLoop(client)
-  │                                   │── go writeLoop(client)
-  │                                   │
-  │                                   │   readLoop:
-  │                                   │   │ 设置 ReadDeadline + PongHandler
-  │                                   │   │ for { client.Read() → dispatcher.Dispatch(op, data) }
-  │                                   │   │ 异常退出时:
-  │                                   │   │   client.Close()
-  │                                   │   │   gateway.RemoveClient()
-  │                                   │   │   ReleaseWatchVideoStatesByUser()
-  │                                   │   │   → 广播释放后的播放状态给房间成员
-  │                                   │
-  │                                   │   writeLoop:
-  │                                   │   │ 定时 Ping
-  │                                   │   │ for { select case msg ← client.send:
-  │                                   │   │          proto.Marshal(WsFrame{Op, Data})
-  │                                   │   │          WriteMessage() }
-  │                                   │
-  │   ←── Ping ──                     │
-  │   ── Pong ──→                     │  (重置 idle 时间戳)
-```
-
-### 5.1 WebSocket 断线重连与数据补齐
-
-```
-[前端]                                                     [后端]
-  │                                                          │
-  │── onclose ──→ scheduleWsReconnect                         │
-  │   │  最多重试 5 次，指数退避                                │
-  │   │  wsReconnecting = true                                │
-  │   │                                                       │
-  │   └── 重连成功 ──→ onopen                                  │
-  │       │  wasReconnecting = true                           │
-  │       │  wsConnected = true                               │
-  │       │  onWsReconnect() ──→ loadOffline()                 │
-  │       │                       │                            │
-  │       │                       │── GET /messages/offline ──→│
-  │       │                       │   │ 返回所有会话 + 未读数   │
-  │       │                       │   │ 返回每个会话最新消息     │
-  │       │                       │   │ 异步触发 sync seq      │
-  │       │                       │                            │
-  │       │                       │←── conversations[] ────────│
-  │       │                       │   更新侧边栏列表 + 未读计数  │
-  │       │                       │   当前会话从 localStorage   │
-  │       │                       │   恢复消息（如有缓存）       │
-  │       │                       │                            │
-  │       │  若重试耗尽 → wsReconnectFailed = true              │
-  │       │  用户可点击状态点手动重连                             │
-```
-
-**关键点**：
-- `onopen` 只负责设连接状态 + 触发回调，不自行拉数据
-- `onWsReconnect` 回调由 `useImClient` 注入，调用 `conversation.loadOffline()` 补齐断线期间消息
-- 首次连接**不**触发（`wasReconnecting` 为 false），避免与 `submitAuth` 的 `loadOffline` 重复
-- 重连失败后用户可手动点击状态指示器调用 `retryWsConnection` 重新连接
-
----
+未完成时返回 `uploading`、`uploadId`、`missingParts` 和 `invalidParts`，客户端修复后再次完成。初始化和完成具有对应锁及状态校验；后台 GC 清理过期上传与孤儿文件。发送媒体消息的事务另外写入文件卡片预热事件。对象存储内部地址与浏览器可访问的公开地址分别配置，预签名 URL 不能在签名后直接替换主机名。
 
 ## 摘要 Agent
 
@@ -389,204 +200,45 @@ scope 租约由初始化请求创建，Agent 执行期间使用原 `lockToken` �
 
 ---
 
-## Kafka 架构
-
-### Topic 一览
-
-| Kafka Topic | 生产者 | 消费者 | 说明 |
-|-------------|--------|--------|------|
-| `msg` | TaskManager.SendMessage | GroupHandler.handleMessage | 新消息事件 |
-| `msg_read_ack` | TaskManager.SendMessageReadAck | GroupHandler.handleMessageReadAck | 已读回执，消费后转 `msg_read_notify` 分发给发送方 |
-| `conversation_sync_seq` | TaskManager.SendConversationSyncSeq | GroupHandler.handleConversationSyncSeq | 离线加载后批量同步 seq |
-
-### Envelope 模式
-
-所有 Kafka 消息都包装为 Envelope：
-
-```go
-type Envelope struct {
-    From    string  // 消息来源 userId（部分场景留空）
-    To      string  // 路由目标 userId / conversationId
-    Payload []byte  // 具体事件 JSON
-}
-```
-
-Consumer 根据 topic 类型 decode `Payload` 为对应事件，再按业务逻辑 dispatch 到目标 WebSocket 客户端。
-
-### Consumer dispatch 策略
-
-| Topic | 私聊 | 群聊 |
-|-------|------|------|
-| `msg` | 发给 `envelope.To`（对方） | 从缓存/DB 取成员列表，并行 dispatch 给所有人（≤100 人时） |
-| `msg_read_ack` | 从事件中取 `senderId`，dispatch `msg_read_notify` | 同私聊（一条消息一个发送方） |
-| `conversation_sync_seq` | 不 dispatch，仅批量更新 DB 的 `LatestSyncSeq` | 同 |
-
 ---
 
-## 协议结构
+## HTTP 接口
 
-### 请求 (前端→后端)
+以下路径统一以 `/api/v1` 为前缀；除注册、登录和刷新外，表中业务接口需要鉴权。
 
-```protobuf
-message MessageReq {
-  string client_msg_id = 1;
-  string recv_id = 2;       // 私聊: 对方userId, 群聊: roomId
-  int32 conv_type = 3;      // 1=私聊, 2=群聊
-  int32 c_type = 4;         // 消息内容类型
-  string content = 5;
-  int64 video_time = 6;
-  bool has_video_time = 7;
-}
+| 模块 | 方法 | 路径 | 用途 |
+|---|---|---|---|
+| 用户 | POST | `/users/register`、`/users/login`、`/users/refresh` | 注册、登录、刷新令牌 |
+| 用户 | GET | `/users/resolve?keyword=...` | 按手机号或用户名查找 |
+| 用户 | PATCH / POST | `/users/me` / `/users/logout` | 更新资料 / 退出 |
+| 好友 | GET | `/friends`、`/friend-requests` | 好友及申请列表 |
+| 好友 | POST | `/friend-requests`、`/friend-requests/actions` | 申请及处理 |
+| 会话 | GET | `/conversations` | 会话快照 |
+| 消息 | GET | `/messages/offline` | 固定快照内向前分页补齐 |
+| 消息 | GET | `/messages/sync` | 实时增量补拉 |
+| 消息 | GET | `/messages/history`、`/messages/seqs` | 历史分页 / 按序号补查 |
+| 消息 | GET | `/messages/videos`、`/messages/danmaku` | 视频历史 / 弹幕 |
+| 房间 | POST | `/rooms`、`/rooms/join`、`/rooms/:roomId/leave` | 创建、加入、退出 |
+| 房间 | GET | `/rooms/:roomId/invite-code` | 邀请码 |
+| 上传 | POST | `/files/uploads/init` | 统一初始化 |
+| 上传 | POST | `/files/uploads/:uploadId/parts/presign` | 批量生成分片 URL |
+| 上传 | POST | `/files/uploads/:uploadId/complete` | 统一完成校验 |
+| 媒体 | POST | `/files/attachments/access-urls` | 批量查询媒体访问卡片 |
+| 媒体 | GET | `/files/attachments/:attachmentId/access-url` | 单个媒体访问卡片 |
 
-message MessageReadAckReq {
-  string conversation_id = 1;
-  int64 last_read_seq = 2;
-  string sender_id = 3;     // 被读消息的发送方 (前端已知)
-}
+旧的 direct/multipart 独立初始化和完成路由已移除，不保留兼容入口。MySQL 自动迁移只对当前模型建表，不再执行历史表名、字段名及旧数据的自动转换。
 
-message WatchVideoControl {
-  string room_id = 1;
-  string action = 2;        // play/pause/seek/get_state
-  string video_id = 3;
-  int64 position_ms = 5;
-  double playback_rate = 8;
-  // ...
-}
+## 本地验证
+
+```bash
+cd backend
+go test ./...
 ```
 
-### 响应 (后端→前端)
-
-```protobuf
-message MessageAck {
-  string client_msg_id = 1;
-  string message_id = 2;
-  string status = 3;        // "sent" | "failed"
-  string extra = 4;
-}
-
-message MessageEvent {
-  string message_id = 1;
-  string conversation_id = 2;
-  string sender_id = 3;
-  string recv_id = 4;
-  int64 seq = 5;
-  int32 conv_type = 6;
-  string content = 8;
-  int64 send_time = 9;
-  string sender_username = 10;
-  // ...
-}
-
-message MessageReadAckEvent {
-  string user_id = 1;        // 读者
-  string conversation_id = 2;
-  int64 last_read_seq = 3;
-  int32 conv_type = 4;
-  string sender_id = 5;      // 通知目标 (消息发送方)
-}
-
-message WatchVideoState { /* ... */ }
+```bash
+cd frontend
+npm test
+npm run build
 ```
 
-### 内部事件 (Go 侧，经 Kafka 传输)
-
-```go
-type Event struct {
-    Type EventType       `json:"type"`   // msg / msg_read_ack / conversation_sync_seq
-    Data json.RawMessage `json:"data"`   // 具体事件 JSON
-}
-
-type ConversationSyncSeqEvent struct {
-    Items []ConversationSyncSeqItem `json:"items"`
-}
-```
-
----
-
-## 功能模块与接口
-
-### 账户模块
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|---|---|---|---|
-| POST | `/users/register` | 否 | 手机号注册 |
-| POST | `/users/login` | 否 | 手机号登录 |
-| POST | `/users/logout` | JWT | 退出登录 |
-| GET | `/users/:userId` | JWT | 获取用户信息 |
-| GET | `/users/resolve` | JWT | 通过用户名或手机号解析用户 |
-
-### 好友模块
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|---|---|---|---|
-| GET | `/friends` | JWT | 获取好友列表 |
-| POST | `/friend-requests` | JWT | 发送好友申请 |
-| GET | `/friend-requests` | JWT | 获取好友申请列表 |
-| POST | `/friend-requests/actions` | JWT | 同意或拒绝好友申请 |
-
-### 聊天模块
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|---|---|---|---|
-| GET | `/messages/history` | JWT | 获取会话历史消息 |
-| GET | `/messages/offline` | JWT | 获取离线消息与会话摘要 |
-
-### 房间模块
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|---|---|---|---|
-| POST | `/rooms` | JWT | 创建房间 |
-| GET | `/rooms/:roomId/invite-code` | JWT | 获取或刷新房间邀请码 |
-| POST | `/rooms/join` | JWT | 通过邀请码加入房间 |
-
-### 摘要模块
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|------|------|------|------|
-| POST | `/rooms/:roomId/summaries` | JWT | 初始化并预热摘要任务 |
-| GET | `/rooms/:roomId/summaries/:summaryRunId/events` | JWT | 建立摘要 SSE 连接 |
-| POST | `/rooms/:roomId/summaries/:summaryRunId/retry` | JWT | 重试摘要任务 |
-| POST | `/rooms/:roomId/summaries/:summaryRunId/cancel` | JWT | 取消摘要任务 |
-
-### 视频模块
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|---|---|---|---|
-| POST | `/files` | JWT | 上传视频文件 |
-| POST | `/files/multipart/init` | JWT | 初始化分片上传 |
-| PUT | `/files/multipart/:uploadId/parts/:partNumber` | JWT | 上传视频分片 |
-| POST | `/files/multipart/:uploadId/complete` | JWT | 完成分片上传 |
-| GET | `/files/:fileId` | JWT | 获取视频文件信息或播放地址 |
-
-### 一起看模块
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|---|---|---|---|
-| GET | `/ws` | JWT | WebSocket 实时同步播放状态 |
-
-### 回放模块
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|---|---|---|---|
-| GET | `/messages/videos` | JWT | 获取房间历史视频列表 |
-| GET | `/messages/danmaku` | JWT | 获取房间视频弹幕回放 |
-
-### 实时通道
-
-| 方法 | 路径 | 鉴权 | 说明 |
-|---|---|---|---|
-| GET | `/ws` | JWT | 实时消息收发、已读确认、播放状态同步 |
-
----
-
-## 待完善项
-
-- 播放状态目前主要依赖内存态，进程重启后需要补全房间播放状态恢复
-- 控制权模型目前是"当前共享者独占"，后续可扩展为申请接管、主持人转移和超时释放
-- 房间侧还可以补充房间列表、房间详情和成员在线状态展示
-- 可以继续增强共享播放的可观测性，例如日志审计、限流和异常兜底
-- 回放能力目前偏功能型，后续可继续做成更完整的会话回放体系
-
-## 接口文件
-
-- `docs/apipost.collection.json`：Apipost 可直接导入的接口集合文件
+服务配置位于 `backend/configs/config.yaml`。协议定义、HTTP 路由及测试代码是接口行为的依据；压测结果需注明场景和环境，不能将同步接口响应耗时等同于消息端到端延迟。
