@@ -15,12 +15,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterUserRouter(r *gin.RouterGroup, uh *userhttp.UserHandle, auth *middleware.AuthMiddleware, limter *middleware.LimitMiddleware) {
+func RegisterUserRouter(
+	r *gin.RouterGroup,
+	uh *userhttp.UserHandle,
+	auth *middleware.AuthMiddleware,
+	limiter *middleware.LimitMiddleware,
+	userAPIPolicy shared_ratelimit.Policy,
+) {
 	userGroup := r.Group("/users")
-	userhttp.RegisterRoutes(userGroup, uh, auth, limter)
+	userhttp.RegisterRoutes(userGroup, uh, auth, limiter, userAPIPolicy)
 }
 
-func RegisterUserConversationRouter(r *gin.RouterGroup, ch *conversationhttp.UserConversationHandle, auth *middleware.AuthMiddleware, limter *middleware.LimitMiddleware) {
+func RegisterConversationRouter(r *gin.RouterGroup, ch *conversationhttp.UserConversationHandle, auth *middleware.AuthMiddleware) {
 	ucGroup := r.Group("/conversations").Use(auth.JWTAuthMiddleware())
 	conversationhttp.RegisterRoutes(ucGroup, ch)
 }
@@ -53,8 +59,3 @@ func RegisterFileRouter(r *gin.RouterGroup, fh *filehttp.Handle, authMiddle *mid
 func RegisterAgentRouter(r *gin.RouterGroup, ah *agenthttp.Handle, authMiddle *middleware.AuthMiddleware) {
 	agenthttp.RegisterRoutes(r, ah, authMiddle)
 }
-
-// func RegisterTestDataRouter(r *gin.RouterGroup, th *testdatahttp.Handle) {
-// 	testdataGroup := r.Group("/testdata")
-// 	testdatahttp.RegisterRoutes(testdataGroup, th)
-// }

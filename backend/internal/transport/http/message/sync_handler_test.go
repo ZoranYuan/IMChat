@@ -38,9 +38,41 @@ func TestSyncMessagesRequiresConversationID(t *testing.T) {
 	}
 }
 
+func TestOfflineMessagesRequiresSnapshotSeq(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	req := httptest.NewRequest(http.MethodGet, "/message/offline?conversationId=room1", nil)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = req
+	ctx.Set("userId", "u1")
+
+	NewMessageHandle(nil).GetOfflineMessages(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+}
+
 func TestSyncMessageResponseCarriesMessages(t *testing.T) {
-	result := toSyncMessageResponse([]messageapp.MessageDTO{{MessageID: "m1", Seq: 11}})
+	result := toSyncMessageResponse([]messageapp.MessageDTO{{MessageID: "m1", Seq: 11}}, 15)
 	if len(result.Messages) != 1 || result.Messages[0].MessageID != "m1" {
 		t.Fatalf("message mapping failed: %+v", result)
+	}
+	if result.ThroughSeq != 15 {
+		t.Fatalf("expected throughSeq 15, got %d", result.ThroughSeq)
+	}
+}
+
+func TestOfflineMessageResponseCarriesCursor(t *testing.T) {
+	result := toOfflineMessageResponse(
+		[]messageapp.MessageDTO{{MessageID: "m1", Seq: 11}},
+		15,
+		true,
+	)
+	if len(result.Messages) != 1 || result.Messages[0].MessageID != "m1" {
+		t.Fatalf("message mapping failed: %+v", result)
+	}
+	if result.NextCursor != 15 || !result.HasMore {
+		t.Fatalf("offline cursor mapping failed: %+v", result)
 	}
 }

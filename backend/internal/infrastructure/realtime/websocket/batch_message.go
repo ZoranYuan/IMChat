@@ -435,13 +435,3 @@ func (m *MessageBatch) Cancel() error {
 func (m *MessageBatch) MessageCount() int {
 	return len(m.Messages)
 }
-
-func (m *MessageBatch) IsTerminal() bool {
-	switch m.Status {
-	case BatchCancelled, BatchFailed, BatchSent:
-		return true
-
-	default:
-		return false
-	}
-}

@@ -10,7 +10,7 @@ type Room struct {
 	Status      int    `json:"status" gorm:"tinyInt;index:idx_room_status;comment:1为正常，0为暂时不可用"`
 	Avatar      string `json:"avatar" gorm:"size:255;comment:房间头像URL"`
 	MemberCount int    `json:"memberCount" gorm:"type:int;default:0;comment:房间人数"`
-	MaxMembers  int    `json:"maxUsers" gorm:"default:100;comment:房间最大人数"`
+	MaxMembers  int    `json:"maxUsers" gorm:"default:1000;comment:房间最大人数"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

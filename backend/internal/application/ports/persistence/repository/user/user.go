@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// TODO 定义 usermysql 的接口
 type UserRepository interface {
 	FindUserByPhone(string) (*userentity.User, error)
 	Create(*userentity.User) error

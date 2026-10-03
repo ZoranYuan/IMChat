@@ -43,12 +43,12 @@ func NewRoomCache(rb *redis.Client, messageConfig configs.MessageConfig) *RoomCa
 }
 
 type activitySettings struct {
-	bucketSeconds  int64
-	windowBuckets  int
-	cleanupBuckets int
-	keyTTLSeconds  int64
-	warnMessages   int
-	activeMessages int
+	bucketSeconds    int64
+	windowBuckets    int
+	cleanupBuckets   int
+	keyTTLSeconds    int64
+	warnFanoutWork   int64
+	activeFanoutWork int64
 }
 
 func (rc *RoomCache) activitySettings() (activitySettings, error) {
@@ -65,11 +65,11 @@ func (rc *RoomCache) activitySettings() (activitySettings, error) {
 	if config.RoomActivityKeyTTLSeconds <= 0 {
 		return activitySettings{}, errors.New("活跃度 key TTL 必须大于 0")
 	}
-	if config.RoomActivityWarnMessages <= 0 {
-		return activitySettings{}, errors.New("活跃度 WARN 阈值必须大于 0")
+	if config.RoomActivityWarnFanoutWork <= 0 {
+		return activitySettings{}, errors.New("活跃度 WARN 扇出工作量阈值必须大于 0")
 	}
-	if config.RoomActivityActiveMessages <= config.RoomActivityWarnMessages {
-		return activitySettings{}, errors.New("活跃度 ACTIVE 阈值必须大于 WARN 阈值")
+	if config.RoomActivityActiveFanoutWork <= config.RoomActivityWarnFanoutWork {
+		return activitySettings{}, errors.New("活跃度 ACTIVE 扇出工作量阈值必须大于 WARN 阈值")
 	}
 
 	windowBuckets := (config.RoomActivityWindowSeconds + config.RoomActivityBucketSeconds - 1) /
@@ -77,12 +77,12 @@ func (rc *RoomCache) activitySettings() (activitySettings, error) {
 	cleanupBuckets := config.RoomActivityKeyTTLSeconds/config.RoomActivityBucketSeconds + windowBuckets + 1
 
 	return activitySettings{
-		bucketSeconds:  int64(config.RoomActivityBucketSeconds),
-		windowBuckets:  windowBuckets,
-		cleanupBuckets: cleanupBuckets,
-		keyTTLSeconds:  int64(config.RoomActivityKeyTTLSeconds),
-		warnMessages:   config.RoomActivityWarnMessages,
-		activeMessages: config.RoomActivityActiveMessages,
+		bucketSeconds:    int64(config.RoomActivityBucketSeconds),
+		windowBuckets:    windowBuckets,
+		cleanupBuckets:   cleanupBuckets,
+		keyTTLSeconds:    int64(config.RoomActivityKeyTTLSeconds),
+		warnFanoutWork:   int64(config.RoomActivityWarnFanoutWork),
+		activeFanoutWork: int64(config.RoomActivityActiveFanoutWork),
 	}, nil
 }
 
@@ -115,6 +115,61 @@ func (rc *RoomCache) RecordActivity(ctx context.Context, roomId string) error {
 	}
 
 	return rc.recordActivityAt(ctx, roomId, time.Now())
+}
+
+// RecordActivityAndGetLevel 原子记录消息，并按窗口消息数乘在线会话数计算活跃等级。
+func (rc *RoomCache) RecordActivityAndGetLevel(ctx context.Context, roomId string, onlineSessions int) (int, error) {
+	if roomId == "" {
+		return roomcache.RoomActivityNormal, errors.New("roomID 不能为空")
+	}
+	if rc == nil || rc.store == nil || rc.store.Client() == nil {
+		return roomcache.RoomActivityNormal, errors.New("房间活跃度缓存未配置")
+	}
+	return rc.recordActivityAndGetLevelAt(ctx, roomId, time.Now(), onlineSessions)
+}
+
+func (rc *RoomCache) recordActivityAndGetLevelAt(ctx context.Context, roomId string, now time.Time, onlineSessions int) (int, error) {
+	settings, err := rc.activitySettings()
+	if err != nil {
+		return roomcache.RoomActivityNormal, err
+	}
+	if onlineSessions < 0 {
+		onlineSessions = 0
+	}
+	currentBucket := now.Unix() / settings.bucketSeconds
+	const script = `
+		redis.call('HINCRBY', KEYS[1], ARGV[1], 1)
+		local current = tonumber(ARGV[1])
+		local windowBuckets = tonumber(ARGV[2])
+		local cleanupBuckets = tonumber(ARGV[3])
+		for offset = windowBuckets, cleanupBuckets do
+			redis.call('HDEL', KEYS[1], tostring(current - offset))
+		end
+		local fields = {}
+		for offset = 0, windowBuckets - 1 do
+			fields[#fields + 1] = tostring(current - offset)
+		end
+		local values = redis.call('HMGET', KEYS[1], unpack(fields))
+		local total = 0
+		for _, value in ipairs(values) do
+			if value then total = total + tonumber(value) end
+		end
+		redis.call('EXPIRE', KEYS[1], ARGV[4])
+		return total
+	`
+	totalMessages, err := rc.store.Client().Eval(
+		ctx,
+		script,
+		[]string{ActivateLevelKey(roomId)},
+		currentBucket,
+		settings.windowBuckets,
+		settings.cleanupBuckets,
+		settings.keyTTLSeconds,
+	).Int64()
+	if err != nil {
+		return roomcache.RoomActivityNormal, err
+	}
+	return classifyActivityLevel(totalMessages, int64(onlineSessions), settings), nil
 }
 
 func (rc *RoomCache) recordActivityAt(ctx context.Context, roomId string, now time.Time) error {
@@ -183,7 +238,7 @@ func (rc *RoomCache) activateLevelAt(ctx context.Context, roomId string, now tim
 		return roomcache.RoomActivityNormal, err
 	}
 
-	total := 0
+	var total int64
 	for _, value := range values {
 		if value == nil {
 			continue
@@ -201,16 +256,20 @@ func (rc *RoomCache) activateLevelAt(ctx context.Context, roomId string, now tim
 		if parseErr != nil {
 			return roomcache.RoomActivityNormal, fmt.Errorf("解析活跃度计数失败: %w", parseErr)
 		}
-		total += count
+		total += int64(count)
 	}
+	return classifyActivityLevel(total, 1, settings), nil
+}
 
+func classifyActivityLevel(totalMessages, onlineSessions int64, settings activitySettings) int {
+	fanoutWork := totalMessages * onlineSessions
 	switch {
-	case total >= settings.activeMessages:
-		return roomcache.RoomActivityActive, nil
-	case total >= settings.warnMessages:
-		return roomcache.RoomActivityWarn, nil
+	case fanoutWork >= settings.activeFanoutWork:
+		return roomcache.RoomActivityActive
+	case fanoutWork >= settings.warnFanoutWork:
+		return roomcache.RoomActivityWarn
 	default:
-		return roomcache.RoomActivityNormal, nil
+		return roomcache.RoomActivityNormal
 	}
 }
 
@@ -490,13 +549,4 @@ func (rc *RoomCache) DeleteInviteCode(ctx context.Context, roomId string) error 
 		roomId,
 	)
 	return err
-}
-
-func (rc *RoomCache) SetRoomProfile(ctx context.Context, room roomentity.Room, ttl time.Duration) error {
-	data, err := json.Marshal(room)
-	if err != nil {
-		return nil
-	}
-
-	return rc.store.SetJSON(ctx, RoomProfile(room.RoomId), string(data), ttl)
 }

@@ -14,7 +14,6 @@ import (
 	filecleanup "IM_backend/internal/infrastructure/filecleanup"
 	"IM_backend/internal/infrastructure/id/snow"
 	"IM_backend/internal/infrastructure/mq/kafka"
-	outboxinfra "IM_backend/internal/infrastructure/outbox"
 	"IM_backend/internal/infrastructure/persistence"
 	"IM_backend/internal/infrastructure/persistence/mysql"
 	conversationmysql "IM_backend/internal/infrastructure/persistence/mysql/repository/conversation"
@@ -40,6 +39,7 @@ import (
 	authsvc "IM_backend/internal/infrastructure/security/auth"
 	passwordsecurity "IM_backend/internal/infrastructure/security/password"
 	minioobj "IM_backend/internal/infrastructure/storage/minio"
+	"IM_backend/internal/shared/diagnostics"
 	"IM_backend/internal/shared/protocol"
 	shared_ratelimit "IM_backend/internal/shared/ratelimit"
 	httpapi "IM_backend/internal/transport/http"
@@ -89,12 +89,15 @@ func main() {
 
 	redisClient := redis.InitRedis(cfg.Database.Redis.DSN)
 	defer redisClient.Close()
-	db := mysql.OpenMysql(cfg.Database.MySQL.DSN)
+	db := mysql.OpenMySQL(cfg.Database.MySQL.DSN)
 	dbSQL, err := db.DB()
 	if err != nil {
 		log.Fatal("获取数据库连接失败：", err)
 	}
 	defer dbSQL.Close()
+	diagnostics.StartSQLPoolSampler(ctx, dbSQL, time.Second)
+	diagnostics.StartOutboxBacklogSampler(ctx, dbSQL, time.Second)
+	diagnostics.StartMySQLStatusSampler(ctx, dbSQL, 5*time.Second)
 
 	txManager := persistence.NewGormTxManager(db)
 	idGenerator, err := snow.NewGenerator(int(cfg.App.MachineID))
@@ -184,7 +187,7 @@ func main() {
 	}, fileRepository, fileUploadRepository, messageAttachmentsRepository, fileCache, objectStorage, idGenerator, txManager)
 
 	// file 清除 worker
-	multipartCleanupWorker := filecleanup.NewWorker(
+	fileCleanupWorker := filecleanup.NewWorker(
 		txManager,
 		fileUploadRepository,
 		fileRepository,
@@ -196,14 +199,14 @@ func main() {
 	cleanupDone := make(chan struct{})
 	go func() {
 		defer close(cleanupDone)
-		multipartCleanupWorker.Start(ctx)
+		fileCleanupWorker.Start(ctx)
 	}()
 	fileHandle := filehttp.NewHandle(fileApplication)
 
 	messageRepository := messagemysql.NewMessageRepository(db)
 	messageStickerRepository := messagemysql.NewMessageStickerRepository(db)
-	outboxRepository := outboxmysql.NewRepository(db, idGenerator)
-	inboxRepository := inboxmysql.NewRepository(db)
+	outboxRepository := outboxmysql.NewOutboxRepository(db, idGenerator)
+	inboxRepository := inboxmysql.NewInboxRepository(db)
 	conversationRepository := conversationmysql.NewConversationRepository(db)
 	userConversationRepository := conversationmysql.NewUserConversationRepository(db)
 
@@ -220,7 +223,7 @@ func main() {
 
 	friendRepository := friendmysql.NewFriendRepository(db)
 	friendRequestRepository := friendmysql.NewFriendRequestRepository(db)
-	friendRequestApp := friendapp.NewRequestApplication(
+	friendRequestApp := friendapp.NewFriendRequestApplication(
 		friendRequestRepository,
 		userRepository,
 		messageRepository,
@@ -239,7 +242,7 @@ func main() {
 
 	roomUserRepository := roomusermysql.NewRoomUserRepository(db)
 	roomRepository := roommysql.NewRoomRepository(db)
-	summaryRepository := summarymysql.NewRepository(db)
+	summaryRunRepository := summarymysql.NewSummaryRunRepository(db)
 	summaryClient, err := agentgrpc.NewClient(cfg.Agent.RoomSummaryEndpoint)
 	if err != nil {
 		log.Fatal("初始化摘要 Agent gRPC 客户端失败：", err)
@@ -247,7 +250,7 @@ func main() {
 	defer summaryClient.Close()
 	summaryApplication := summaryapp.NewSummaryApplication(
 		ctx, summaryClient, idGenerator, messageRepository, conversationRepository,
-		userConversationRepository, roomUserRepository, summaryRepository, txManager, roomUnreadSnapshotCache,
+		userConversationRepository, roomUserRepository, summaryRunRepository, txManager, roomUnreadSnapshotCache,
 		roomUnreadSnapshotCache,
 	)
 	summaryHandle := agenthttp.NewHandle(summaryApplication)
@@ -292,24 +295,19 @@ func main() {
 	if routerErr != nil {
 		log.Fatal("创建 Kafka Topic 路由失败：", routerErr)
 	}
-	messageProducer := kafka.NewProducer(kafkaClient, topicRouter)
-	consumerRouter := kafka.NewConsumerRouter(map[string]eventbus.Handler{
-		protocol.EventTypeSendMessage:      messageSendHandler,
-		protocol.EventReadMessageCommitted: readNotifyHandler,
-		protocol.EventFriendRequestCreated: friendRequestHandler,
-		protocol.EventRoomMemberChanged:    roomMemberChangedHandler,
-		protocol.EventFileCardWarmup:       fileCardWarmupHandler,
-	},
+	messageProducer := kafka.NewProducer(kafkaClient, topicRouter, txManager, outboxRepository, cfg.Kafka.Producer)
+	messageConsumer, err := kafka.NewConsumer(kafkaClient, topicRouter.Topics(), topicRouter,
+		map[string]eventbus.Handler{
+			protocol.EventTypeSendMessage:      messageSendHandler,
+			protocol.EventReadMessageCommitted: readNotifyHandler,
+			protocol.EventFriendRequestCreated: friendRequestHandler,
+			protocol.EventRoomMemberChanged:    roomMemberChangedHandler,
+			protocol.EventFileCardWarmup:       fileCardWarmupHandler,
+		},
 		inboxRepository,
 		txManager,
 		cfg.Kafka.Consumer,
 		messageProducer,
-	)
-
-	messageConsumerGroup, err := kafka.NewConsumerGroup(kafkaClient, topicRouter.Topics(),
-		consumerRouter,
-		topicRouter,
-		cfg.Kafka.Consumer,
 	)
 
 	if err != nil {
@@ -320,25 +318,14 @@ func main() {
 	consumerDone := make(chan struct{})
 	go func() {
 		defer close(consumerDone)
-		if err := messageConsumerGroup.Start(ctx); err != nil && ctx.Err() == nil {
+		if err := messageConsumer.Consume(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("消息队列消费者已停止：%v", err)
 		}
 	}()
 
 	dispatcher := ws.NewDispatcher()
-	outboxWorker := outboxinfra.NewWorker(
-		txManager,
-		outboxRepository,
-		messageProducer,
-		cfg.Outbox,
-	)
-
-	// outbox worker
-	outboxDone := make(chan struct{})
-	go func() {
-		defer close(outboxDone)
-		outboxWorker.Start(ctx)
-	}()
+	friendRequestApp.SetProducerNotifier(messageProducer)
+	roomApp.SetProducerNotifier(messageProducer)
 
 	messageApplication := messageapp.NewMessageApplication(
 		friendCache,
@@ -364,6 +351,16 @@ func main() {
 		roomUnreadSnapshotCache,
 		messageAttachmentsRepository,
 	)
+	messageApplication.SetProducerNotifier(messageProducer)
+	defer messageApplication.Close(context.Background())
+
+	// Producer 使用事务提交后的唤醒信号降低正常投递延迟，
+	// 同时保留定时扫描作为最终兜底。
+	producerDone := make(chan struct{})
+	go func() {
+		defer close(producerDone)
+		messageProducer.Start(ctx)
+	}()
 	messageHandle := messagehttp.NewMessageHandle(messageApplication)
 
 	wsHandle := ws.NewWSHandler(
@@ -374,7 +371,7 @@ func main() {
 		idGenerator,
 	)
 
-	userConversationApplication := conversationapp.NewUserConvApplication(
+	userConversationApplication := conversationapp.NewUserConversationApplication(
 		userConversationRepository,
 		conversationRepository,
 		messageRepository,
@@ -384,21 +381,6 @@ func main() {
 	)
 
 	userConversationHandler := userconversationhttp.NewUserConversationHandle(userConversationApplication)
-	// testdataApplication := testdataapp.NewBootstrapApplication(
-	// 	cfg,
-	// 	db,
-	// 	redisClient,
-	// 	userRepository,
-	// 	friendRepository,
-	// 	messageRepository,
-	// 	conversationRepository,
-	// 	userConversationRepository,
-	// 	roomRepository,
-	// 	roomUserRepository,
-	// 	roomApp,
-	// 	messageApplication,
-	// )
-	// testdataHandle := testdatahttp.NewHandle(testdataApplication)
 
 	// 注册中间件
 	authMiddle := middleware.NewAuthMiddleware(cfg, authCache)
@@ -411,8 +393,12 @@ func main() {
 	apiGroup := r.Group("/api/v1")
 	apiGroup.Use(authMiddle.CookieOriginProtectionMiddleware())
 	httpapi.RegisterFriendRequestRouter(apiGroup, friendRequestHandle, authMiddle)
-	httpapi.RegisterUserRouter(apiGroup, userHandle, authMiddle, limiterMiddleware)
-	httpapi.RegisterUserConversationRouter(apiGroup, userConversationHandler, authMiddle, limiterMiddleware)
+	userAPIRateLimit := shared_ratelimit.Policy{
+		Rate:  cfg.HTTP.UserAPIRateLimit.RatePerSecond,
+		Burst: cfg.HTTP.UserAPIRateLimit.Burst,
+	}
+	httpapi.RegisterUserRouter(apiGroup, userHandle, authMiddle, limiterMiddleware, userAPIRateLimit)
+	httpapi.RegisterConversationRouter(apiGroup, userConversationHandler, authMiddle)
 	httpapi.RegisterFriendRouter(apiGroup, friendHandle, authMiddle)
 	httpapi.RegisterRoomRouter(apiGroup, roomHandle, authMiddle)
 	httpapi.RegisterMessagesRouter(apiGroup, messageHandle, authMiddle)
@@ -421,9 +407,6 @@ func main() {
 		Burst: cfg.Storage.MinIO.UploadBurst,
 	})
 	httpapi.RegisterAgentRouter(apiGroup, summaryHandle, authMiddle)
-	// if cfg.App.Env == "development" {
-	// 	httpapi.RegisterTestDataRouter(apiGroup.Group("/dev"), testdataHandle)
-	// }
 
 	ws.RegisterWSRouter(apiGroup, wsHandle, authMiddle)
 
@@ -464,7 +447,7 @@ func main() {
 		log.Printf("关闭 WebSocket 会话失败：%v", err)
 	}
 	cancel()
-	for _, done := range []<-chan struct{}{cleanupDone, consumerDone, outboxDone} {
+	for _, done := range []<-chan struct{}{cleanupDone, consumerDone, producerDone} {
 		select {
 		case <-done:
 		case <-shutdownCtx.Done():

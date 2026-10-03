@@ -4,8 +4,10 @@ import (
 	inboxport "IM_backend/internal/application/ports/inbox"
 	"IM_backend/internal/infrastructure/persistence/mysql/model"
 	"context"
+	"errors"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -17,7 +19,7 @@ type InboxRepository struct {
 	db *gorm.DB
 }
 
-func NewRepository(db *gorm.DB) *InboxRepository {
+func NewInboxRepository(db *gorm.DB) *InboxRepository {
 	return &InboxRepository{db: db}
 }
 
@@ -25,9 +27,77 @@ func (r *InboxRepository) WithTx(tx any) inboxport.InboxRepository {
 	return &InboxRepository{db: tx.(*gorm.DB)}
 }
 
+func (r *InboxRepository) TryClaimBatch(ctx context.Context, events []inboxport.ClaimEvent, lockToken string, now time.Time) error {
+	if len(events) == 0 {
+		return nil
+	}
+	rows := make([]model.InboxRecord, 0, len(events))
+	for _, event := range events {
+		if event.EventID == "" {
+			return inboxport.ErrEventIDRequired
+		}
+		rows = append(rows, model.InboxRecord{EventID: event.EventID, EventType: event.EventType, Status: inboxport.StatusProcessing, LockedAt: &now, LockToken: lockToken, RetryCount: 1, ProcessedAt: now})
+	}
+	result := r.db.WithContext(ctx).Create(&rows)
+	if result.Error != nil {
+		var duplicate *mysql.MySQLError
+		if errors.As(result.Error, &duplicate) && duplicate.Number == 1062 {
+			return inboxport.ErrBatchConflict
+		}
+		return result.Error
+	}
+	if result.RowsAffected != int64(len(rows)) {
+		return inboxport.ErrBatchConflict
+	}
+	return nil
+}
+
+func (r *InboxRepository) RenewBatch(ctx context.Context, eventIDs []string, lockToken string, now time.Time) error {
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	// 不用更新行数判断续期成功，同一数据库时间精度内重复续期可能影响零行。
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rows []model.InboxRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("event_id").Where("event_id IN ? AND status = ? AND lock_token = ?", eventIDs, inboxport.StatusProcessing, lockToken).Find(&rows).Error; err != nil {
+			return err
+		}
+		if len(rows) != len(eventIDs) {
+			return inboxport.ErrLeaseLost
+		}
+		return tx.Model(&model.InboxRecord{}).Where("event_id IN ? AND status = ? AND lock_token = ?", eventIDs, inboxport.StatusProcessing, lockToken).Update("locked_at", now).Error
+	})
+}
+
+func (r *InboxRepository) CompleteBatch(ctx context.Context, eventIDs []string, lockToken string, now time.Time) error {
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	result := r.db.WithContext(ctx).Model(&model.InboxRecord{}).Where("event_id IN ? AND status = ? AND lock_token = ?", eventIDs, inboxport.StatusProcessing, lockToken).Updates(map[string]any{"status": inboxport.StatusCompleted, "locked_at": nil, "lock_token": "", "processed_at": now})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != int64(len(eventIDs)) {
+		return inboxport.ErrLeaseLost
+	}
+	return nil
+}
+
+func (r *InboxRepository) ReleaseBatch(ctx context.Context, eventIDs []string, lockToken string, undoAttempt bool) error {
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	// 尚未执行的事件不算一次业务尝试，释放时撤销预占的 retry_count。
+	updates := map[string]any{"locked_at": nil, "lock_token": ""}
+	if undoAttempt {
+		updates["retry_count"] = gorm.Expr("retry_count - 1")
+	}
+	return r.db.WithContext(ctx).Model(&model.InboxRecord{}).Where("event_id IN ? AND status = ? AND lock_token = ?", eventIDs, inboxport.StatusProcessing, lockToken).Updates(updates).Error
+}
+
 func (r *InboxRepository) TryClaim(ctx context.Context, eventID, eventType string, now, staleBefore time.Time) (bool, string, int, error) {
 	if eventID == "" {
-		return true, "", 1, nil
+		return false, "", 0, inboxport.ErrEventIDRequired
 	}
 
 	claimed := false

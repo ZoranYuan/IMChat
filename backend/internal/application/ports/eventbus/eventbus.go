@@ -16,6 +16,9 @@ type Publisher interface {
 	Publish(ctx context.Context, event IntegrationEvent) error
 }
 
+// Producer 表示可向消息队列投递集成事件的生产者。
+type ProducerNotifier interface{ Notify() }
+
 type IncomingEvent struct {
 	EventID string
 	Name    string

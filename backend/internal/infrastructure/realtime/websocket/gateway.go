@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"IM_backend/internal/shared/diagnostics"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -24,6 +25,7 @@ type Gateway struct {
 	redisCtx     context.Context
 	redisCancel  context.CancelFunc
 	redisDone    chan struct{}
+	presenceDone chan struct{}
 	redisReady   chan struct{}
 	redisErr     error
 }
@@ -127,12 +129,13 @@ func (g *Gateway) registerLocked(session *Session) {
 
 func (g *Gateway) Unregister(session *Session) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	sessionID := session.SessionID()
 	// 同一个登录 session 可能在旧连接尚未完成清理时建立新连接。如果当前索引已经指向新 Session，旧 Session 不能继续注销这个 ID，否则会误删新连接及其房间索引。
 	if current := g.sessions[sessionID]; current != session {
+		g.mu.Unlock()
 		return
 	}
+	removedRooms := make([]string, 0, len(g.sessionRooms[sessionID]))
 	delete(g.sessions, sessionID)
 	ids := g.userSessions[session.UserID()]
 	delete(ids, sessionID)
@@ -141,12 +144,17 @@ func (g *Gateway) Unregister(session *Session) {
 	}
 	for roomID := range g.sessionRooms[sessionID] {
 		sessions := g.roomSessions[roomID]
-		delete(sessions, sessionID)
+		if _, exists := sessions[sessionID]; exists {
+			delete(sessions, sessionID)
+			removedRooms = append(removedRooms, roomID)
+		}
 		if len(sessions) == 0 {
 			delete(g.roomSessions, roomID)
 		}
 	}
 	delete(g.sessionRooms, sessionID)
+	g.mu.Unlock()
+	g.updateOnlineRoomPresence(removedRooms, session, false)
 }
 
 func (g *Gateway) DeliverToUser(eventType, userID string, payload []byte) error {
@@ -184,8 +192,8 @@ func (g *Gateway) BindOnlineRooms(session *Session, roomIDs []string) {
 		return
 	}
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	if g.closing || g.sessions[session.SessionID()] == nil {
+		g.mu.Unlock()
 		return
 	}
 	sessionID := session.SessionID()
@@ -194,6 +202,7 @@ func (g *Gateway) BindOnlineRooms(session *Session, roomIDs []string) {
 		rooms = make(map[string]struct{})
 		g.sessionRooms[sessionID] = rooms
 	}
+	addedRooms := make([]string, 0, len(roomIDs))
 	for _, roomID := range roomIDs {
 		if roomID == "" {
 			continue
@@ -203,9 +212,14 @@ func (g *Gateway) BindOnlineRooms(session *Session, roomIDs []string) {
 			sessions = make(map[string]struct{})
 			g.roomSessions[roomID] = sessions
 		}
-		sessions[sessionID] = struct{}{}
+		if _, exists := sessions[sessionID]; !exists {
+			sessions[sessionID] = struct{}{}
+			addedRooms = append(addedRooms, roomID)
+		}
 		rooms[roomID] = struct{}{}
 	}
+	g.mu.Unlock()
+	g.updateOnlineRoomPresence(addedRooms, session, true)
 }
 
 func (g *Gateway) BindUserToRoom(userID, roomID string) {
@@ -213,12 +227,14 @@ func (g *Gateway) BindUserToRoom(userID, roomID string) {
 		return
 	}
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	if g.closing {
+		g.mu.Unlock()
 		return
 	}
+	added := make([]*Session, 0, len(g.userSessions[userID]))
 	for sessionID := range g.userSessions[userID] {
-		if g.sessions[sessionID] == nil {
+		session := g.sessions[sessionID]
+		if session == nil {
 			continue
 		}
 		sessions := g.roomSessions[roomID]
@@ -227,13 +243,20 @@ func (g *Gateway) BindUserToRoom(userID, roomID string) {
 			g.roomSessions[roomID] = sessions
 		}
 		// 将当前的 session 加入房间
-		sessions[sessionID] = struct{}{}
+		if _, exists := sessions[sessionID]; !exists {
+			sessions[sessionID] = struct{}{}
+			added = append(added, session)
+		}
 		rooms := g.sessionRooms[sessionID]
 		if rooms == nil {
 			rooms = make(map[string]struct{})
 			g.sessionRooms[sessionID] = rooms
 		}
 		rooms[roomID] = struct{}{}
+	}
+	g.mu.Unlock()
+	for _, session := range added {
+		g.updateOnlineRoomPresence([]string{roomID}, session, true)
 	}
 }
 
@@ -242,10 +265,15 @@ func (g *Gateway) UnbindUserFromRoom(userID, roomID string) {
 		return
 	}
 	g.mu.Lock()
-	defer g.mu.Unlock()
+	removed := make([]*Session, 0, len(g.userSessions[userID]))
 	for sessionID := range g.userSessions[userID] {
 		sessions := g.roomSessions[roomID]
-		delete(sessions, sessionID)
+		if _, exists := sessions[sessionID]; exists {
+			delete(sessions, sessionID)
+			if session := g.sessions[sessionID]; session != nil {
+				removed = append(removed, session)
+			}
+		}
 		if len(sessions) == 0 {
 			delete(g.roomSessions, roomID)
 		}
@@ -254,6 +282,10 @@ func (g *Gateway) UnbindUserFromRoom(userID, roomID string) {
 		if len(rooms) == 0 {
 			delete(g.sessionRooms, sessionID)
 		}
+	}
+	g.mu.Unlock()
+	for _, session := range removed {
+		g.updateOnlineRoomPresence([]string{roomID}, session, false)
 	}
 }
 
@@ -270,6 +302,9 @@ func (g *Gateway) DeliverToOnlineRoomMembers(eventType, roomID string, payload [
 }
 
 func (g *Gateway) deliverLocalToRoom(eventType, roomID string, payload []byte, excludeUserID string) {
+	diagnosticEnabled := diagnostics.Enabled()
+	localDelivered := 0
+	localFailed := 0
 	for _, session := range g.sessionsForRoom(roomID) {
 		// 排除发送者自身
 		if excludeUserID != "" && session.UserID() == excludeUserID {
@@ -277,6 +312,9 @@ func (g *Gateway) deliverLocalToRoom(eventType, roomID string, payload []byte, e
 		}
 
 		if err := session.PushEvent(eventType, payload); err != nil {
+			if diagnosticEnabled {
+				localFailed++
+			}
 			// 当前 Session 投递失败，主动断开，然后让前端重新连接并同步消息。
 			session.Close()
 
@@ -288,7 +326,16 @@ func (g *Gateway) deliverLocalToRoom(eventType, roomID string, payload []byte, e
 				eventType,
 				err,
 			)
+			continue
 		}
+		if diagnosticEnabled {
+			localDelivered++
+		}
+	}
+	if diagnosticEnabled {
+		messageID, seq := realtimeMessageIdentity(eventType, payload)
+		diagnostics.Logf("stage=ws_room_enqueue room_id=%s event_type=%s message_id=%s seq=%d delivered_sessions=%d failed_sessions=%d outcome=completed",
+			roomID, eventType, messageID, seq, localDelivered, localFailed)
 	}
 }
 

@@ -14,6 +14,7 @@ type ConversationRepository interface {
 		conversationId string,
 		messageId string,
 	) (int64, error)
+	ReserveSequenceRange(ctx context.Context, conversationID, latestMessageID string, count int) (int64, error)
 	ListByIDs(ctx context.Context, ids []string) ([]*conversationentity.Conversation, error)
 	WithTx(tx any) ConversationRepository
 }

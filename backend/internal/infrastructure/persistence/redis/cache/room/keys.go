@@ -4,10 +4,6 @@ import (
 	cachekey "IM_backend/internal/infrastructure/persistence/redis/cache/key"
 )
 
-func RoomProfile(roomId string) string {
-	return "im:room:" + roomId + ":profile"
-}
-
 func InviteKey(code string) string {
 	return cachekey.RoomInviteCode(code)
 }

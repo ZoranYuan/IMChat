@@ -14,7 +14,7 @@ import (
 	"sort"
 )
 
-type UserConvApplication struct {
+type UserConversationApplication struct {
 	friendRepository           friendrepo.FriendRepository
 	userRepository             userrepo.UserRepository
 	roomRepository             roomrepo.RoomRepository
@@ -23,15 +23,15 @@ type UserConvApplication struct {
 	messageRepository          messagerepo.MessageRepository
 }
 
-func NewUserConvApplication(
+func NewUserConversationApplication(
 	userConversationRepository conversationrepo.UserConversationRepository,
 	conversationRepository conversationrepo.ConversationRepository,
 	messageRepository messagerepo.MessageRepository,
 	friendRepository friendrepo.FriendRepository,
 	userRepository userrepo.UserRepository,
 	roomRepository roomrepo.RoomRepository,
-) *UserConvApplication {
-	return &UserConvApplication{
+) *UserConversationApplication {
+	return &UserConversationApplication{
 		friendRepository:           friendRepository,
 		userRepository:             userRepository,
 		roomRepository:             roomRepository,
@@ -41,7 +41,7 @@ func NewUserConvApplication(
 	}
 }
 
-func (uc *UserConvApplication) GetUserConversationsByUserID(ctx context.Context, userId string) ([]ConversationItemDTO, error) {
+func (uc *UserConversationApplication) GetUserConversationsByUserID(ctx context.Context, userId string) ([]ConversationItemDTO, error) {
 	if userId == "" {
 		return nil, ErrEmptyUserId
 	}
@@ -184,6 +184,7 @@ func (uc *UserConvApplication) GetUserConversationsByUserID(ctx context.Context,
 			ConversationType: int8(conv.Convtype),
 			IsMuted:          userConv.IsMuted,
 			Unread:           unreadCount(userConv.LastReadSeq, conv.LatestSeq),
+			LatestSeq:        conv.LatestSeq,
 		}
 
 		if latestMessage, ok := messageByConversationID[userConv.ConversationId]; ok {

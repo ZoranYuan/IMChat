@@ -4,9 +4,7 @@ import (
 	roomvo "IM_backend/internal/domain/room/value_object"
 )
 
-var (
-	MaxMembers = 100
-)
+const MaxMembers = 1000
 
 type Room struct {
 	RoomId      string
@@ -39,6 +37,7 @@ func NewRoom(
 		Status:      roomvo.Normal,
 		Avatar:      avatar,
 		MemberCount: 1,
+		MaxMembers:  MaxMembers,
 		Version:     1,
 	}, nil
 }

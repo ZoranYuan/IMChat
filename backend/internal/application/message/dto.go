@@ -55,6 +55,11 @@ type MessageDTO struct {
 	PackID       string
 }
 
+type MessageSyncResult struct {
+	Messages   []MessageDTO
+	ThroughSeq int64
+}
+
 type DanmakuDTO struct {
 	MessageID string
 	SenderID  string

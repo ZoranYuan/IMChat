@@ -1,20 +1,18 @@
 package friend
 
 import (
+	eventbus "IM_backend/internal/application/ports/eventbus"
 	idport "IM_backend/internal/application/ports/id"
 	outboxport "IM_backend/internal/application/ports/outbox"
 	friendcache "IM_backend/internal/application/ports/persistence/cache/friend"
 	conversationrepo "IM_backend/internal/application/ports/persistence/repository/conversation"
 	friendrepo "IM_backend/internal/application/ports/persistence/repository/friend"
-	friendrequestrepo "IM_backend/internal/application/ports/persistence/repository/friend"
 	messagerepo "IM_backend/internal/application/ports/persistence/repository/message"
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
 	conversationentity "IM_backend/internal/domain/conversation/entity"
 	conversationvo "IM_backend/internal/domain/conversation/value_object"
 	friendentity "IM_backend/internal/domain/friend/entity"
-	friendrequestentity "IM_backend/internal/domain/friend/entity"
-	friendrequestvo "IM_backend/internal/domain/friend/value_object"
 	friendvo "IM_backend/internal/domain/friend/value_object"
 	messageentity "IM_backend/internal/domain/message/entity"
 	messagevo "IM_backend/internal/domain/message/value_object"
@@ -28,8 +26,8 @@ import (
 	"unicode/utf8"
 )
 
-type RequestApplication struct {
-	friendRequestRepository friendrequestrepo.FriendRequestRepository
+type FriendRequestApplication struct {
+	friendRequestRepository friendrepo.FriendRequestRepository
 	userRepository          userrepo.UserRepository
 	messageRepository       messagerepo.MessageRepository
 	friendRepository        friendrepo.FriendRepository
@@ -38,11 +36,12 @@ type RequestApplication struct {
 	friendCache             friendcache.FriendCache
 	txManager               txmanager.TxManager
 	idGenerator             idport.Generator
-	outboxRepository        outboxport.Repository
+	outboxRepository        outboxport.OutboxRepository
+	producerNotifier        eventbus.ProducerNotifier
 }
 
-func NewRequestApplication(
-	friendRequestRepository friendrequestrepo.FriendRequestRepository,
+func NewFriendRequestApplication(
+	friendRequestRepository friendrepo.FriendRequestRepository,
 	userRepository userrepo.UserRepository,
 	messageRepository messagerepo.MessageRepository,
 	conversationRepository conversationrepo.ConversationRepository,
@@ -51,9 +50,9 @@ func NewRequestApplication(
 	friendCache friendcache.FriendCache,
 	txManager txmanager.TxManager,
 	idGenerator idport.Generator,
-	outboxRepository outboxport.Repository,
-) *RequestApplication {
-	return &RequestApplication{
+	outboxRepository outboxport.OutboxRepository,
+) *FriendRequestApplication {
+	return &FriendRequestApplication{
 		friendRequestRepository: friendRequestRepository,
 		userRepository:          userRepository,
 		messageRepository:       messageRepository,
@@ -67,20 +66,34 @@ func NewRequestApplication(
 	}
 }
 
-func (fa *RequestApplication) createNewFriendRequest(
+// SetProducerNotifier 在事务提交后唤醒 Kafka Producer。
+func (fa *FriendRequestApplication) SetProducerNotifier(notifier eventbus.ProducerNotifier) {
+	if fa == nil {
+		return
+	}
+	fa.producerNotifier = notifier
+}
+
+func (fa *FriendRequestApplication) notifyProducer() {
+	if fa != nil && fa.producerNotifier != nil {
+		fa.producerNotifier.Notify()
+	}
+}
+
+func (fa *FriendRequestApplication) createNewFriendRequest(
 	ctx context.Context,
 	userID string,
 	peerUserID string,
 	message string,
-	repository friendrequestrepo.FriendRequestRepository,
-	outboxRepository outboxport.Repository,
+	repository friendrepo.FriendRequestRepository,
+	outboxRepository outboxport.OutboxRepository,
 ) (*FriendRequestDTO, error) {
 	requestID, err := fa.idGenerator.Generate()
 	if err != nil {
 		return nil, fmt.Errorf("生成好友申请 ID 失败：%w", err)
 	}
 
-	request, err := friendrequestentity.NewFriendRequest(
+	request, err := friendentity.NewFriendRequest(
 		requestID,
 		userID,
 		peerUserID,
@@ -104,10 +117,10 @@ func (fa *RequestApplication) createNewFriendRequest(
 	return &dto, nil
 }
 
-func (fa *RequestApplication) createFriendRequestOutbox(
+func (fa *FriendRequestApplication) createFriendRequestOutbox(
 	ctx context.Context,
-	record *friendrequestentity.FriendRequest,
-	repository outboxport.Repository,
+	record *friendentity.FriendRequest,
+	repository outboxport.OutboxRepository,
 ) error {
 	if repository == nil || record == nil {
 		return nil
@@ -140,12 +153,12 @@ func (fa *RequestApplication) createFriendRequestOutbox(
 	})
 }
 
-func (fa *RequestApplication) reRequest(
+func (fa *FriendRequestApplication) reRequest(
 	ctx context.Context,
-	record *friendrequestentity.FriendRequest,
+	record *friendentity.FriendRequest,
 	message string,
-	repository friendrequestrepo.FriendRequestRepository,
-	outboxRepository outboxport.Repository,
+	repository friendrepo.FriendRequestRepository,
+	outboxRepository outboxport.OutboxRepository,
 ) (*FriendRequestDTO, error) {
 	requestId, err := fa.idGenerator.Generate()
 	if err != nil {
@@ -186,7 +199,7 @@ func validateFriendRequest(
 	return nil
 }
 
-func (fa *RequestApplication) CreateFriendRequest(
+func (fa *FriendRequestApplication) CreateFriendRequest(
 	userID string,
 	peerUserID string,
 	message string,
@@ -215,9 +228,9 @@ func (fa *RequestApplication) CreateFriendRequest(
 	if err != nil {
 		return nil, fmt.Errorf("查询反向好友申请失败：%w", err)
 	}
-	if reverse != nil && reverse.Status == friendrequestvo.Pending {
+	if reverse != nil && reverse.Status == friendvo.Pending {
 		if err := reverse.Accept(userID); err != nil {
-			if errors.Is(err, friendrequestentity.ErrDuplicateRequestOperation) {
+			if errors.Is(err, friendentity.ErrDuplicateRequestOperation) {
 				return nil, ErrDuplicateOperation
 			}
 			return nil, err
@@ -260,6 +273,7 @@ func (fa *RequestApplication) CreateFriendRequest(
 		}); err != nil {
 			return nil, err
 		}
+		fa.notifyProducer()
 		return result, nil
 	}
 
@@ -283,10 +297,11 @@ func (fa *RequestApplication) CreateFriendRequest(
 	}); err != nil {
 		return nil, err
 	}
+	fa.notifyProducer()
 	return result, nil
 }
 
-func (fa *RequestApplication) Refuse(requestId string, userId string) error {
+func (fa *FriendRequestApplication) Refuse(requestId string, userId string) error {
 	record, err := fa.friendRequestRepository.FindByRequestID(requestId)
 
 	if err != nil {
@@ -297,14 +312,14 @@ func (fa *RequestApplication) Refuse(requestId string, userId string) error {
 		return err
 	}
 
-	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friendrequestvo.Pending), int(record.Status)); err != nil {
+	if err := fa.friendRequestRepository.OperateRequest(record.RequestId, int(friendvo.Pending), int(record.Status)); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (fa *RequestApplication) Accept(requestId string, userId string) error {
+func (fa *FriendRequestApplication) Accept(requestId string, userId string) error {
 	record, err := fa.friendRequestRepository.FindByRequestID(requestId)
 
 	if err != nil {
@@ -312,7 +327,7 @@ func (fa *RequestApplication) Accept(requestId string, userId string) error {
 	}
 
 	if err := record.Accept(userId); err != nil {
-		if errors.Is(err, friendrequestentity.ErrDuplicateRequestOperation) {
+		if errors.Is(err, friendentity.ErrDuplicateRequestOperation) {
 			return ErrDuplicateOperation
 		} else {
 			return ErrUnknown
@@ -322,8 +337,8 @@ func (fa *RequestApplication) Accept(requestId string, userId string) error {
 	return fa.acceptFriendRequest(record, userId)
 }
 
-func (fa *RequestApplication) acceptFriendRequest(
-	record *friendrequestentity.FriendRequest,
+func (fa *FriendRequestApplication) acceptFriendRequest(
+	record *friendentity.FriendRequest,
 	userID string,
 ) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -412,7 +427,7 @@ func (fa *RequestApplication) acceptFriendRequest(
 	fromUserConv.LastReadSeq = int64(len(messages))
 
 	if err := fa.txManager.WithinTransaction(ctx, func(tx any) error {
-		if err := fa.friendRequestRepository.WithTx(tx).OperateRequest(record.RequestId, int(friendrequestvo.Pending), int(record.Status)); err != nil {
+		if err := fa.friendRequestRepository.WithTx(tx).OperateRequest(record.RequestId, int(friendvo.Pending), int(record.Status)); err != nil {
 			fmt.Println("处理好友申请失败：", err)
 			return ErrOperationFailed
 		}
@@ -457,6 +472,7 @@ func (fa *RequestApplication) acceptFriendRequest(
 	}); err != nil {
 		return ErrOperationFailed
 	}
+	fa.notifyProducer()
 
 	state := &friendcache.RelationState{Status: friendvo.Friend}
 	if err := fa.friendCache.SetRelation(ctx, record.ApplicantUserId, record.PeerUserId, state); err != nil {
@@ -468,10 +484,10 @@ func (fa *RequestApplication) acceptFriendRequest(
 	return nil
 }
 
-func (fa *RequestApplication) createInitialMessageOutboxes(
+func (fa *FriendRequestApplication) createInitialMessageOutboxes(
 	ctx context.Context,
 	tx any,
-	record *friendrequestentity.FriendRequest,
+	record *friendentity.FriendRequest,
 	conversation *conversationentity.Conversation,
 	messages []*messageentity.Message,
 ) error {
@@ -520,7 +536,7 @@ func (fa *RequestApplication) createInitialMessageOutboxes(
 	return nil
 }
 
-func (fa *RequestApplication) ListFriendRequestsByUserID(userId string) ([]FriendRequestDTO, error) {
+func (fa *FriendRequestApplication) ListFriendRequestsByUserID(userId string) ([]FriendRequestDTO, error) {
 	records, err := fa.friendRequestRepository.ListByUserID(userId)
 	if err != nil {
 		return nil, err
@@ -537,7 +553,7 @@ func (fa *RequestApplication) ListFriendRequestsByUserID(userId string) ([]Frien
 }
 
 // fillApplicantNickName 返回申请人的有效展示昵称；历史数据为空时使用手机号兜底。
-func (fa *RequestApplication) fillApplicantNickName(dto *FriendRequestDTO) {
+func (fa *FriendRequestApplication) fillApplicantNickName(dto *FriendRequestDTO) {
 	if dto == nil || dto.ApplicantUserID == "" {
 		return
 	}

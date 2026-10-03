@@ -1,6 +1,7 @@
 package room
 
 import (
+	eventbus "IM_backend/internal/application/ports/eventbus"
 	idport "IM_backend/internal/application/ports/id"
 	outboxport "IM_backend/internal/application/ports/outbox"
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
@@ -30,7 +31,8 @@ type RoomApplication struct {
 	txManager                  txmanager.TxManager
 	idGenerator                idport.Generator
 	roomPresence               realtime.RoomPresence
-	roomMemberOutboxRepository outboxport.Repository
+	roomMemberOutboxRepository outboxport.OutboxRepository
+	producerNotifier           eventbus.ProducerNotifier
 }
 
 func NewRoomApplication(roomRepository roomrepo.RoomRepository,
@@ -42,7 +44,7 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 	txManager txmanager.TxManager,
 	idGenerator idport.Generator,
 	roomPresence realtime.RoomPresence,
-	roomMemberOutboxRepository outboxport.Repository,
+	roomMemberOutboxRepository outboxport.OutboxRepository,
 ) *RoomApplication {
 	return &RoomApplication{
 		roomRepository:             roomRepository,
@@ -55,6 +57,20 @@ func NewRoomApplication(roomRepository roomrepo.RoomRepository,
 		idGenerator:                idGenerator,
 		roomPresence:               roomPresence,
 		roomMemberOutboxRepository: roomMemberOutboxRepository,
+	}
+}
+
+// SetProducerNotifier 在事务提交后唤醒 Producer。
+func (ra *RoomApplication) SetProducerNotifier(notifier eventbus.ProducerNotifier) {
+	if ra == nil {
+		return
+	}
+	ra.producerNotifier = notifier
+}
+
+func (ra *RoomApplication) notifyProducer() {
+	if ra != nil && ra.producerNotifier != nil {
+		ra.producerNotifier.Notify()
 	}
 }
 
@@ -131,6 +147,7 @@ func (ra *RoomApplication) Create(ctx context.Context, userId, roomName, avatar,
 		}
 		return nil, err
 	}
+	ra.notifyProducer()
 
 	ra.invalidateRoomMemberCache(ctx, roomId, userId)
 	if ra.roomPresence != nil {
@@ -272,6 +289,7 @@ func (ra *RoomApplication) Join(ctx context.Context, userId, inviteCode string) 
 	}); err != nil {
 		return nil, nil, err
 	}
+	ra.notifyProducer()
 
 	ra.invalidateRoomMemberCache(ctx, roomId, userId)
 	if ra.roomPresence != nil {
@@ -386,6 +404,7 @@ func (ra *RoomApplication) Leave(ctx context.Context, userId, roomId string) err
 	}); err != nil {
 		return err
 	}
+	ra.notifyProducer()
 
 	ra.invalidateRoomMemberCache(ctx, roomId, userId)
 	if ra.roomPresence != nil {

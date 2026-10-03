@@ -22,13 +22,33 @@ func newActivityCacheTest(t *testing.T) (*RoomCache, *redis.Client, *miniredis.M
 	})
 
 	cache := NewRoomCache(client, configs.MessageConfig{
-		RoomActivityWindowSeconds:  60,
-		RoomActivityBucketSeconds:  10,
-		RoomActivityKeyTTLSeconds:  2,
-		RoomActivityWarnMessages:   2,
-		RoomActivityActiveMessages: 4,
+		RoomActivityWindowSeconds:    60,
+		RoomActivityBucketSeconds:    10,
+		RoomActivityKeyTTLSeconds:    2,
+		RoomActivityWarnFanoutWork:   2,
+		RoomActivityActiveFanoutWork: 4,
 	})
 	return cache, client, server
+}
+
+func TestRoomCacheActivityLevelScalesWithOnlineSessions(t *testing.T) {
+	cache, _, _ := newActivityCacheTest(t)
+	ctx := context.Background()
+	roomID := "room-activity-fanout"
+	now := time.Unix(1_000_000, 0)
+
+	level, err := cache.recordActivityAndGetLevelAt(ctx, roomID, now, 1)
+	if err != nil || level != roomcache.RoomActivityNormal {
+		t.Fatalf("1 条消息 × 1 个在线会话应为 normal：level=%d err=%v", level, err)
+	}
+	level, err = cache.recordActivityAndGetLevelAt(ctx, roomID, now, 1)
+	if err != nil || level != roomcache.RoomActivityWarn {
+		t.Fatalf("2 条消息 × 1 个在线会话应为 warn：level=%d err=%v", level, err)
+	}
+	level, err = cache.recordActivityAndGetLevelAt(ctx, roomID, now, 2)
+	if err != nil || level != roomcache.RoomActivityActive {
+		t.Fatalf("3 条消息 × 2 个在线会话应为 active：level=%d err=%v", level, err)
+	}
 }
 
 func TestRoomCacheActivityLevelUsesRecentWindow(t *testing.T) {

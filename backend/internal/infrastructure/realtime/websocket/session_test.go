@@ -39,7 +39,6 @@ func newTestSession(t *testing.T, bufferSize int) *Session {
 		bufferSize,
 		nil,
 		MessageBatchConfig{},
-		false,
 	)
 	t.Cleanup(session.Close)
 	return session
@@ -101,7 +100,6 @@ func TestSessionReadLoopReturnsQueueFullAndClosesSession(t *testing.T) {
 		1,
 		nil,
 		MessageBatchConfig{},
-		false,
 	)
 	t.Cleanup(session.Close)
 
@@ -145,7 +143,7 @@ func TestSessionSendBatchReturnsWriteError(t *testing.T) {
 		cancel()
 		t.Fatal(err)
 	}
-	session := NewSession(ctx, cancel, serverConn, identity, 1, nil, MessageBatchConfig{}, false)
+	session := NewSession(ctx, cancel, serverConn, identity, 1, nil, MessageBatchConfig{})
 	t.Cleanup(session.Close)
 
 	if err := serverConn.Close(); err != nil {
@@ -189,7 +187,6 @@ func TestSessionShutdownFlushesPendingBatch(t *testing.T) {
 		8,
 		idGenerator,
 		MessageBatchConfig{MaxMessages: 10, MaxBytes: 1024, Linger: time.Second},
-		true,
 	)
 	t.Cleanup(session.Close)
 	session.Start(10, 60, 2, nil, nil)

@@ -5,7 +5,6 @@ import (
 	roomcache "IM_backend/internal/application/ports/persistence/cache/room"
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -108,26 +107,5 @@ func TestRoomMemberCacheNegativeEntryDoesNotResetVersion(t *testing.T) {
 	state, hit, err := cache.GetMember(ctx, "room-1", "user-1")
 	if err != nil || !hit || state != nil {
 		t.Fatalf("应读取到负缓存：state=%+v hit=%v err=%v", state, hit, err)
-	}
-}
-
-func TestRoomMemberCacheClearsLegacyStringKey(t *testing.T) {
-	cache, client, server := newRoomMemberCacheTest(t)
-	ctx := context.Background()
-	key := RoomMemberKey("room-1", "user-1")
-	legacy, err := json.Marshal(roomMemberEntry{Found: true, Status: int(roomvo.Activate)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := client.Set(ctx, key, legacy, 0).Err(); err != nil {
-		t.Fatal(err)
-	}
-
-	state, hit, err := cache.GetMember(ctx, "room-1", "user-1")
-	if err != nil || hit || state != nil {
-		t.Fatalf("旧 string 缓存应视为未命中：state=%+v hit=%v err=%v", state, hit, err)
-	}
-	if server.Exists(key) {
-		t.Fatalf("旧 string key 应被清理")
 	}
 }

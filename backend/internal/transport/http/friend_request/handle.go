@@ -10,10 +10,10 @@ import (
 )
 
 type FriendRequestHandle struct {
-	app *friendapp.RequestApplication
+	app *friendapp.FriendRequestApplication
 }
 
-func NewFriendRequestHandle(app *friendapp.RequestApplication) *FriendRequestHandle {
+func NewFriendRequestHandle(app *friendapp.FriendRequestApplication) *FriendRequestHandle {
 	return &FriendRequestHandle{
 		app: app,
 	}

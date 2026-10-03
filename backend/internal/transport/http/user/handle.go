@@ -183,7 +183,7 @@ func (uh *UserHandle) clearTokenCookies(c *gin.Context) {
 }
 
 func (uh *UserHandle) FindUserByPhoneAndUserName(c *gin.Context) {
-	keyword := c.Param("userId")
+	keyword := strings.TrimSpace(c.Query("keyword"))
 	if keyword == "" {
 		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "手机号或用户名不能为空"))
 		return

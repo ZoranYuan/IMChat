@@ -15,6 +15,13 @@ type MessageSyncRequest struct {
 	AfterSeq       int64  `form:"afterSeq"`
 }
 
+type MessageOfflineRequest struct {
+	ConversationID string `form:"conversationId" binding:"required"`
+	AfterSeq       int64  `form:"afterSeq"`
+	SnapshotSeq    int64  `form:"snapshotSeq" binding:"required,gt=0"`
+	Limit          int    `form:"limit"`
+}
+
 type MessageSeqsRequest struct {
 	ConversationID string `form:"conversationId" binding:"required"`
 	Seqs           string `form:"seqs" binding:"required"`
@@ -55,7 +62,14 @@ type MessageHistoryResponse struct {
 }
 
 type MessageSyncResponse struct {
-	Messages []MessageResponse `json:"messages"`
+	Messages   []MessageResponse `json:"messages"`
+	ThroughSeq int64             `json:"throughSeq"`
+}
+
+type MessageOfflineResponse struct {
+	Messages   []MessageResponse `json:"messages"`
+	NextCursor int64             `json:"nextCursor"`
+	HasMore    bool              `json:"hasMore"`
 }
 
 type MessageSeqsResponse struct {
@@ -97,8 +111,16 @@ func toHistoryMessageResponse(messages []messageapp.MessageDTO, nextCursor int64
 	return
 }
 
-func toSyncMessageResponse(messages []messageapp.MessageDTO) (res MessageSyncResponse) {
+func toSyncMessageResponse(messages []messageapp.MessageDTO, throughSeq int64) (res MessageSyncResponse) {
 	res.Messages = toMessageResponses(messages)
+	res.ThroughSeq = throughSeq
+	return
+}
+
+func toOfflineMessageResponse(messages []messageapp.MessageDTO, nextCursor int64, hasMore bool) (res MessageOfflineResponse) {
+	res.Messages = toMessageResponses(messages)
+	res.NextCursor = nextCursor
+	res.HasMore = hasMore
 	return
 }
 

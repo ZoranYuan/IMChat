@@ -5,6 +5,7 @@ import (
 	messageapp "IM_backend/internal/application/message"
 	"IM_backend/internal/infrastructure/id/snow"
 	realtimews "IM_backend/internal/infrastructure/realtime/websocket"
+	"IM_backend/internal/shared/diagnostics"
 	"IM_backend/internal/shared/protocol"
 	shared_ratelimit "IM_backend/internal/shared/ratelimit"
 	"IM_backend/internal/transport/http/response"
@@ -114,10 +115,12 @@ func (wh *WSHandler) handleReadMessageAck(ctx context.Context, session *realtime
 }
 
 func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.Session, data []byte) error {
+	requestStartedAt := time.Now()
 	var pb wspb.MessageReq
 	if err := proto.Unmarshal(data, &pb); err != nil {
 		return err
 	}
+	decodedAt := time.Now()
 
 	sendRate := wh.config.WebSocket.SendMessageRate
 	if sendRate <= 0 {
@@ -129,6 +132,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 	}
 
 	// 用户发消息频率限制
+	rateLimitStartedAt := time.Now()
 	allowed, limitErr := wh.allowEvent(
 		ctx,
 		protocol.EventTypeSendMessage,
@@ -138,7 +142,10 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 			Burst: sendBurst,
 		},
 	)
+	rateLimitDuration := time.Since(rateLimitStartedAt)
 	if limitErr != nil {
+		diagnostics.Logf("stage=ws_send client_msg_id=%s user_id=%s outcome=rate_limit_error decode_us=%d rate_limit_us=%d total_us=%d",
+			pb.GetClientMsgId(), session.UserID(), decodedAt.Sub(requestStartedAt).Microseconds(), rateLimitDuration.Microseconds(), time.Since(requestStartedAt).Microseconds())
 		ack := protocol.MessageAckEvent{ClientMsgId: pb.GetClientMsgId(), Status: protocol.AckStatusFailed, Extra: "限流服务暂不可用"}
 		payload, err := json.Marshal(ack)
 		if err != nil {
@@ -148,6 +155,8 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 	}
 
 	if !allowed {
+		diagnostics.Logf("stage=ws_send client_msg_id=%s user_id=%s outcome=rate_limited decode_us=%d rate_limit_us=%d total_us=%d",
+			pb.GetClientMsgId(), session.UserID(), decodedAt.Sub(requestStartedAt).Microseconds(), rateLimitDuration.Microseconds(), time.Since(requestStartedAt).Microseconds())
 		ack := protocol.MessageAckEvent{
 			ClientMsgId: pb.GetClientMsgId(),
 			Status:      protocol.AckStatusFailed,
@@ -168,6 +177,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 
 	req := messageReqFromPB(&pb)
 
+	appStartedAt := time.Now()
 	messageApp, err := wh.app.HandleSendMessage(ctx, messageapp.SendMessageDTO{
 		SenderID:         session.UserID(),
 		ClientMessageID:  req.ClientMsgId,
@@ -180,6 +190,7 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 		PackID:           req.PackId,
 		VideoTime:        req.VideoTime,
 	})
+	appDuration := time.Since(appStartedAt)
 
 	if messageApp == nil {
 		messageApp = &messageapp.MessageAckDTO{
@@ -210,7 +221,20 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 		return err
 	}
 
-	return wh.replyToClient(session, protocol.EventTypeMsgAck, data)
+	ackStartedAt := time.Now()
+	ackErr := wh.replyToClient(session, protocol.EventTypeMsgAck, data)
+	diagnostics.Logf("stage=ws_send client_msg_id=%s message_id=%s seq=%d user_id=%s status=%s decode_us=%d rate_limit_us=%d app_us=%d ack_enqueue_us=%d total_us=%d outcome=%s",
+		messageApp.ClientMessageID, messageApp.MessageID, messageApp.Seq, session.UserID(), messageApp.Status,
+		decodedAt.Sub(requestStartedAt).Microseconds(), rateLimitDuration.Microseconds(), appDuration.Microseconds(),
+		time.Since(ackStartedAt).Microseconds(), time.Since(requestStartedAt).Microseconds(), diagnosticErrorLabel(ackErr))
+	return ackErr
+}
+
+func diagnosticErrorLabel(err error) string {
+	if err != nil {
+		return "error"
+	}
+	return "ok"
 }
 
 func (wh *WSHandler) replyToClient(session *realtimews.Session, op string, payload []byte) error {
@@ -305,7 +329,6 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 		wh.config.WebSocket.MaxMessageSendBufferSize,
 		wh.idGenerator,
 		batchConfig,
-		true,
 	)
 	session.SetReadLimit(int64(wh.config.WebSocket.MaxMessageSize))
 

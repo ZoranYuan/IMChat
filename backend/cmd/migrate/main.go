@@ -17,7 +17,7 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("配置校验失败：%v", err)
 	}
-	db := mysql.InitMysql(cfg.Database.MySQL.DSN)
+	db := mysql.InitMySQL(cfg.Database.MySQL.DSN)
 	sqlDB, err := db.DB()
 	if err != nil {
 		log.Fatalf("获取 MySQL 连接失败：%v", err)

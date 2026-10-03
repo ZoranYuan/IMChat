@@ -3,7 +3,6 @@ package entity
 import "errors"
 
 var (
-	ErrCannotAddSelf             = errors.New("不能添加自己为好友")
 	ErrNotFriends                = errors.New("双方不是好友")
 	ErrAlreadyFriends            = errors.New("双方已经是好友")
 	ErrRequestSentTooFrequently  = errors.New("重复申请")

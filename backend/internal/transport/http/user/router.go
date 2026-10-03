@@ -7,29 +7,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(ug *gin.RouterGroup, uh *UserHandle, auth *middleware.AuthMiddleware, limter *middleware.LimitMiddleware) {
-	limiterPolicy := shared_ratelimit.Policy{
-		// 每分钟补充 10 个令牌。
-		Rate:  2.0 / 60.0,
-		Burst: 5,
+func RegisterRoutes(
+	ug *gin.RouterGroup,
+	uh *UserHandle,
+	auth *middleware.AuthMiddleware,
+	limiter *middleware.LimitMiddleware,
+	userAPIPolicy shared_ratelimit.Policy,
+) {
+	if userAPIPolicy.Rate <= 0 || userAPIPolicy.Burst <= 0 {
+		userAPIPolicy = shared_ratelimit.Policy{Rate: 2.0 / 60.0, Burst: 5}
 	}
 
-	ug.POST("/login", limter.ByIP(
-		"login",
-		limiterPolicy,
-	), uh.Login)
-	ug.POST("/register", limter.ByIP(
-		"register",
-		limiterPolicy,
-	), uh.Register)
-	ug.POST("/refresh", limter.ByIP("refresh", limiterPolicy), uh.Refresh)
+	ug.POST("/login", limiter.ByIP("login", userAPIPolicy), uh.Login)
+	ug.POST("/register", limiter.ByIP("register", userAPIPolicy), uh.Register)
+	ug.POST("/refresh", limiter.ByIP("refresh", userAPIPolicy), uh.Refresh)
 
 	ug.Use(auth.JWTAuthMiddleware())
-	ug.PATCH("/me", limter.ByIP(
-		"register",
-		limiterPolicy,
-	), uh.UpdateUserProfile)
-	// 路径参数保留为 userId 以兼容现有路径，实际语义是手机号或用户名关键词。
-	ug.GET("/:userId", uh.FindUserByPhoneAndUserName)
+	ug.PATCH("/me", limiter.ByIP("user_profile_update", userAPIPolicy), uh.UpdateUserProfile)
+	ug.GET("/resolve", uh.FindUserByPhoneAndUserName)
 	ug.POST("/logout", uh.Logout)
 }

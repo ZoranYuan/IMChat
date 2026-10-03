@@ -155,6 +155,39 @@ func (r *MessageRepository) ListAfterSeq(
 	return result, nil
 }
 
+func (r *MessageRepository) ListAfterSeqUntil(
+	ctx context.Context,
+	conversationId string,
+	afterSeq int64,
+	untilSeq int64,
+	limit int,
+) ([]*messageentity.Message, error) {
+	if conversationId == "" || untilSeq <= afterSeq || limit <= 0 {
+		return []*messageentity.Message{}, nil
+	}
+
+	var models []*model.Message
+	err := r.db.WithContext(ctx).
+		Where(
+			"conversation_id = ? AND seq > ? AND seq <= ? AND (video_id = '' OR video_id IS NULL)",
+			conversationId,
+			afterSeq,
+			untilSeq,
+		).
+		Order("seq ASC").
+		Limit(limit).
+		Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*messageentity.Message, 0, len(models))
+	for _, item := range models {
+		result = append(result, toMessageDomain(item))
+	}
+	return result, nil
+}
+
 func (r *MessageRepository) ListBySeqRange(
 	ctx context.Context,
 	conversationId string,

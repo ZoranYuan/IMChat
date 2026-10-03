@@ -37,6 +37,7 @@ type ConversationItemDTO struct {
 	DisplayName      string
 	AvatarURL        string
 	Unread           int64
+	LatestSeq        int64
 	LastMessage      *LatestMessageDTO
 
 	PeerUser *PeerUserDTO

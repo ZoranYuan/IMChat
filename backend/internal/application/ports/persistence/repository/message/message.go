@@ -24,6 +24,14 @@ type MessageRepository interface {
 		afterSeq int64,
 	) ([]*messageentity.Message, error)
 
+	ListAfterSeqUntil(
+		ctx context.Context,
+		conversationId string,
+		afterSeq int64,
+		untilSeq int64,
+		limit int,
+	) ([]*messageentity.Message, error)
+
 	ListBySeqRange(
 		ctx context.Context,
 		conversationId string,

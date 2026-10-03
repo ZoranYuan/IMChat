@@ -13,17 +13,17 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-type Repository struct {
+type OutboxRepository struct {
 	db          *gorm.DB
 	idGenerator idport.Generator
 }
 
-func NewRepository(db *gorm.DB, idGenerator idport.Generator) *Repository {
-	return &Repository{db: db, idGenerator: idGenerator}
+func NewOutboxRepository(db *gorm.DB, idGenerator idport.Generator) *OutboxRepository {
+	return &OutboxRepository{db: db, idGenerator: idGenerator}
 }
 
-func (r *Repository) WithTx(tx any) outboxport.Repository {
-	return &Repository{db: tx.(*gorm.DB), idGenerator: r.idGenerator}
+func (r *OutboxRepository) WithTx(tx any) outboxport.OutboxRepository {
+	return &OutboxRepository{db: tx.(*gorm.DB), idGenerator: r.idGenerator}
 }
 
 func toModel(e *outboxport.Entry) *model.OutboxRecord {
@@ -92,7 +92,7 @@ func toEntry(m *model.OutboxRecord) *outboxport.Entry {
 	}
 }
 
-func (r *Repository) Create(ctx context.Context, outbox *outboxport.Entry) error {
+func (r *OutboxRepository) Create(ctx context.Context, outbox *outboxport.Entry) error {
 	if outbox == nil {
 		return nil
 	}
@@ -113,7 +113,39 @@ func (r *Repository) Create(ctx context.Context, outbox *outboxport.Entry) error
 	return r.db.WithContext(ctx).Create(m).Error
 }
 
-func (r *Repository) ClaimPending(
+// CreateBatch 在同一事务内批量创建 Outbox 事件。
+func (r *OutboxRepository) CreateBatch(ctx context.Context, outboxes []*outboxport.Entry) error {
+	if len(outboxes) == 0 {
+		return nil
+	}
+	models := make([]*model.OutboxRecord, 0, len(outboxes))
+	now := time.Now()
+	for _, outbox := range outboxes {
+		if outbox == nil {
+			continue
+		}
+		if outbox.ID == "" {
+			id, err := r.idGenerator.Generate()
+			if err != nil {
+				return err
+			}
+			outbox.ID = id
+		}
+		if outbox.Status == "" {
+			outbox.Status = outboxport.StatusPending
+		}
+		if outbox.NextRetryAt.IsZero() {
+			outbox.NextRetryAt = now
+		}
+		models = append(models, toModel(outbox))
+	}
+	if len(models) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Create(&models).Error
+}
+
+func (r *OutboxRepository) ClaimPending(
 	ctx context.Context,
 	now time.Time,
 	staleBefore time.Time,
@@ -169,10 +201,34 @@ func (r *Repository) ClaimPending(
 	return result, nil
 }
 
-func (r *Repository) MarkSent(ctx context.Context, id, lockToken string, sentAt time.Time) error {
+// MarkSentBatch 按同一租约批量确认已成功发布的 Outbox 事件。
+func (r *OutboxRepository) MarkSentBatch(ctx context.Context, ids []string, lockToken string, sentAt time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if lockToken == "" {
+		return outboxport.ErrLeaseLost
+	}
+
+	uniqueIDs := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			return outboxport.ErrLeaseLost
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	if len(uniqueIDs) == 0 {
+		return nil
+	}
+
 	result := r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
-		Where("id = ? AND status = ? AND lock_token = ?", id, outboxport.StatusProcessing, lockToken).
+		Where("id IN ? AND status = ? AND lock_token = ?", uniqueIDs, outboxport.StatusProcessing, lockToken).
 		Updates(map[string]interface{}{
 			"status":     outboxport.StatusSent,
 			"sent_at":    sentAt,
@@ -182,13 +238,13 @@ func (r *Repository) MarkSent(ctx context.Context, id, lockToken string, sentAt 
 	if result.Error != nil {
 		return result.Error
 	}
-	if result.RowsAffected == 0 {
+	if result.RowsAffected != int64(len(uniqueIDs)) {
 		return outboxport.ErrLeaseLost
 	}
 	return nil
 }
 
-func (r *Repository) MarkRetry(ctx context.Context, id, lockToken string, nextRetryAt time.Time, lastError string) error {
+func (r *OutboxRepository) MarkRetry(ctx context.Context, id, lockToken string, nextRetryAt time.Time, lastError string) error {
 	result := r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
 		Where("id = ? AND status = ? AND lock_token = ?", id, outboxport.StatusProcessing, lockToken).
@@ -209,7 +265,7 @@ func (r *Repository) MarkRetry(ctx context.Context, id, lockToken string, nextRe
 	return nil
 }
 
-func (r *Repository) MarkDead(ctx context.Context, id, lockToken string, lastError string) error {
+func (r *OutboxRepository) MarkDead(ctx context.Context, id, lockToken string, lastError string) error {
 	result := r.db.WithContext(ctx).
 		Model(&model.OutboxRecord{}).
 		Where("id = ? AND status = ? AND lock_token = ?", id, outboxport.StatusProcessing, lockToken).

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -62,11 +61,6 @@ func (c *RoomMemberCache) GetMember(
 	key := RoomMemberKey(roomID, userID)
 	values, err := c.store.Client().HMGet(ctx, key, "data", "version").Result()
 	if err != nil {
-		if strings.Contains(err.Error(), "WRONGTYPE") {
-			// 清理旧版本的 string key，下一次回源后会按 Hash 重建。
-			_ = c.store.Del(ctx, key)
-			return nil, false, nil
-		}
 		return nil, false, err
 	}
 	if len(values) != 2 || values[0] == nil {

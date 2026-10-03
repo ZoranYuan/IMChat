@@ -10,10 +10,10 @@ import (
 )
 
 type UserConversationHandle struct {
-	app *conversationapp.UserConvApplication
+	app *conversationapp.UserConversationApplication
 }
 
-func NewUserConversationHandle(app *conversationapp.UserConvApplication) *UserConversationHandle {
+func NewUserConversationHandle(app *conversationapp.UserConversationApplication) *UserConversationHandle {
 	return &UserConversationHandle{
 		app: app,
 	}

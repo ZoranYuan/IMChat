@@ -25,7 +25,6 @@ func newGatewayTestSession(t *testing.T, userID, sessionID string) *Session {
 		8,
 		nil,
 		MessageBatchConfig{},
-		false,
 	)
 }
 
@@ -120,5 +119,55 @@ func TestGatewayRedisDeliveryWaitsForSubscription(t *testing.T) {
 	}
 	if len(session.outbound) != 1 {
 		t.Fatalf("redis delivery was not received locally, outbound=%d", len(session.outbound))
+	}
+}
+
+func TestGatewayOnlineRoomSessionCountIsSharedAndExpiresStaleSessions(t *testing.T) {
+	server := miniredis.RunT(t)
+	clientA := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	clientB := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() {
+		_ = clientA.Close()
+		_ = clientB.Close()
+	})
+
+	gatewayA := NewGatewayWithRedis(context.Background(), clientA)
+	gatewayB := NewGatewayWithRedis(context.Background(), clientB)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = gatewayA.Close(ctx)
+		_ = gatewayB.Close(ctx)
+	})
+
+	sessionA := newGatewayTestSession(t, "u1", "session-a")
+	sessionB := newGatewayTestSession(t, "u2", "session-b")
+	for _, item := range []struct {
+		gateway *Gateway
+		session *Session
+	}{{gatewayA, sessionA}, {gatewayB, sessionB}} {
+		item.gateway.mu.Lock()
+		item.gateway.registerLocked(item.session)
+		item.gateway.mu.Unlock()
+		item.gateway.BindOnlineRooms(item.session, []string{"room-presence"})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	count, err := gatewayA.OnlineRoomSessionCount(ctx, "room-presence")
+	if err != nil || count != 2 {
+		t.Fatalf("跨节点在线连接数应为 2：count=%d err=%v", count, err)
+	}
+
+	gatewayB.Unregister(sessionB)
+	count, err = gatewayA.OnlineRoomSessionCount(ctx, "room-presence")
+	if err != nil || count != 1 {
+		t.Fatalf("断开后在线连接数应为 1：count=%d err=%v", count, err)
+	}
+
+	server.FastForward(roomOnlineSessionLease + time.Second)
+	count, err = gatewayA.OnlineRoomSessionCount(ctx, "room-presence")
+	if err != nil || count != 0 {
+		t.Fatalf("节点异常退出后租约过期应清理在线连接：count=%d err=%v", count, err)
 	}
 }

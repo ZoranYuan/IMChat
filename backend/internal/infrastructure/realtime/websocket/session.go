@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"IM_backend/internal/infrastructure/id/snow"
+	"IM_backend/internal/shared/diagnostics"
 	"IM_backend/internal/shared/protocol"
 	wspb "IM_backend/internal/transport/ws/pb"
 
@@ -22,8 +23,9 @@ var (
 )
 
 type Message struct {
-	Op   string
-	Data []byte
+	Op                string
+	Data              []byte
+	inboundEnqueuedAt time.Time
 }
 
 type OutboundItem struct {
@@ -39,12 +41,11 @@ type Session struct {
 
 	identity SessionIdentity
 
-	idGenerator  *snow.Generator
-	batchConfig  MessageBatchConfig
-	batchEnabled bool
-	maxReadSize  int64
-	outbound     chan OutboundItem
-	inbound      chan Message
+	idGenerator *snow.Generator
+	batchConfig MessageBatchConfig
+	maxReadSize int64
+	outbound    chan OutboundItem
+	inbound     chan Message
 
 	cancel context.CancelFunc
 
@@ -66,25 +67,23 @@ func NewSession(
 	maxBufferSize int,
 	idGenerator *snow.Generator,
 	batchConfig MessageBatchConfig,
-	batchEnabled bool,
 ) *Session {
 	if maxBufferSize <= 0 {
 		maxBufferSize = DefaultBatchConfig().ReadyQueueSize
 	}
 
 	return &Session{
-		conn:         conn,
-		ctx:          ctx,
-		cancel:       cancel,
-		identity:     identity,
-		idle:         time.Now().UnixMilli(),
-		idGenerator:  idGenerator,
-		batchConfig:  batchConfig.withDefaults(),
-		batchEnabled: batchEnabled,
-		outbound:     make(chan OutboundItem, maxBufferSize),
-		inbound:      make(chan Message, maxBufferSize),
-		writeDone:    make(chan struct{}),
-		accepting:    true,
+		conn:        conn,
+		ctx:         ctx,
+		cancel:      cancel,
+		identity:    identity,
+		idle:        time.Now().UnixMilli(),
+		idGenerator: idGenerator,
+		batchConfig: batchConfig.withDefaults(),
+		outbound:    make(chan OutboundItem, maxBufferSize),
+		inbound:     make(chan Message, maxBufferSize),
+		writeDone:   make(chan struct{}),
+		accepting:   true,
 	}
 }
 
@@ -122,19 +121,66 @@ func (s *Session) sendBatch(batch *MessageBatch, writeWait int) error {
 	if err := batch.StartSending(); err != nil {
 		return err
 	}
+	firstSeq, lastSeq, messageFrames := outboundMessageSeqRange(batch)
 
+	marshalStartedAt := time.Now()
 	payload, err := s.marshalBatch(batch)
+	marshalDuration := time.Since(marshalStartedAt)
 	if err != nil {
 		_ = batch.MarkFailed(err)
+		diagnostics.Logf("stage=ws_outbound_batch session_id=%s batch_id=%s messages=%d message_frames=%d first_seq=%d last_seq=%d bytes=%d marshal_us=%d outcome=marshal_error error=%q",
+			s.SessionID(), batch.Id, batch.MessageCount(), messageFrames, firstSeq, lastSeq, batch.Bytes, marshalDuration.Microseconds(), err.Error())
 		return err
 	}
 
+	writeStartedAt := time.Now()
 	if err := s.write(gorilla.BinaryMessage, payload, writeWait); err != nil {
 		_ = batch.MarkFailed(err)
+		diagnostics.Logf("stage=ws_outbound_batch session_id=%s batch_id=%s messages=%d message_frames=%d first_seq=%d last_seq=%d bytes=%d linger_us=%d queue_wait_us=%d marshal_us=%d socket_write_us=%d outcome=write_error error=%q",
+			s.SessionID(), batch.Id, batch.MessageCount(), messageFrames, firstSeq, lastSeq, batch.Bytes, batch.SealedAt.Sub(batch.CreateAt).Microseconds(),
+			batch.SendingAt.Sub(batch.SealedAt).Microseconds(), marshalDuration.Microseconds(), time.Since(writeStartedAt).Microseconds(), err.Error())
 		return err
 	}
 
-	return batch.MarkSent()
+	markErr := batch.MarkSent()
+	diagnostics.Logf("stage=ws_outbound_batch session_id=%s batch_id=%s messages=%d message_frames=%d first_seq=%d last_seq=%d bytes=%d linger_us=%d queue_wait_us=%d marshal_us=%d socket_write_us=%d total_us=%d outcome=%s",
+		s.SessionID(), batch.Id, batch.MessageCount(), messageFrames, firstSeq, lastSeq, batch.Bytes, batch.SealedAt.Sub(batch.CreateAt).Microseconds(),
+		batch.SendingAt.Sub(batch.SealedAt).Microseconds(), marshalDuration.Microseconds(), time.Since(writeStartedAt).Microseconds(),
+		time.Since(batch.SendingAt).Microseconds(), sessionBatchOutcome(markErr))
+	return markErr
+}
+
+func outboundMessageSeqRange(batch *MessageBatch) (int64, int64, int) {
+	if !diagnostics.Enabled() || batch == nil {
+		return 0, 0, 0
+	}
+	var firstSeq, lastSeq int64
+	count := 0
+	for _, item := range batch.Messages {
+		if item.Op != string(protocol.EventTypeSendMessage) {
+			continue
+		}
+		var event wspb.MessageEvent
+		if err := proto.Unmarshal(item.Data, &event); err != nil || event.GetSeq() <= 0 {
+			continue
+		}
+		seq := event.GetSeq()
+		if count == 0 || seq < firstSeq {
+			firstSeq = seq
+		}
+		if count == 0 || seq > lastSeq {
+			lastSeq = seq
+		}
+		count++
+	}
+	return firstSeq, lastSeq, count
+}
+
+func sessionBatchOutcome(err error) string {
+	if err != nil {
+		return "state_error"
+	}
+	return "sent"
 }
 
 func (s *Session) Start(pongWait, pingPeriod, writeWait int, handler MessageHandler, onClose func(*Session)) {
@@ -226,10 +272,6 @@ func (s *Session) Platform() Platform {
 	return s.identity.Platform
 }
 
-func (s *Session) Identity() SessionIdentity {
-	return s.identity
-}
-
 func (s *Session) SetReadLimit(size int64) {
 	if size > 0 {
 		s.maxReadSize = size
@@ -286,9 +328,17 @@ func (s *Session) dispatchLoop(handler MessageHandler) {
 		case <-s.ctx.Done():
 			return
 		case message := <-s.inbound:
-			if handler != nil {
-				handler(s.ctx, s, message.Op, message.Data)
+			queueWait := time.Since(message.inboundEnqueuedAt)
+			queueDepth := len(s.inbound)
+			if handler == nil {
+				diagnostics.Logf("stage=ws_inbound_dispatch session_id=%s op=%s queue_wait_us=%d handler_us=0 queue_depth=%d queue_capacity=%d payload_bytes=%d outcome=handler_missing",
+					s.SessionID(), message.Op, queueWait.Microseconds(), queueDepth, cap(s.inbound), len(message.Data))
+				continue
 			}
+			handlerStartedAt := time.Now()
+			handler(s.ctx, s, message.Op, message.Data)
+			diagnostics.Logf("stage=ws_inbound_dispatch session_id=%s op=%s queue_wait_us=%d handler_us=%d queue_depth=%d queue_capacity=%d payload_bytes=%d outcome=handled",
+				s.SessionID(), message.Op, queueWait.Microseconds(), time.Since(handlerStartedAt).Microseconds(), queueDepth, cap(s.inbound), len(message.Data))
 		}
 	}
 }
@@ -318,6 +368,7 @@ func (s *Session) readLoop(pongWait int, handler MessageHandler, onClose func(*S
 		if err != nil {
 			return
 		}
+		message.inboundEnqueuedAt = time.Now()
 
 		select {
 		case s.inbound <- *message:
@@ -325,6 +376,8 @@ func (s *Session) readLoop(pongWait int, handler MessageHandler, onClose func(*S
 			return
 		default:
 			// 客户端请求处理不过来，关闭慢连接
+			diagnostics.LogfAlways("stage=ws_inbound_queue session_id=%s op=%s queue_depth=%d queue_capacity=%d payload_bytes=%d outcome=full",
+				s.SessionID(), message.Op, len(s.inbound), cap(s.inbound), len(message.Data))
 			s.Close()
 			return
 		}
@@ -457,12 +510,7 @@ func (s *Session) writeLoop(pingPeriod, writeWait int) {
 		close(s.writeDone)
 	}()
 
-	var err error
-	if s.batchEnabled {
-		err = s.writeBatchLoop(pingPeriod, writeWait)
-	} else {
-		err = s.writeDirectLoop(pingPeriod, writeWait)
-	}
+	err := s.writeBatchLoop(pingPeriod, writeWait)
 
 	if err != nil &&
 		!errors.Is(err, context.Canceled) &&
@@ -497,40 +545,6 @@ func (s *Session) writeBatchLoop(pingPeriod, writeWait int) error {
 		return secondErr
 	}
 	return firstErr
-}
-
-func (s *Session) writeDirectLoop(pingPeriod, writeWait int) error {
-	if pingPeriod <= 0 {
-		return errors.New("ping period must be greater than zero")
-	}
-
-	pingTicker := time.NewTicker(time.Duration(pingPeriod) * time.Second)
-	defer pingTicker.Stop()
-
-	for {
-		select {
-		case <-s.ctx.Done():
-			return s.ctx.Err()
-		case item, ok := <-s.outbound:
-			if !ok {
-				return nil
-			}
-			payload, err := proto.Marshal(&wspb.WsFrame{
-				Op:   item.Message.Op,
-				Data: item.Message.Data,
-			})
-			if err != nil {
-				return fmt.Errorf("序列化实时通道消息帧失败: %w", err)
-			}
-			if err := s.write(gorilla.BinaryMessage, payload, writeWait); err != nil {
-				return err
-			}
-		case <-pingTicker.C:
-			if err := s.write(gorilla.PingMessage, nil, writeWait); err != nil {
-				return fmt.Errorf("发送 WebSocket Ping 失败: %w", err)
-			}
-		}
-	}
 }
 
 func isExpectedSessionError(err error) bool {

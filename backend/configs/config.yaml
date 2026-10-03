@@ -6,6 +6,11 @@ app:
   machineId: 1
 server:
   port: ":8081"
+http:
+  user_api_rate_limit:
+    # 本地压测准备允许同一来源批量登录；其他部署环境应按需覆盖。
+    rate_per_second: 500
+    burst: 500
 agent:
   room_summary_endpoint: "dl_container:50051"
 database:
@@ -35,33 +40,30 @@ ws:
   batch_linger_milliseconds: 20
   batch_ready_queue_size: 16
 message:
+  conversation_write_linger_milliseconds: 5
+  conversation_write_max_messages: 50
+  conversation_write_shard_count: 16
+  conversation_write_max_pending: 100000
   room_realtime_fanout_limit: 500
+  large_room_notice_linger_milliseconds: 50
+  large_room_notice_shard_count: 16
+  large_room_notice_max_pending: 100000
   max_text_runes: 4096
   max_width: 8192
   max_height: 8192
   max_video_ms: 86400000
   max_identifier_length: 128
   attachment_ttl_seconds: 1209600
-  large_room_notice_linger_milliseconds: 200
-  large_room_notice_shard_count: 16
-  large_room_notice_max_pending: 100000
   room_activity_window_seconds: 30
   room_activity_bucket_seconds: 5
   room_activity_key_ttl_seconds: 60
-  room_activity_warn_messages: 30
-  room_activity_active_messages: 90
+  # 阈值单位为统计窗口内的消息数 × 在线 WebSocket 会话数；6000/18000 保持约 200 个在线会话时原有 30/90 条消息的切换点。
+  room_activity_warn_fanout_work: 6000
+  room_activity_active_fanout_work: 18000
   room_member_state_ttl_seconds: 3600
   room_member_negative_ttl_seconds: 120
   history_default_limit: 20
   history_max_limit: 30
-outbox:
-  batch_size: 100
-  worker_count: 10
-  queue_size: 100
-  poll_interval_seconds: 2
-  stale_after_seconds: 30
-  base_retry_wait_seconds: 2
-  max_retries: 10
 kafka:
   brokers:
     - "kafka:9092"
@@ -76,8 +78,12 @@ kafka:
     group_id: "im-chat-consumer-group"
     version: "2.6.0"
     assignor: "range"   # range / roundrobin / sticky
-    max_inbox_retries: 3
-    inbox_stale_after_seconds: 10
+    max_retries: 3
+    batch_size: 50
+    batch_linger_milliseconds: 5
+    worker_count: 16
+    queue_size: 100
+    lease_stale_after_seconds: 10
     consume_retry_interval_seconds: 1
     dead_letter_suffix: ".dlq"
 
@@ -87,6 +93,15 @@ kafka:
     batch_size: 16384
     linger_ms: 10
     compression: "snappy"
+    claim_batch_size: 100
+    worker_count: 10
+    queue_size: 300
+    mark_sent_batch_size: 32
+    mark_sent_batch_linger_ms: 5
+    poll_interval_seconds: 2
+    stale_after_seconds: 30
+    base_retry_wait_seconds: 2
+    worker_max_retries: 10
 
   partition:
     strategy: "conversation_hash"   # room_hash / user_hash / random

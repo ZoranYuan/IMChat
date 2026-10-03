@@ -37,6 +37,7 @@ type ConversationItemResponse struct {
 	DisplayName      string                 `json:"displayName"`
 	AvatarURL        string                 `json:"avatar"`
 	Unread           int64                  `json:"unread"`
+	LatestSeq        int64                  `json:"latestSeq"`
 	LastMessage      *LatestMessageResponse `json:"lastMessage,omitempty"`
 	PeerUser         *PeerUserResponse      `json:"peerUser,omitempty"`
 	Room             *RoomResponse          `json:"room,omitempty"`
@@ -53,6 +54,7 @@ func toConversationResponses(items []conversationapp.ConversationItemDTO) []Conv
 			DisplayName:      item.DisplayName,
 			AvatarURL:        item.AvatarURL,
 			Unread:           item.Unread,
+			LatestSeq:        item.LatestSeq,
 			IsMuted:          item.IsMuted,
 		}
 

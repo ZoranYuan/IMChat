@@ -15,17 +15,26 @@ import (
 type Config struct {
 	App         App               `yaml:"app"`
 	Server      Server            `yaml:"server"`
+	HTTP        HTTPConfig        `yaml:"http"`
 	Database    Database          `yaml:"database"`
 	JWT         JWT               `yaml:"jwt"`
 	Security    SecurityConfig    `yaml:"security"`
 	WebSocket   WebSocketConfig   `yaml:"ws"`
 	Message     MessageConfig     `yaml:"message"`
-	Outbox      OutboxConfig      `yaml:"outbox"`
 	Kafka       KafkaConfig       `yaml:"kafka"`
 	Storage     StorageConfig     `yaml:"storage"`
 	FileCleanup FileCleanupConfig `yaml:"file_cleanup"`
 	Cache       CacheConfig       `yaml:"cache"`
 	Agent       AgentConfig       `yaml:"agent"`
+}
+
+type HTTPConfig struct {
+	UserAPIRateLimit UserAPIRateLimitConfig `yaml:"user_api_rate_limit"`
+}
+
+type UserAPIRateLimitConfig struct {
+	RatePerSecond float64 `yaml:"rate_per_second"`
+	Burst         int64   `yaml:"burst"`
 }
 
 type AgentConfig struct {
@@ -77,21 +86,34 @@ type KafkaTopics struct {
 }
 
 type KafkaConsumerConfig struct {
+	BatchSize                int    `yaml:"batch_size"`
+	BatchLingerMs            int    `yaml:"batch_linger_milliseconds"`
+	WorkerCount              int    `yaml:"worker_count"`
+	QueueSize                int    `yaml:"queue_size"`
 	GroupID                  string `yaml:"group_id"`
 	Version                  string `yaml:"version"`
 	Assignor                 string `yaml:"assignor"` // range / roundrobin / sticky
-	MaxInboxRetries          int    `yaml:"max_inbox_retries"`
-	InboxStaleAfterSecs      int    `yaml:"inbox_stale_after_seconds"`
+	MaxRetries               int    `yaml:"max_retries"`
+	LeaseStaleAfterSecs      int    `yaml:"lease_stale_after_seconds"`
 	ConsumeRetryIntervalSecs int    `yaml:"consume_retry_interval_seconds"`
 	DeadLetterSuffix         string `yaml:"dead_letter_suffix"`
 }
 
 type KafkaProducerConfig struct {
-	Acks        string `yaml:"acks"`
-	Retries     int    `yaml:"retries"`
-	BatchSize   int    `yaml:"batch_size"`
-	LingerMs    int    `yaml:"linger_ms"`
-	Compression string `yaml:"compression"`
+	Acks                  string `yaml:"acks"`
+	Retries               int    `yaml:"retries"`
+	BatchSize             int    `yaml:"batch_size"`
+	LingerMs              int    `yaml:"linger_ms"`
+	Compression           string `yaml:"compression"`
+	ClaimBatchSize        int    `yaml:"claim_batch_size"`
+	WorkerCount           int    `yaml:"worker_count"`
+	QueueSize             int    `yaml:"queue_size"`
+	MarkSentBatchSize     int    `yaml:"mark_sent_batch_size"`
+	MarkSentBatchLingerMs int    `yaml:"mark_sent_batch_linger_ms"`
+	PollIntervalSeconds   int    `yaml:"poll_interval_seconds"`
+	StaleAfterSeconds     int    `yaml:"stale_after_seconds"`
+	BaseRetryWaitSeconds  int    `yaml:"base_retry_wait_seconds"`
+	WorkerMaxRetries      int    `yaml:"worker_max_retries"`
 }
 
 type KafkaPartitionConfig struct {
@@ -157,35 +179,29 @@ type WebSocketConfig struct {
 }
 
 type MessageConfig struct {
-	RoomRealtimeFanoutLimit           int   `yaml:"room_realtime_fanout_limit"`
-	LargeRoomNoticeLingerMilliseconds int   `yaml:"large_room_notice_linger_milliseconds"`
-	LargeRoomNoticeShardCount         int   `yaml:"large_room_notice_shard_count"`
-	LargeRoomNoticeMaxPending         int   `yaml:"large_room_notice_max_pending"`
-	RoomActivityWindowSeconds         int   `yaml:"room_activity_window_seconds"`
-	RoomActivityBucketSeconds         int   `yaml:"room_activity_bucket_seconds"`
-	RoomActivityKeyTTLSeconds         int   `yaml:"room_activity_key_ttl_seconds"`
-	RoomActivityWarnMessages          int   `yaml:"room_activity_warn_messages"`
-	RoomActivityActiveMessages        int   `yaml:"room_activity_active_messages"`
-	RoomMemberStateTTLSeconds         int   `yaml:"room_member_state_ttl_seconds"`
-	RoomMemberNegativeTTLSeconds      int   `yaml:"room_member_negative_ttl_seconds"`
-	HistoryDefaultLimit               int   `yaml:"history_default_limit"`
-	HistoryMaxLimit                   int   `yaml:"history_max_limit"`
-	MaxTextRunes                      int   `yaml:"max_text_runes"`
-	MaxWidth                          int   `yaml:"max_width"`
-	MaxHeight                         int   `yaml:"max_height"`
-	MaxVideoMs                        int64 `yaml:"max_video_ms"`
-	MaxIdentifierLength               int   `yaml:"max_identifier_length"`
-	AttachmentTTLSeconds              int64 `yaml:"attachment_ttl_seconds"`
-}
-
-type OutboxConfig struct {
-	BatchSize            int `yaml:"batch_size"`
-	WorkerCount          int `yaml:"worker_count"`
-	QueueSize            int `yaml:"queue_size"`
-	PollIntervalSeconds  int `yaml:"poll_interval_seconds"`
-	StaleAfterSeconds    int `yaml:"stale_after_seconds"`
-	BaseRetryWaitSeconds int `yaml:"base_retry_wait_seconds"`
-	MaxRetries           int `yaml:"max_retries"`
+	ConversationWriteLingerMilliseconds int   `yaml:"conversation_write_linger_milliseconds"`
+	ConversationWriteMaxMessages        int   `yaml:"conversation_write_max_messages"`
+	ConversationWriteShardCount         int   `yaml:"conversation_write_shard_count"`
+	ConversationWriteMaxPending         int   `yaml:"conversation_write_max_pending"`
+	RoomRealtimeFanoutLimit             int   `yaml:"room_realtime_fanout_limit"`
+	LargeRoomNoticeLingerMilliseconds   int   `yaml:"large_room_notice_linger_milliseconds"`
+	LargeRoomNoticeShardCount           int   `yaml:"large_room_notice_shard_count"`
+	LargeRoomNoticeMaxPending           int   `yaml:"large_room_notice_max_pending"`
+	RoomActivityWindowSeconds           int   `yaml:"room_activity_window_seconds"`
+	RoomActivityBucketSeconds           int   `yaml:"room_activity_bucket_seconds"`
+	RoomActivityKeyTTLSeconds           int   `yaml:"room_activity_key_ttl_seconds"`
+	RoomActivityWarnFanoutWork          int   `yaml:"room_activity_warn_fanout_work"`
+	RoomActivityActiveFanoutWork        int   `yaml:"room_activity_active_fanout_work"`
+	RoomMemberStateTTLSeconds           int   `yaml:"room_member_state_ttl_seconds"`
+	RoomMemberNegativeTTLSeconds        int   `yaml:"room_member_negative_ttl_seconds"`
+	HistoryDefaultLimit                 int   `yaml:"history_default_limit"`
+	HistoryMaxLimit                     int   `yaml:"history_max_limit"`
+	MaxTextRunes                        int   `yaml:"max_text_runes"`
+	MaxWidth                            int   `yaml:"max_width"`
+	MaxHeight                           int   `yaml:"max_height"`
+	MaxVideoMs                          int64 `yaml:"max_video_ms"`
+	MaxIdentifierLength                 int   `yaml:"max_identifier_length"`
+	AttachmentTTLSeconds                int64 `yaml:"attachment_ttl_seconds"`
 }
 
 type Server struct {

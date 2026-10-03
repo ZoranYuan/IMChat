@@ -22,11 +22,11 @@ func newRecentMessageCacheTest(t *testing.T) (*RoomCache, *redis.Client, *minire
 	})
 
 	return NewRoomCache(client, configs.MessageConfig{
-		RoomActivityWindowSeconds:  60,
-		RoomActivityBucketSeconds:  10,
-		RoomActivityKeyTTLSeconds:  120,
-		RoomActivityWarnMessages:   30,
-		RoomActivityActiveMessages: 100,
+		RoomActivityWindowSeconds:    60,
+		RoomActivityBucketSeconds:    10,
+		RoomActivityKeyTTLSeconds:    120,
+		RoomActivityWarnFanoutWork:   30,
+		RoomActivityActiveFanoutWork: 100,
 	}), client, server
 }
 

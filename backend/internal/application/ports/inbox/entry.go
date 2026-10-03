@@ -1,10 +1,6 @@
 package inbox
 
-import (
-	"context"
-	"errors"
-	"time"
-)
+import "errors"
 
 const (
 	StatusProcessing = "processing"
@@ -14,11 +10,10 @@ const (
 
 var ErrLeaseLost = errors.New("inbox lease lost")
 var ErrEventInProgress = errors.New("事件正在处理中")
+var ErrBatchConflict = errors.New("Inbox 批次包含已有事件")
+var ErrEventIDRequired = errors.New("Inbox event_id 不能为空")
 
-type InboxRepository interface {
-	TryClaim(ctx context.Context, eventID, eventType string, now, staleBefore time.Time) (bool, string, int, error)
-	MarkRetry(ctx context.Context, eventID, lockToken, lastError string) error
-	MarkCompleted(ctx context.Context, eventID, lockToken string, processedAt time.Time) error
-	MarkDead(ctx context.Context, eventID, lockToken string, lastError string, processedAt time.Time) error
-	WithTx(tx any) InboxRepository
+type ClaimEvent struct {
+	EventID   string
+	EventType string
 }

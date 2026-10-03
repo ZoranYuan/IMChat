@@ -2,6 +2,7 @@ package message
 
 import (
 	"IM_backend/configs"
+	eventbus "IM_backend/internal/application/ports/eventbus"
 	idport "IM_backend/internal/application/ports/id"
 	outboxport "IM_backend/internal/application/ports/outbox"
 	filecache "IM_backend/internal/application/ports/persistence/cache/file"
@@ -26,7 +27,6 @@ import (
 	messagevo "IM_backend/internal/domain/message/value_object"
 	roomentity "IM_backend/internal/domain/room/entity"
 	roomvo "IM_backend/internal/domain/room/value_object"
-	userentity "IM_backend/internal/domain/user/entity"
 	"unicode/utf8"
 
 	"IM_backend/internal/shared/protocol"
@@ -61,14 +61,30 @@ type MessageApplication struct {
 	fileCache                    filecache.FileCache
 	objectStorage                objectstorage.ObjectStorage
 	messageStickerRepository     messagerepo.MessageStickerRepository
-	messageAttachmentsRepository messagerepo.MessageAttachmentsRepository
-	messageOutboxRepository      outboxport.Repository
+	messageAttachmentsRepository messagerepo.MessageAttachmentRepository
+	messageOutboxRepository      outboxport.OutboxRepository
+	producerNotifier             eventbus.ProducerNotifier
 	userRepository               userrepo.UserRepository
 	roomUserRepository           roomrepo.RoomUserRepository
 	roomRepository               roomrepo.RoomRepository
 	sf                           singleflight.Group
 	idGenerator                  idport.Generator
 	config                       configs.Config
+	writeBatcher                 *conversationMessageWriteBatcher
+}
+
+// SetProducerNotifier 在事务提交后唤醒 Producer；定时扫描仍负责兜底。
+func (ma *MessageApplication) SetProducerNotifier(notifier eventbus.ProducerNotifier) {
+	if ma == nil {
+		return
+	}
+	ma.producerNotifier = notifier
+}
+
+func (ma *MessageApplication) notifyProducer() {
+	if ma != nil && ma.producerNotifier != nil {
+		ma.producerNotifier.Notify()
+	}
 }
 
 func NewMessageApplication(
@@ -80,7 +96,7 @@ func NewMessageApplication(
 	txManager txmanager.TxManager,
 	userConversationRepository conversationrepo.UserConversationRepository,
 	conversationRepository conversationrepo.ConversationRepository,
-	messageOutboxRepository outboxport.Repository,
+	messageOutboxRepository outboxport.OutboxRepository,
 	friendRepository friendrepo.FriendRepository,
 	fileRepository filerepo.FileRepository,
 	fileCache filecache.FileCache,
@@ -93,36 +109,47 @@ func NewMessageApplication(
 	idGenerator idport.Generator,
 	config configs.Config,
 	roomUnreadSnapshotCache roomunreadcache.RoomUnreadSnapshotCache,
-	messageAttachmentsRepositories ...messagerepo.MessageAttachmentsRepository,
+	messageAttachmentsRepository messagerepo.MessageAttachmentRepository,
 
 ) *MessageApplication {
 	app := &MessageApplication{
-		friendCache:                friendCache,
-		messageCache:               messageCache,
-		roomMemberCache:            roomMemberCache,
-		roomCache:                  roomCache,
-		roomUnreadSnapshotCache:    roomUnreadSnapshotCache,
-		userCache:                  userCache,
-		txManager:                  txManager,
-		messageOutboxRepository:    messageOutboxRepository,
-		messageRepository:          messageRepository,
-		conversationRepository:     conversationRepository,
-		userConversationRepository: userConversationRepository,
-		userRepository:             userRepository,
-		roomRepository:             roomRepository,
-		roomUserRepository:         roomUserRepository,
-		friendRepository:           friendRepository,
-		fileRepository:             fileRepository,
-		fileCache:                  fileCache,
-		objectStorage:              objectStorage,
-		messageStickerRepository:   messageStickerRepository,
-		idGenerator:                idGenerator,
-		config:                     config,
+		friendCache:                  friendCache,
+		messageCache:                 messageCache,
+		roomMemberCache:              roomMemberCache,
+		roomCache:                    roomCache,
+		roomUnreadSnapshotCache:      roomUnreadSnapshotCache,
+		userCache:                    userCache,
+		txManager:                    txManager,
+		messageOutboxRepository:      messageOutboxRepository,
+		messageRepository:            messageRepository,
+		conversationRepository:       conversationRepository,
+		userConversationRepository:   userConversationRepository,
+		userRepository:               userRepository,
+		roomRepository:               roomRepository,
+		roomUserRepository:           roomUserRepository,
+		friendRepository:             friendRepository,
+		fileRepository:               fileRepository,
+		fileCache:                    fileCache,
+		objectStorage:                objectStorage,
+		messageStickerRepository:     messageStickerRepository,
+		idGenerator:                  idGenerator,
+		config:                       config,
+		messageAttachmentsRepository: messageAttachmentsRepository,
 	}
-	if len(messageAttachmentsRepositories) > 0 {
-		app.messageAttachmentsRepository = messageAttachmentsRepositories[0]
-	}
+	app.writeBatcher = newConversationMessageWriteBatcher(app, ConversationMessageWriteBatchOptions{
+		Linger:      time.Duration(config.Message.ConversationWriteLingerMilliseconds) * time.Millisecond,
+		MaxMessages: config.Message.ConversationWriteMaxMessages,
+		ShardCount:  config.Message.ConversationWriteShardCount,
+		MaxPending:  config.Message.ConversationWriteMaxPending,
+	})
 	return app
+}
+
+// Close 停止异步消息写入器，并刷新已受理的队列请求。
+func (ma *MessageApplication) Close(ctx context.Context) {
+	if ma != nil && ma.writeBatcher != nil {
+		ma.writeBatcher.close(ctx)
+	}
 }
 
 func (ma *MessageApplication) HandleReadMessage(
@@ -173,6 +200,7 @@ func (ma *MessageApplication) HandleReadMessage(
 
 	oldLastReadSeq := uconv.LastReadSeq
 	uconv.UpdateReadSeq(lastReadSeq)
+	outboxCreated := false
 
 	if lastReadSeq > conv.LatestSeq {
 		return ErrMessageSeq
@@ -214,11 +242,15 @@ func (ma *MessageApplication) HandleReadMessage(
 				MessageKey: userId + ":" + conversationId,
 				Payload:    payload,
 			}
+			outboxCreated = true
 			return ma.messageOutboxRepository.WithTx(tx).Create(ctx, outbox)
 		}
 		return nil
 	}); err != nil {
 		return err
+	}
+	if outboxCreated {
+		ma.notifyProducer()
 	}
 
 	fromSeq := oldLastReadSeq + 1
@@ -600,9 +632,8 @@ func (ma *MessageApplication) validateMessageCType(dto SendMessageDTO) error {
 	return nil
 }
 
-// HandleSendMessage 校验并持久化一条消息，并在同一事务中创建 Outbox 事件。
-// 消息、会话序号、附件关联和 Outbox 成功提交后，调用方才会收到成功 ACK。
-func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMessageDTO) (*MessageAckDTO, error) {
+// handleSendMessageSingle 用于批量事务失败后的逐条重试。
+func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto SendMessageDTO) (*MessageAckDTO, error) {
 	conversationId := conversationentity.GetConversationID(dto.SenderID, dto.ReceiverID, dto.ConversationType)
 	dto.ConversationID = conversationId
 
@@ -628,30 +659,17 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMes
 				return &MessageAckDTO{ClientMessageID: dto.ClientMessageID, Status: string(protocol.AckStatusFailed)}, messageentity.ErrClientMessageConflict
 			}
 
-			// 兼容只保存了 messageId/requestHash 的旧缓存记录。新记录会直接
-			// 从 Redis 恢复 ACK 所需的完整元数据，旧记录则尝试从数据库补齐。
-			needsRecovery := entry.ConversationID == "" || entry.Seq == 0
-			if needsRecovery && ma.messageRepository != nil {
-				if existing, findErr := ma.messageRepository.FindByClientMsgID(ctx, dto.SenderID, dto.ClientMessageID); findErr == nil && existing != nil {
-					if recovered := ma.existingMessageResult(ctx, dto, existing); recovered != nil {
-						return recovered, nil
-					}
-				}
+			if entry.ConversationID != "" && entry.Seq > 0 {
+				return &MessageAckDTO{
+					ClientMessageID: dto.ClientMessageID,
+					ConversationID:  entry.ConversationID,
+					MessageID:       entry.MessageID,
+					Seq:             entry.Seq,
+					SendTime:        entry.SendTime,
+					Status:          string(protocol.AckStatusSent),
+					AttachmentID:    entry.AttachmentID,
+				}, nil
 			}
-
-			conversationID := entry.ConversationID
-			if conversationID == "" {
-				conversationID = conversationId
-			}
-			return &MessageAckDTO{
-				ClientMessageID: dto.ClientMessageID,
-				ConversationID:  conversationID,
-				MessageID:       entry.MessageID,
-				Seq:             entry.Seq,
-				SendTime:        entry.SendTime,
-				Status:          string(protocol.AckStatusSent),
-				AttachmentID:    entry.AttachmentID,
-			}, nil
 		}
 	}
 
@@ -872,6 +890,9 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMes
 
 		return nil
 	})
+	if err == nil {
+		ma.notifyProducer()
+	}
 
 	// 判断是否出发唯一键索引冲突
 	if errors.Is(err, messageentity.ErrDuplicateClientMessage) && dto.ClientMessageID != "" {
@@ -932,6 +953,14 @@ func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMes
 		SendTime:        message.SendTime,
 		Status:          string(protocol.AckStatusSent),
 	}, nil
+}
+
+// HandleSendMessage 按会话批量持久化，同时保持原有校验、幂等和 ACK 语义。
+func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMessageDTO) (*MessageAckDTO, error) {
+	if ma == nil || ma.writeBatcher == nil {
+		return nil, errors.New("消息写入批处理器未初始化")
+	}
+	return ma.writeBatcher.submit(ctx, dto)
 }
 
 // existingMessageResult 将数据库中的已有消息转换成幂等请求的返回值。
@@ -1042,7 +1071,7 @@ func (ma *MessageApplication) GetHistoryMessages(
 ) ([]MessageDTO, int64, bool, error) {
 	limit = ma.normalizeHistoryLimit(limit)
 
-	resolvedConversationID, err := ma.resolveHistoryConversationID(ctx, conversationId, userId)
+	resolvedConversationID, _, err := ma.resolveHistoryConversation(ctx, conversationId, userId)
 	if err != nil {
 		return nil, -1, false, err
 	}
@@ -1141,23 +1170,101 @@ func (ma *MessageApplication) GetMessagesBySeqs(
 	return msgsApp, nil
 }
 
+// GetOfflineMessages 按固定快照水位分页补齐本地缺失的消息。
+func (ma *MessageApplication) GetOfflineMessages(
+	ctx context.Context,
+	conversationId string,
+	userId string,
+	afterSeq int64,
+	snapshotSeq int64,
+	limit int,
+) ([]MessageDTO, int64, bool, error) {
+	if afterSeq < 0 {
+		afterSeq = 0
+	}
+	if snapshotSeq <= 0 {
+		return nil, afterSeq, false, ErrMessageSeq
+	}
+
+	resolvedConversationID, conversation, err := ma.resolveHistoryConversation(ctx, conversationId, userId)
+	if err != nil {
+		return nil, afterSeq, false, err
+	}
+
+	// 客户端传入的快照水位只能向下收敛，不能超过服务端当前水位。
+	if snapshotSeq > conversation.LatestSeq {
+		snapshotSeq = conversation.LatestSeq
+	}
+	if snapshotSeq <= afterSeq {
+		return []MessageDTO{}, afterSeq, false, nil
+	}
+
+	limit = ma.normalizeOfflineLimit(limit)
+	messages, err := ma.messageRepository.ListAfterSeqUntil(
+		ctx,
+		resolvedConversationID,
+		afterSeq,
+		snapshotSeq,
+		limit+1,
+	)
+	if err != nil {
+		return nil, afterSeq, false, err
+	}
+
+	hasMore := len(messages) > limit
+	if hasMore {
+		messages = messages[:limit]
+	}
+
+	nextCursor := afterSeq
+	if len(messages) > 0 {
+		nextCursor = messages[len(messages)-1].Seq
+	}
+	if !hasMore {
+		// 最后一页也可能只剩已过滤的视频弹幕；确认扫完整个快照后直接推进扫描水位。
+		nextCursor = snapshotSeq
+	}
+
+	result := toMessageDTOs(messages)
+	if err := ma.fillAttachmentIDs(ctx, result); err != nil {
+		return nil, afterSeq, false, err
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].Seq < result[j].Seq
+	})
+	return result, nextCursor, hasMore, nil
+}
+
 func (ma *MessageApplication) SyncMessages(
 	ctx context.Context,
 	conversationId string,
 	userId string,
 	afterSeq int64,
 ) ([]MessageDTO, error) {
+	result, err := ma.SyncMessagesWithWatermark(ctx, conversationId, userId, afterSeq)
+	if err != nil {
+		return nil, err
+	}
+	return result.Messages, nil
+}
+
+func (ma *MessageApplication) SyncMessagesWithWatermark(
+	ctx context.Context,
+	conversationId string,
+	userId string,
+	afterSeq int64,
+) (MessageSyncResult, error) {
 	if afterSeq < 0 {
 		afterSeq = 0
 	}
 
 	resolvedConversationID, conversation, err := ma.resolveHistoryConversation(ctx, conversationId, userId)
 	if err != nil {
-		return nil, err
+		return MessageSyncResult{}, err
 	}
 	latestSeq := conversation.LatestSeq
 	if latestSeq <= afterSeq {
-		return []MessageDTO{}, nil
+		return MessageSyncResult{Messages: []MessageDTO{}, ThroughSeq: latestSeq}, nil
 	}
 
 	// 大群消息消费后已经写入 Redis 的 seq ZSET，优先从缓存同步。Redis 只是加速层，缓存未覆盖完整区间或读取失败时继续回源 MySQL。
@@ -1176,7 +1283,10 @@ func (ma *MessageApplication) SyncMessages(
 				cacheErr,
 			)
 		} else if page.Covered {
-			return messageEventsToAppDTO(page.Events, resolvedConversationID), nil
+			return MessageSyncResult{
+				Messages:   messageEventsToAppDTO(page.Events, resolvedConversationID),
+				ThroughSeq: latestSeq,
+			}, nil
 		}
 	}
 
@@ -1230,15 +1340,15 @@ func (ma *MessageApplication) SyncMessages(
 		return msgsApp, nil
 	})
 	if err != nil {
-		return nil, err
+		return MessageSyncResult{}, err
 	}
 
 	syncResult, ok := result.([]MessageDTO)
 	if !ok {
-		return nil, errors.New("同步消息结果类型错误")
+		return MessageSyncResult{}, errors.New("同步消息结果类型错误")
 	}
 
-	return syncResult, nil
+	return MessageSyncResult{Messages: syncResult, ThroughSeq: latestSeq}, nil
 }
 
 // messageEventsToAppDTO 将近期消息缓存中的内部事件转换为应用层消息 DTO。
@@ -1354,13 +1464,12 @@ func (ma *MessageApplication) normalizeHistoryLimit(limit int) int {
 	return limit
 }
 
-func (ma *MessageApplication) resolveHistoryConversationID(
-	ctx context.Context,
-	conversationId string,
-	userId string,
-) (string, error) {
-	resolvedID, _, err := ma.resolveHistoryConversation(ctx, conversationId, userId)
-	return resolvedID, err
+func (ma *MessageApplication) normalizeOfflineLimit(limit int) int {
+	const maxOfflinePageSize = 10
+	if limit <= 0 || limit > maxOfflinePageSize {
+		return maxOfflinePageSize
+	}
+	return limit
 }
 
 func (ma *MessageApplication) resolveHistoryConversation(
@@ -1372,17 +1481,6 @@ func (ma *MessageApplication) resolveHistoryConversation(
 	conv, err := ma.conversationRepository.GetByID(ctx, resolvedID)
 	if err != nil {
 		return "", nil, err
-	}
-
-	if conv == nil {
-		normalizedID := normalizePrivateConversationID(conversationId, userId)
-		if normalizedID != conversationId {
-			conv, err = ma.conversationRepository.GetByID(ctx, normalizedID)
-			if err != nil {
-				return "", nil, err
-			}
-			resolvedID = normalizedID
-		}
 	}
 
 	if conv == nil {
@@ -1400,35 +1498,11 @@ func (ma *MessageApplication) resolveHistoryConversation(
 	return resolvedID, conv, nil
 }
 
-func (ma *MessageApplication) ResolveAccessibleConversationID(
-	ctx context.Context,
-	conversationId string,
-	userId string,
-) (string, error) {
-	return ma.resolveHistoryConversationID(ctx, conversationId, userId)
-}
-
 func (ma *MessageApplication) ListActiveRoomIDs(userID string) ([]string, error) {
 	if ma.roomUserRepository == nil {
 		return nil, errors.New("房间成员仓储未配置")
 	}
 	return ma.roomUserRepository.ListActiveRoomIDs(userID)
-}
-
-func normalizePrivateConversationID(conversationId string, userId string) string {
-	parts := strings.Split(conversationId, "_")
-	if len(parts) != 2 {
-		return conversationId
-	}
-	if parts[0] != userId && parts[1] != userId {
-		return conversationId
-	}
-
-	return conversationentity.GetConversationID(
-		parts[0],
-		parts[1],
-		int(conversationvo.PrivateChat),
-	)
 }
 
 func (ma *MessageApplication) canAccessConversation(
@@ -1468,109 +1542,6 @@ func (ma *MessageApplication) getUsername(userId string) string {
 		return ""
 	}
 	return user.UserName
-}
-
-func userProfileFromEntity(user userentity.User) *usercach.UserProfile {
-	return &usercach.UserProfile{
-		Found:    true,
-		UserID:   user.UserId,
-		UserName: user.UserName,
-		NickName: user.NickName,
-		Avatar:   user.Avatar,
-		Status:   int(user.Status),
-	}
-}
-
-func (ma *MessageApplication) loadReadUserProfiles(
-	ctx context.Context,
-	userIDs []string,
-) (map[string]*usercach.UserProfile, error) {
-	profiles := make(map[string]*usercach.UserProfile, len(userIDs))
-	missUserIDs := make([]string, 0, len(userIDs))
-	missSeen := make(map[string]struct{}, len(userIDs))
-
-	cachedProfiles := map[string]*usercach.UserProfile{}
-	if ma.userCache != nil {
-		cachedProfiles = ma.userCache.GetUserProfiles(ctx, userIDs)
-	}
-	for _, userID := range userIDs {
-		if userID == "" {
-			continue
-		}
-		if profile, ok := cachedProfiles[userID]; ok {
-			if profile == nil || !profile.Found {
-				return nil, ErrUserNotFonund
-			}
-			profiles[userID] = profile
-			continue
-		}
-		if _, exists := missSeen[userID]; exists {
-			continue
-		}
-		missSeen[userID] = struct{}{}
-		missUserIDs = append(missUserIDs, userID)
-	}
-
-	if len(missUserIDs) == 0 {
-		return profiles, nil
-	}
-	if ma.userRepository == nil {
-		return nil, fmt.Errorf("用户仓储未配置")
-	}
-
-	users, err := ma.userRepository.FindByUserIDs(missUserIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	missSet := make(map[string]struct{}, len(missUserIDs))
-	for _, userID := range missUserIDs {
-		missSet[userID] = struct{}{}
-	}
-	loadedProfiles := make([]*usercach.UserProfile, 0, len(users))
-	for _, user := range users {
-		userProfile := userProfileFromEntity(user)
-		profiles[userProfile.UserID] = userProfile
-		loadedProfiles = append(loadedProfiles, userProfile)
-		delete(missSet, userProfile.UserID)
-	}
-
-	missingUserIDs := make([]string, 0, len(missSet))
-	for userID := range missSet {
-		missingUserIDs = append(missingUserIDs, userID)
-	}
-	if ma.userCache != nil {
-		cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-		defer cancel()
-
-		cacheTTL := time.Duration(ma.config.Cache.UserProfile.TTL) * time.Second
-		if cacheTTL <= 0 {
-			cacheTTL = 10 * time.Minute
-		}
-		if len(loadedProfiles) > 0 {
-			if err := ma.userCache.SetUserProfiles(cacheCtx, loadedProfiles, cacheTTL); err != nil {
-				log.Printf("批量写入用户资料缓存失败: err=%v", err)
-			}
-		}
-
-		negativeTTL := time.Duration(ma.config.Cache.UserProfile.NegativeTTL) * time.Second
-		if negativeTTL <= 0 {
-			negativeTTL = 2 * time.Minute
-		}
-		if len(missingUserIDs) > 0 {
-			if err := ma.userCache.SetUserProfilesNotFound(cacheCtx, missingUserIDs, negativeTTL); err != nil {
-				log.Printf("批量写入用户不存在缓存失败: err=%v", err)
-			}
-		}
-	}
-
-	for _, userID := range userIDs {
-		profile := profiles[userID]
-		if profile == nil || !profile.Found {
-			return nil, ErrUserNotFonund
-		}
-	}
-	return profiles, nil
 }
 
 func (ma *MessageApplication) fillAttachmentIDs(ctx context.Context, messages []MessageDTO) error {

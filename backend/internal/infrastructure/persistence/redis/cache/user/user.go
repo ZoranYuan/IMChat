@@ -153,37 +153,6 @@ func (u *UserCache) SetUserProfileNotFound(
 	return u.store.SetJSON(ctx, UserProfileKey(userId), &user.UserProfile{Found: false, UserID: userId}, ttl)
 }
 
-func (u *UserCache) SetUserProfilesNotFound(
-	ctx context.Context,
-	userIds []string,
-	ttl time.Duration,
-) error {
-	if len(userIds) == 0 {
-		return nil
-	}
-
-	pipe := u.store.Client().Pipeline()
-	seen := make(map[string]struct{}, len(userIds))
-	for _, userId := range userIds {
-		if userId == "" {
-			continue
-		}
-		if _, ok := seen[userId]; ok {
-			continue
-		}
-		seen[userId] = struct{}{}
-
-		data, err := json.Marshal(&user.UserProfile{Found: false, UserID: userId})
-		if err != nil {
-			return err
-		}
-		pipe.Set(ctx, UserProfileKey(userId), data, ttl)
-	}
-
-	_, err := pipe.Exec(ctx)
-	return err
-}
-
 func (u *UserCache) DeleteUserProfiles(
 	ctx context.Context,
 	userIds []string,

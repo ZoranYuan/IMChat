@@ -43,12 +43,6 @@ type UserCache interface {
 		ttl time.Duration,
 	) error
 
-	SetUserProfilesNotFound(
-		ctx context.Context,
-		userIds []string,
-		ttl time.Duration,
-	) error
-
 	DeleteUserProfiles(
 		ctx context.Context,
 		userIds []string,

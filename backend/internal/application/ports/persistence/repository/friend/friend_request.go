@@ -4,7 +4,6 @@ import (
 	friendentity "IM_backend/internal/domain/friend/entity"
 )
 
-// TODO 定义 usermysql 的接口
 type FriendRequestRepository interface {
 	FindLatestRequest(applicantUserId string, peerUserId string) (*friendentity.FriendRequest, error)
 	Create(domain *friendentity.FriendRequest) (*friendentity.FriendRequest, error)
