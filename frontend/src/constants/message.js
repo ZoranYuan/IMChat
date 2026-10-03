@@ -6,12 +6,6 @@ export const MessageType = Object.freeze({
   FILE: 5,
 });
 
-export const UploadableMessageTypes = Object.freeze([
-  MessageType.IMAGE,
-  MessageType.VIDEO,
-  MessageType.FILE,
-]);
-
 export const messageViewType = (cType) => {
   switch (Number(cType)) {
     case MessageType.IMAGE: return "image";

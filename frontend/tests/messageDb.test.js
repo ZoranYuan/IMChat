@@ -165,3 +165,27 @@ test("相同 conversationId + seq 的消息写入具有幂等覆盖语义", asyn
     const conversation = conversations.find((item) => item.conversationId === SECOND_CONVERSATION_ID);
     assert.equal(conversation.lastContinuousSeq, 0);
 });
+
+test("没有可展示消息时仍可原子推进已扫描水位", async () => {
+    await replaceConversations(USER_ID, [{
+        conversationId: SECOND_CONVERSATION_ID,
+        convType: 2,
+        latestSeq: 12,
+    }]);
+
+    const result = await insertMessages([], {
+        userId: USER_ID,
+        lastContinuousSeqByConversation: {
+            [SECOND_CONVERSATION_ID]: 12,
+        },
+    });
+
+    assert.equal(
+        result.lastContinuousSeqByConversation[SECOND_CONVERSATION_ID],
+        12,
+    );
+    const conversations = await queryConversationsByUserId(USER_ID);
+    const conversation = conversations.find((item) => item.conversationId === SECOND_CONVERSATION_ID);
+    assert.equal(conversation.latestSeq, 12);
+    assert.equal(conversation.lastContinuousSeq, 12);
+});

@@ -30,9 +30,40 @@ export function createWsClient(callbacks = {}) {
   let reconnectTimer = 0;
   let reconnectAttempts = 0;
   let manualClose = false;
+  let reconnectPreparation = null;
 
   /** 向上层报告连接状态变化。 */
   const notifyState = (state) => callbacks.onStateChange?.(state);
+
+  /** 重连前只运行一份离线补齐任务，失败时由重连调度再次尝试。 */
+  const prepareReconnect = () => {
+    if (!callbacks.onBeforeReconnect) return Promise.resolve();
+    if (!reconnectPreparation) {
+      reconnectPreparation = Promise.resolve()
+        .then(() => callbacks.onBeforeReconnect())
+        .finally(() => {
+          reconnectPreparation = null;
+        });
+    }
+    return reconnectPreparation;
+  };
+
+  /** 延迟重连；必须先完成服务端会话快照和离线消息补齐。 */
+  const scheduleReconnect = () => {
+    if (manualClose || !authenticated) return;
+    reconnectAttempts += 1;
+    const delay = Math.min(reconnectAttempts * 1000, 5000);
+    reconnectTimer = window.setTimeout(async () => {
+      try {
+        await prepareReconnect();
+        if (manualClose || !authenticated) return;
+        if (!socket || socket.readyState === WebSocket.CLOSED) open();
+      } catch (error) {
+        callbacks.onReconnectPreparationError?.(error);
+        scheduleReconnect();
+      }
+    }, delay);
+  };
 
   /** 根据当前页面协议和设备标识生成 WebSocket 地址。 */
   const buildUrl = () => {
@@ -58,16 +89,13 @@ export function createWsClient(callbacks = {}) {
     if (frame.op === "room_msg_notice") callbacks.onRoomMessageNotice?.(payload);
   };
 
-  /** 处理浏览器 WebSocket 事件，兼容单帧和服务端批量帧。 */
+  /** 解码服务端批量帧，并按帧内顺序分发业务事件。 */
   const dispatchFrame = (event) => {
     try {
       const frame = decodeFrame(event.data);
-      if (frame.op === "msg_batch") {
-        const batch = decodePayload("batch", frame.data);
-        batch.frames.forEach(dispatchApplicationFrame);
-      } else {
-        dispatchApplicationFrame(frame);
-      }
+      if (frame.op !== "msg_batch") throw new Error(`unexpected websocket frame: ${frame.op}`);
+      const batch = decodePayload("batch", frame.data);
+      batch.frames.forEach(dispatchApplicationFrame);
     } catch (error) {
       notifyState("error");
       callbacks.onProtocolError?.(error);
@@ -99,8 +127,7 @@ export function createWsClient(callbacks = {}) {
     socket.onclose = () => {
       if (manualClose || !authenticated) return;
       notifyState("disconnected");
-      reconnectAttempts += 1;
-      reconnectTimer = window.setTimeout(open, Math.min(reconnectAttempts * 1000, 5000));
+      scheduleReconnect();
     };
   };
 
@@ -131,6 +158,21 @@ export function createWsClient(callbacks = {}) {
     notifyState("disconnected");
   };
 
+  /** 手动重连沿用自动重连前的离线补齐流程。 */
+  const reconnect = async () => {
+    if (!authenticated) return;
+    if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
+    manualClose = false;
+    window.clearTimeout(reconnectTimer);
+    try {
+      await prepareReconnect();
+      if (authenticated && !manualClose && (!socket || socket.readyState === WebSocket.CLOSED)) open();
+    } catch (error) {
+      callbacks.onReconnectPreparationError?.(error);
+      scheduleReconnect();
+    }
+  };
+
   /** 将业务请求编码后发送；连接未打开时返回 false。 */
   const send = (op, typeName, payload) => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
@@ -141,8 +183,9 @@ export function createWsClient(callbacks = {}) {
   return {
     connect,
     disconnect,
-    reconnect: open,
+    reconnect,
     isConnected: () => socket?.readyState === WebSocket.OPEN,
+    isConnecting: () => socket?.readyState === WebSocket.CONNECTING,
     sendMessage: (payload) => send("msg", "messageReq", payload),
     sendReadAck: (payload) => send("msg_read_ack", "readAck", payload),
   };

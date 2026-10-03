@@ -18,6 +18,11 @@ export const applyRealtimeMessageToConversation = (
 ) => {
   if (!conversation || !message) return false;
 
+  conversation.latestSeq = Math.max(
+    Number(conversation.latestSeq) || 0,
+    Number(message.seq) || 0,
+  );
+
   conversation.lastMessage = {
     messageId: message.messageId,
     conversationId: message.conversationId,
@@ -41,6 +46,7 @@ export const createDirectConversation = (currentUserId, contact) => {
   const conversationId = [currentUserId, contact.id].sort().reverse().join("_");
   return {
     conversationId,
+    latestSeq: 0,
     targetId: contact.id,
     convType: ConversationType.PRIVATE_CHAT,
     displayName: contact.name,

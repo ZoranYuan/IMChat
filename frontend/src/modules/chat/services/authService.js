@@ -1,7 +1,3 @@
-import { mockCurrentUser } from "../../../mocks/chat.js";
-
-export const clone = (value) => JSON.parse(JSON.stringify(value));
-
 export const authUserProfile = (auth) => ({
   userId: auth?.userId || "",
   username: auth?.username || "",
@@ -10,7 +6,7 @@ export const authUserProfile = (auth) => ({
   avatar: auth?.avatar || "",
 });
 
-export const readStoredUser = () => {
+const readStoredUser = () => {
   if (typeof window === "undefined") return null;
   try {
     return JSON.parse(
@@ -21,7 +17,7 @@ export const readStoredUser = () => {
   }
 };
 
-export const initialUser = () => readStoredUser() || clone(mockCurrentUser);
+export const initialUser = () => authUserProfile(readStoredUser());
 
 export const persistSession = (auth, remember) => {
   const profile = authUserProfile(auth);

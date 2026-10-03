@@ -27,9 +27,6 @@ export const createMessageRecord = (message) => {
         cType: Number(message.cType) || 1,
         content: message.content || "",
 
-        // // 弹幕相关接口兼容
-        // videoId: message.videoId || "",
-        // videoTime: message.videoTime ?? null,
         // 后端消息业务状态：1=normal，2=recall。
         status: Number(message.status) || 1,
         sendTime: Number(message.sendTime) || 0,

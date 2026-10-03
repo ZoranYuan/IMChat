@@ -1,11 +1,12 @@
 import { computed, ref } from "vue";
 import {
-  completeUpload,
-  initUpload,
+  completeFileUpload,
+  initFileUpload,
   presignMultipartParts,
   uploadDirectObjectToStorage,
   uploadMultipartPartToStorage,
 } from "../api.js";
+import { ActiveUploadStatuses, UploadStatus } from "../constants/upload.js";
 
 const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 const DEFAULT_CONCURRENCY = 3;
@@ -16,12 +17,12 @@ const DEVICE_HASH_MEMORY_RATIO = 0.25;
 const MAX_RETRIES = 3;
 const MAX_COMPLETE_REPAIR_ROUNDS = 2;
 
-export function useChunkUpload(options = {}) {
+export function useFileUpload(options = {}) {
   const chunkSize = options.chunkSize || DEFAULT_CHUNK_SIZE;
   const concurrency = options.concurrency || DEFAULT_CONCURRENCY;
   const maxFileSize = options.maxFileSize || DEFAULT_MAX_FILE_SIZE;
   const maxHashFileSize = options.maxHashFileSize || DEFAULT_MAX_HASH_FILE_SIZE;
-  const status = ref("idle");
+  const status = ref(UploadStatus.IDLE);
   const progress = ref(0);
   const error = ref("");
   const uploadId = ref("");
@@ -30,15 +31,12 @@ export function useChunkUpload(options = {}) {
   // 收集所有的上传任务，当取消时，取消上传中的任务
   const activeRequests = new Set();
   const isUploading = computed(() =>
-    ["hashing", "initializing", "uploading", "completing"].includes(status.value),
+    ActiveUploadStatuses.includes(status.value),
   );
-
-  console.log("开始上传文件")
-
   const reset = () => {
     activeRequests.forEach((controller) => controller.abort());
     activeRequests.clear();
-    status.value = "idle";
+    status.value = UploadStatus.IDLE;
     progress.value = 0;
     error.value = "";
     uploadId.value = "";
@@ -50,7 +48,6 @@ export function useChunkUpload(options = {}) {
   };
 
   const updateMultipartProgress = (completedParts, totalChunks) => {
-    console.log("更新上传进度")
     progress.value = totalChunks > 0
       ? Math.min(100, Math.floor((completedParts.size / totalChunks) * 100))
       : 0;
@@ -177,16 +174,16 @@ export function useChunkUpload(options = {}) {
     for (let round = 0; round <= MAX_COMPLETE_REPAIR_ROUNDS; round += 1) {
       try {
         if (canceled.value) throw new Error("上传已取消");
-        status.value = "completing";
-        const result = await completeUpload(currentUploadId);
-        if (result?.status !== "completed" || !result.fileId) {
+        status.value = UploadStatus.COMPLETING;
+        const result = await completeFileUpload(currentUploadId);
+        if (result?.status !== UploadStatus.COMPLETED || !result.fileId) {
           throw new Error("合并成功但未返回文件标识。");
         }
         return result;
       } catch (completeError) {
         const repairParts = incompletePartNumbers(completeError);
         if (!repairParts.length || round === MAX_COMPLETE_REPAIR_ROUNDS) throw completeError;
-        status.value = "uploading";
+        status.value = UploadStatus.UPLOADING;
         await repairIncompleteParts(
           file,
           currentUploadId,
@@ -201,13 +198,6 @@ export function useChunkUpload(options = {}) {
 
   const uploadMultipart = async (file, initialized) => {
     const totalChunks = Math.ceil(file.size / chunkSize);
-    if (initialized.status === "completed" && initialized.fileId) {
-      return { fileId: initialized.fileId, status: initialized.status };
-    }
-    if (initialized.status === "completed") {
-      throw new Error("秒传响应缺少文件标识。");
-    }
-
     uploadId.value = initialized.uploadId;
     const completedParts = new Set(initialized.uploadedParts || []);
     updateMultipartProgress(completedParts, totalChunks);
@@ -216,7 +206,7 @@ export function useChunkUpload(options = {}) {
       .filter((partNumber) => !completedParts.has(partNumber));
     const partURLs = await presignParts(initialized.uploadId, queue);
     let cursor = 0;
-    status.value = "uploading";
+    status.value = UploadStatus.UPLOADING;
 
     const worker = async () => {
       while (cursor < queue.length) {
@@ -224,7 +214,6 @@ export function useChunkUpload(options = {}) {
         await waitUntilResumed();
         if (canceled.value) throw new Error("上传已取消");
         const partNumber = queue[cursor];
-        console.log("开始上传，当前 cursor 为：", cursor)
         cursor += 1;
         await uploadPartWithRetry(
           file,
@@ -237,7 +226,6 @@ export function useChunkUpload(options = {}) {
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
-    progress.value = cursor;
     if (canceled.value) throw new Error("上传已取消");
     return completeWithRepair(
       file,
@@ -247,35 +235,22 @@ export function useChunkUpload(options = {}) {
     );
   };
 
-  // 小文件前端直接传递
+  // 直传完成后通知后端校验对象并落库。
   const uploadDirect = async (file, initialized) => {
-    // 只有秒传命中时才会返回 fileId；普通直传初始化不会返回 fileId。
-    if (initialized.status === "completed" && initialized.fileId) {
-      return { fileId: initialized.fileId, status: initialized.status };
-    }
-    if (initialized.status === "completed") {
-      throw new Error("秒传响应缺少文件标识。");
-    }
-
-    // 之前没传递过，开始根据后端返回的 url 传递数
     uploadId.value = initialized.uploadId;
-    status.value = "uploading";
+    status.value = UploadStatus.UPLOADING;
     const controller = new AbortController();
     activeRequests.add(controller);
-    console.log("开始上传")
     try {
       await uploadDirectObjectToStorage(initialized.url, file, controller.signal);
-      console.log("上传完成")
       progress.value = 100;
     } finally {
-      console.log("上传失败")
       activeRequests.delete(controller);
     }
     if (canceled.value) throw new Error("上传已取消");
-    status.value = "completing";
-    console.log("上传完成，准备调用 complete 接口")
-    const result = await completeUpload(initialized.uploadId);
-    if (result?.status !== "completed" || !result.fileId) {
+    status.value = UploadStatus.COMPLETING;
+    const result = await completeFileUpload(initialized.uploadId);
+    if (result?.status !== UploadStatus.COMPLETED || !result.fileId) {
       throw new Error("上传完成但未返回文件标识。");
     }
     return result;
@@ -286,12 +261,12 @@ export function useChunkUpload(options = {}) {
     try {
       if (!file || file.size <= 0) throw new Error("文件不能为空");
       assertFileCanBeHashed(file, maxFileSize, maxHashFileSize);
-      status.value = "hashing";
+      status.value = UploadStatus.HASHING;
       const fileHash = await createActualSHA256(file);
       if (canceled.value) throw new Error("上传已取消");
       const totalChunks = Math.ceil(file.size / chunkSize);
-      status.value = "initializing";
-      const initialized = await initUpload({
+      status.value = UploadStatus.INITIALIZING;
+      const initialized = await initFileUpload({
         fileName: file.name,
         contentType: file.type || "application/octet-stream",
         size: file.size,
@@ -301,11 +276,11 @@ export function useChunkUpload(options = {}) {
       });
       if (canceled.value) throw new Error("上传已取消");
 
-      if (initialized.status === "completed" && initialized.fileId) {
+      if (initialized.status === UploadStatus.COMPLETED) {
+        if (!initialized.fileId) throw new Error("秒传响应缺少文件标识。");
+        status.value = UploadStatus.COMPLETED;
+        progress.value = 100;
         return { fileId: initialized.fileId, status: initialized.status };
-      }
-      if (initialized.status === "completed") {
-        throw new Error("秒传响应缺少文件标识。");
       }
 
       let result;
@@ -317,31 +292,32 @@ export function useChunkUpload(options = {}) {
         throw new Error("服务端返回了未知的上传模式。");
       }
       if (canceled.value) throw new Error("上传已取消");
-      status.value = "completed";
+      status.value = UploadStatus.COMPLETED;
+      progress.value = 100;
       return result;
     } catch (uploadError) {
       error.value = uploadError.message;
-      if (!canceled.value) status.value = "failed";
+      if (!canceled.value) status.value = UploadStatus.FAILED;
       throw uploadError;
     }
   };
 
   const pause = () => {
-    if (status.value === "uploading") {
+    if (status.value === UploadStatus.UPLOADING) {
       paused.value = true;
-      status.value = "paused";
+      status.value = UploadStatus.PAUSED;
     }
   };
 
   const resume = () => {
-    if (status.value === "paused") {
+    if (status.value === UploadStatus.PAUSED) {
       if (uploader.releasePause) {
         uploader.releasePause();
       } else {
         paused.value = false;
         resumePromise = null;
       }
-      status.value = "uploading";
+      status.value = UploadStatus.UPLOADING;
     }
   };
 
@@ -353,7 +329,7 @@ export function useChunkUpload(options = {}) {
     resumePromise = null;
     activeRequests.forEach((controller) => controller.abort());
     activeRequests.clear();
-    status.value = "canceled";
+    status.value = UploadStatus.CANCELED;
   };
 
   const uploader = {
@@ -405,7 +381,7 @@ const digest = async (buffer) => {
 const sleep = (duration) => new Promise((resolve) => window.setTimeout(resolve, duration));
 
 function incompletePartNumbers(error) {
-  if (error?.status !== 409 || error.data?.status !== "uploading") return [];
+  if (error?.status !== 409 || error.data?.status !== UploadStatus.UPLOADING) return [];
   const data = error.data || {};
   const numbers = [...(data.missingParts || []), ...(data.invalidParts || [])]
     .map((partNumber) => Number(partNumber))

@@ -5,6 +5,7 @@ import {
   createRoom,
   getAttachmentAccessURLs,
   getConversations,
+  getOfflineMessages,
   getFriendRequests,
   getFriends,
   joinRoom,
@@ -16,7 +17,7 @@ import {
   syncMessages,
   updateUserProfile,
 } from "../../api.js";
-import { useChunkUpload } from "../../composables/useChunkUpload.js";
+import { useFileUpload } from "../../composables/useFileUpload.js";
 import { ConversationType } from "../../constants/conversation.js";
 import { MessageType } from "../../constants/message.js";
 import {
@@ -31,16 +32,11 @@ import {
   insertMessages,
   queryMessagesByCursor,
 } from "../../db/services/messageService.js";
-import {
-  mockContacts,
-  mockFriendRequests,
-} from "../../mocks/chat.js";
 import { createWsClient } from "../../services/wsClient.js";
 import { createAttachmentResolver } from "./services/attachmentService.js";
 import { createMediaUploadService } from "./services/mediaUploadService.js";
 import {
   authUserProfile,
-  clone,
   initialUser,
   persistSession,
 } from "./services/authService.js";
@@ -70,8 +66,8 @@ const state = reactive({
   currentUser: initialUser(),
   conversations: [],
   messages: {},
-  contacts: clone(mockContacts),
-  friendRequests: clone(mockFriendRequests),
+  contacts: [],
+  friendRequests: [],
   activeConversationId: "",
   connection: "disconnected",
   loading: false,
@@ -88,6 +84,7 @@ const historyRequests = new Map();
 const messageProcessingByConversation = new Map();
 
 let sessionGeneration = 0;
+let startupCatchupGeneration = -1;
 let cacheClearPromise = Promise.resolve();
 let authBootstrapPromise = null;
 let historyRequestSequence = 0;
@@ -373,14 +370,75 @@ const enqueueConversationMessage = (conversationId, task) => {
   });
 };
 
-const isContinuousFrom = (messages, afterSeq) => {
-  let expectedSeq = Number(afterSeq) + 1;
+const isOrderedAfter = (messages, afterSeq) => {
+  let previousSeq = Number(afterSeq) || 0;
   for (const message of messages) {
     const seq = Number(message.seq);
-    if (!Number.isSafeInteger(seq) || seq !== expectedSeq) return false;
-    expectedSeq += 1;
+    if (!Number.isSafeInteger(seq) || seq <= previousSeq) return false;
+    previousSeq = seq;
   }
   return true;
+};
+
+/** 在会话快照固定水位内分页补齐离线消息，水位之后的新消息留给 WebSocket 阶段追赶。 */
+const catchUpOfflineConversation = async (conversation, session) => {
+  const conversationId = conversation?.conversationId || "";
+  const snapshotSeq = Number(conversation?.latestSeq) || 0;
+  let cursor = Number(conversation?.lastContinuousSeq) || 0;
+  if (!conversationId || cursor >= snapshotSeq) return;
+
+  while (cursor < snapshotSeq) {
+    const previousCursor = cursor;
+    const page = await getOfflineMessages({
+      conversationId,
+      afterSeq: cursor,
+      snapshotSeq,
+      limit: 10,
+    });
+    if (!isSessionActive(session)) return;
+
+    const messages = (page?.messages || []).map(normalizeMessage);
+    if (messages.length && !isOrderedAfter(messages, cursor)) {
+      throw new Error(`离线消息序号重复或乱序：${conversationId}`);
+    }
+
+    const nextCursor = Number(page?.nextCursor);
+    if (!Number.isSafeInteger(nextCursor) || nextCursor < cursor || nextCursor > snapshotSeq) {
+      throw new Error(`离线消息游标无效：${conversationId}`);
+    }
+    if (messages.length && Number(messages.at(-1)?.seq) > nextCursor) {
+      throw new Error(`离线消息游标落后于消息：${conversationId}`);
+    }
+    if (page?.hasMore && !messages.length) {
+      throw new Error(`离线分页没有消息但仍有后续页：${conversationId}`);
+    }
+
+    const persisted = await persistConfirmedMessages(messages, {
+      session,
+      lastContinuousSeqByConversation: { [conversationId]: nextCursor },
+    });
+    if (!isSessionActive(session)) return;
+
+    cursor = Number(
+      persisted?.lastContinuousSeqByConversation?.[conversationId],
+    ) || nextCursor;
+    conversation.lastContinuousSeq = cursor;
+
+    if (page?.hasMore && cursor <= previousCursor) {
+      throw new Error(`离线分页游标未推进：${conversationId}`);
+    }
+    if (!page?.hasMore) break;
+  }
+};
+
+/** 并发补齐各会话的固定快照；任一失败时不建立 WebSocket。 */
+const catchUpAllOfflineConversations = async (session = captureSession()) => {
+  const results = await Promise.allSettled(
+    state.conversations.map((conversation) => catchUpOfflineConversation(conversation, session)),
+  );
+  if (!isSessionActive(session)) return;
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure) throw failure.reason;
 };
 
 /**
@@ -420,11 +478,14 @@ const processRealtimeMessage = async (
       bySeq.set(messageSeq, message);
       messagesToPersist = [...bySeq.values()].sort((left, right) => Number(left.seq) - Number(right.seq));
 
-      // /sync 契约要求从 afterSeq 起连续返回；不满足时不推进本地边界。
-      if (!isContinuousFrom(messagesToPersist, localBoundary)) {
-        throw new Error("消息同步结果存在序号断层");
+      // /sync 会过滤视频弹幕，客户端只校验可见消息有序，并用 throughSeq 推进扫描水位。
+      if (!isOrderedAfter(messagesToPersist, localBoundary)) {
+        throw new Error("消息同步结果存在重复或乱序");
       }
-      nextBoundary = Number(messagesToPersist.at(-1)?.seq) || localBoundary;
+      nextBoundary = Math.max(
+        Number(syncResult?.throughSeq) || localBoundary,
+        Number(messagesToPersist.at(-1)?.seq) || localBoundary,
+      );
     }
 
     const persisted = await persistConfirmedMessages(messagesToPersist, {
@@ -436,6 +497,7 @@ const processRealtimeMessage = async (
     conversation.lastContinuousSeq = Number(
       persisted?.lastContinuousSeqByConversation?.[conversationId],
     ) || nextBoundary;
+    conversation.latestSeq = Math.max(Number(conversation.latestSeq) || 0, nextBoundary);
 
     const active = state.activeConversationId === conversationId;
     if (active) {
@@ -559,29 +621,32 @@ const refreshConversationSnapshot = async (session = captureSession()) => {
   return conversations;
 };
 
-/** 大群轻量通知没有消息正文，按其 seq 从本地边界补齐。 */
-const syncRoomMessageNotice = async (notice) => {
-  const conversationId = notice?.conversationId || "";
-  const targetSeq = Number(notice?.seq) || 0;
-  const session = captureSession();
-  if (!conversationId || targetSeq <= 0 || !isSessionActive(session)) return;
-
+/** 从本地扫描水位同步到服务端本次请求快照，并串行合并通知触发的补拉。 */
+const syncConversationFromLocal = async (
+  conversationId,
+  { session = captureSession(), targetSeq = 0 } = {},
+) => {
+  if (!conversationId || !isSessionActive(session)) return;
   const conversation = findConversation(state.conversations, conversationId);
   if (!conversation) return;
   return enqueueConversationMessage(conversationId, async () => {
     const localBoundary = Number(conversation.lastContinuousSeq) || 0;
-    if (targetSeq <= localBoundary) return;
+    if (targetSeq > 0 && targetSeq <= localBoundary) return;
+    const knownLatestSeq = Number(conversation.latestSeq) || 0;
 
     const scope = `${session.userId}:${session.generation}`;
     const result = await messageSync.syncAfter(conversationId, localBoundary, scope);
     if (!isSessionActive(session)) return;
 
     const messages = (result?.messages || []).map(normalizeMessage);
-    if (!messages.length || !isContinuousFrom(messages, localBoundary)) {
-      throw new Error("房间消息同步结果存在序号断层");
+    if (messages.length && !isOrderedAfter(messages, localBoundary)) {
+      throw new Error("消息同步结果存在重复或乱序");
     }
 
-    const nextBoundary = Number(messages.at(-1)?.seq) || localBoundary;
+    const latestMessageSeq = Number(messages.at(-1)?.seq) || localBoundary;
+    const nextBoundary = Math.max(Number(result?.throughSeq) || localBoundary, latestMessageSeq);
+    if (nextBoundary <= localBoundary) return;
+
     const persisted = await persistConfirmedMessages(messages, {
       session,
       lastContinuousSeqByConversation: { [conversationId]: nextBoundary },
@@ -592,17 +657,40 @@ const syncRoomMessageNotice = async (notice) => {
 
     const latest = messages.at(-1);
     const active = state.activeConversationId === conversationId;
-    if (active) await mergeMessages(conversationId, messages, { persist: false, session });
+    if (active && messages.length) await mergeMessages(conversationId, messages, { persist: false, session });
+    conversation.latestSeq = Math.max(Number(conversation.latestSeq) || 0, nextBoundary);
     if (latest) {
       applyRealtimeMessageToConversation(conversation, latest, {
         active,
-        increaseUnread: !active && latest.senderId !== currentUserId(),
+        increaseUnread: false,
       });
-      updateConversationList();
-      await persistConversation(conversation, session);
+      if (!active) {
+        conversation.unread = (Number(conversation.unread) || 0) + messages.filter(
+          (message) => Number(message.seq) > knownLatestSeq
+          && message.senderId !== currentUserId(),
+        ).length;
+      }
     }
+    updateConversationList();
+    await persistConversation(conversation, session);
     if (active && latest?.senderId !== currentUserId()) sendReadAck(conversationId);
   });
+};
+
+/** 大群轻量通知没有消息正文，按其 seq 从本地边界补齐。 */
+const syncRoomMessageNotice = async (notice) => {
+  const conversationId = notice?.conversationId || "";
+  const targetSeq = Number(notice?.seq) || 0;
+  if (!conversationId || targetSeq <= 0) return;
+  return syncConversationFromLocal(conversationId, { targetSeq });
+};
+
+/** WebSocket 建立或重连后，逐会话补齐离线快照与实时连接之间的缺口。 */
+const syncAllConversationGaps = async (session = captureSession()) => {
+  const conversations = [...state.conversations];
+  await Promise.all(conversations.map((conversation) => (
+    syncConversationFromLocal(conversation.conversationId, { session })
+  )));
 };
 
 /** 首次打开本地尚无消息的会话时，从 0 同步完整历史；后续点击只读本地。 */
@@ -621,12 +709,15 @@ const syncInitialConversation = async (conversationId) => {
     if (!isSessionActive(session)) return;
 
     const messages = (result?.messages || []).map(normalizeMessage);
-    if (!messages.length) return;
-    if (!isContinuousFrom(messages, localBoundary)) {
-      throw new Error("首次消息同步结果存在序号断层");
+    if (messages.length && !isOrderedAfter(messages, localBoundary)) {
+      throw new Error("首次消息同步结果存在重复或乱序");
     }
 
-    const nextBoundary = Number(messages.at(-1)?.seq) || localBoundary;
+    const nextBoundary = Math.max(
+      Number(result?.throughSeq) || localBoundary,
+      Number(messages.at(-1)?.seq) || localBoundary,
+    );
+    if (nextBoundary <= localBoundary) return;
     const persisted = await persistConfirmedMessages(messages, {
       session,
       lastContinuousSeqByConversation: { [conversationId]: nextBoundary },
@@ -634,6 +725,7 @@ const syncInitialConversation = async (conversationId) => {
     conversation.lastContinuousSeq = Number(
       persisted?.lastContinuousSeqByConversation?.[conversationId],
     ) || nextBoundary;
+    conversation.latestSeq = Math.max(Number(conversation.latestSeq) || 0, nextBoundary);
   });
 };
 
@@ -641,9 +733,20 @@ const wsClient = createWsClient({
   onStateChange: (connection) => {
     state.connection = connection;
   },
-  onOpen: ({ recovered }) => {
-    if (!recovered) return;
-    refreshConversationSnapshot(captureSession()).catch(() => { });
+  onOpen: () => {
+    const session = captureSession();
+    syncAllConversationGaps(session).catch((error) => {
+      console.error("WebSocket 建立后补齐消息失败", error);
+    });
+  },
+  onBeforeReconnect: async () => {
+    const session = captureSession();
+    if (!isSessionActive(session)) return;
+    await refreshConversationSnapshot(session);
+    if (isSessionActive(session)) await catchUpAllOfflineConversations(session);
+  },
+  onReconnectPreparationError: (error) => {
+    console.error("WebSocket 重连前离线补齐失败", error);
   },
   onMessage: upsertIncomingMessage,
   onAck: handleMessageAck,
@@ -676,12 +779,18 @@ const sendReadAck = (conversationId = state.activeConversationId) => {
   if (sent) conversation.unread = 0;
 };
 
-const connectSocket = () => {
-  if (state.authenticated && !wsClient.isConnected()) wsClient.connect(true);
+const connectSocket = ({ initialCatchupComplete = false } = {}) => {
+  if (!state.authenticated || wsClient.isConnected() || wsClient.isConnecting()) return;
+  if (initialCatchupComplete) {
+    wsClient.connect(true);
+    return;
+  }
+  wsClient.reconnect();
 };
 
 const clearAuthState = () => {
   sessionGeneration += 1;
+  startupCatchupGeneration = -1;
   pendingMessages.clear();
   for (const task of pendingUploadTasks.values()) {
     task.cancelRequested = true;
@@ -798,6 +907,7 @@ export const useChatStore = defineStore("chat", () => {
       ]);
       if (!isSessionActive(session)) return;
       if (!remoteResult.ok && !cachedConversations.length) throw remoteResult.error;
+      let didInitialCatchup = false;
 
       const cachedContinuousSeqByConversation = new Map(
         cachedConversations.map((conversation) => [
@@ -827,6 +937,12 @@ export const useChatStore = defineStore("chat", () => {
       state.conversations = conversations;
       if (remoteResult.ok) {
         await replaceConversations(session.userId, conversations).catch(() => { });
+        if (startupCatchupGeneration !== session.generation) {
+          await catchUpAllOfflineConversations(session);
+          if (!isSessionActive(session)) return;
+          startupCatchupGeneration = session.generation;
+          didInitialCatchup = true;
+        }
       }
 
       const conversationByTargetId = new Map(
@@ -853,7 +969,8 @@ export const useChatStore = defineStore("chat", () => {
         state.activeConversationId = "";
       }
 
-      connectSocket();
+      if (!remoteResult.ok) throw remoteResult.error;
+      connectSocket({ initialCatchupComplete: didInitialCatchup });
     } finally {
       if (isSessionActive(session)) state.loading = false;
     }
@@ -981,7 +1098,7 @@ export const useChatStore = defineStore("chat", () => {
       error: "",
     });
 
-    const uploader = useChunkUpload();
+    const uploader = useFileUpload();
     const task = {
       clientMsgId,
       conversationId: conversation.conversationId,
@@ -1132,7 +1249,11 @@ export const useChatStore = defineStore("chat", () => {
     return room;
   };
 
-  const retryConnection = () => wsClient.reconnect();
+  const retryConnection = () => (
+    startupCatchupGeneration === sessionGeneration
+      ? wsClient.reconnect()
+      : loadWorkspace()
+  );
 
   const logout = async () => {
     try {

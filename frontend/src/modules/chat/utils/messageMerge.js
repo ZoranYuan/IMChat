@@ -50,13 +50,6 @@ export const mergeMessageLists = (existing = [], incoming = []) => {
   ]);
 };
 
-/** 返回当前消息列表中 seq 最大的已确认消息。 */
-export const latestConfirmedMessage = (messages = []) => messages
-  .filter((message) => Number(message.seq) > 0)
-  .reduce((latest, message) => (
-    !latest || Number(message.seq) > Number(latest.seq) ? message : latest
-  ), null);
-
 /** 过滤出可以写入 IndexedDB 的已确认消息。 */
 export const confirmedMessages = (messages = []) => messages.filter((message) => (
   Number(message.seq) > 0 && message.messageId

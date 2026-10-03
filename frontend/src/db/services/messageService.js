@@ -21,7 +21,8 @@ export const insertMessages = async (
     messages,
     { userId, lastContinuousSeqByConversation = {} } = {},
 ) => {
-    if (!messages?.length) {
+    const boundaryEntries = Object.entries(lastContinuousSeqByConversation || {});
+    if (!messages?.length && !boundaryEntries.length) {
         return {
             lastContinuousSeqByConversation: {},
         };
@@ -31,11 +32,11 @@ export const insertMessages = async (
         throw new Error("insertMessages requires userId");
     }
 
-    const records = messages
+    const records = (messages || [])
         .map((message) => createMessageRecord(message))
         .filter(Boolean);
 
-    if (!records.length) {
+    if (!records.length && !boundaryEntries.length) {
         return {
             lastContinuousSeqByConversation: {},
         };
@@ -56,7 +57,7 @@ export const insertMessages = async (
             messageStore.put(record);
         }
 
-        for (const [conversationId, rawSeq] of Object.entries(lastContinuousSeqByConversation)) {
+        for (const [conversationId, rawSeq] of boundaryEntries) {
             const nextSeq = Number(rawSeq);
             if (!conversationId || !Number.isSafeInteger(nextSeq) || nextSeq < 0) continue;
 

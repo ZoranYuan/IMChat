@@ -7,7 +7,6 @@ import {
     CONVERSATION_INDEXES,
     CONVERSATION_KEY_PATH,
     CONVERSATION_STORE_NAME,
-    LEGACY_USER_CONVERSATION_STORE_NAME,
 } from "../models/conversation.js";
 
 const DB_NAME = "im-chat-cache";
@@ -42,29 +41,6 @@ const createConversationStore = (db) => {
     );
 };
 
-/** 在数据库升级期间将旧会话表记录迁移到当前会话表。 */
-const migrateLegacyConversationStore = (db, transaction) => {
-    if (!db.objectStoreNames.contains(LEGACY_USER_CONVERSATION_STORE_NAME)) return;
-
-    const oldStore = transaction.objectStore(LEGACY_USER_CONVERSATION_STORE_NAME);
-    const newStore = transaction.objectStore(CONVERSATION_STORE_NAME);
-    const request = oldStore.openCursor();
-
-    request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor) {
-            db.deleteObjectStore(LEGACY_USER_CONVERSATION_STORE_NAME);
-            return;
-        }
-
-        const record = { ...cursor.value };
-        delete record.createdAt;
-        delete record.updatedAt;
-        newStore.put(record);
-        cursor.continue();
-    };
-};
-
 /** 打开本地 IndexedDB，并在首次创建或升级时初始化数据表。 */
 export const openIndexedDb = () => new Promise((resolve, reject) => {
     if (typeof window === "undefined" || !("indexedDB" in window)) {
@@ -80,9 +56,6 @@ export const openIndexedDb = () => new Promise((resolve, reject) => {
         }
         if (!db.objectStoreNames.contains(CONVERSATION_STORE_NAME)) {
             createConversationStore(db);
-        }
-        if (db.objectStoreNames.contains(LEGACY_USER_CONVERSATION_STORE_NAME)) {
-            migrateLegacyConversationStore(db, request.transaction);
         }
     };
     request.onsuccess = () => resolve(request.result);

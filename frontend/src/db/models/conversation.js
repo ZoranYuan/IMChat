@@ -1,9 +1,6 @@
 export const CONVERSATION_STORE_NAME =
     "conversations";
 
-export const LEGACY_USER_CONVERSATION_STORE_NAME =
-    "userConversations";
-
 export const CONVERSATION_KEY_PATH = [
     "userId",
     "conversationId",
@@ -24,6 +21,7 @@ export const createConversationRecord = (
         userId,
         conversationId: conversation.conversationId,
         convType: conversation.convType,
+        latestSeq: Number(conversation.latestSeq) || 0,
         targetId: conversation.targetId,
         displayName: conversation.displayName,
         avatar: conversation.avatar,

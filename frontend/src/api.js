@@ -24,14 +24,25 @@ const refreshHttp = axios.create({
 
 let refreshPromise = null;
 
+const unwrapResponse = (response) => {
+  const payload = response.data;
+  if (!payload || typeof payload !== "object" || payload.code !== 200) {
+    const apiError = new ApiError(payload?.message || "服务端响应格式无效", {
+      code: payload?.code || 0,
+      status: response.status,
+      data: payload?.data,
+    });
+    apiError.requestConfig = response.config;
+    throw apiError;
+  }
+  return payload.data ?? null;
+};
+
 const refreshAccessToken = () => {
   if (!refreshPromise) {
     refreshPromise = refreshHttp.post("/users/refresh")
-      .then((response) => {
-        const payload = response.data;
-        const data = payload && typeof payload === "object" && "code" in payload
-          ? payload.data
-          : payload;
+      .then(unwrapResponse)
+      .then((data) => {
         if (!data) throw new ApiError("刷新令牌无效", { status: 401 });
         return data;
       })
@@ -53,22 +64,7 @@ const clearAuthAndRedirect = () => {
 };
 
 http.interceptors.response.use(
-  (response) => {
-    const payload = response.data;
-    if (payload && typeof payload === "object" && "code" in payload) {
-      if (payload.code !== 0 && payload.code !== 200) {
-        const apiError = new ApiError(payload.message || "请求失败", {
-          code: payload.code,
-          status: response.status,
-          data: payload.data,
-        });
-        apiError.requestConfig = response.config;
-        throw apiError;
-      }
-      return payload.data ?? null;
-    }
-    return payload;
-  },
+  unwrapResponse,
   async (error) => {
     const status = error.status || error.response?.status || 0;
     const requestConfig = error.requestConfig || error.config;
@@ -112,7 +108,7 @@ export const logoutUser = () => http.post("/users/logout");
 export const refreshSession = () => refreshAccessToken();
 
 export const findUserByPhoneAndUserName = (keyword) => (
-  http.get(`/users/${encodeURIComponent((keyword || "").trim())}`)
+	http.get("/users/resolve", { params: { keyword: (keyword || "").trim() } })
 );
 
 export const updateUserProfile = ({ username, nickName, avatar }) => {
@@ -138,10 +134,6 @@ export const createRoom = ({ roomName, description = "", avatar = "" }) =>
 
 export const joinRoom = (inviteCode) => http.post("/rooms/join", { inviteCode });
 
-export const getRoomInviteCode = (roomId) => http.get(`/rooms/${roomId}/invite-code`);
-
-export const leaveRoom = (roomId) => http.post(`/rooms/${roomId}/leave`);
-
 export const getConversations = () => http.get("/conversations");
 
 export const syncMessages = (conversationId, afterSeq = 0) =>
@@ -152,18 +144,16 @@ export const syncMessages = (conversationId, afterSeq = 0) =>
     },
   });
 
-export const getRoomVideoHistory = (roomId, limit = 20) =>
-  http.get("/messages/videos", { params: { roomId, limit } });
+export const getOfflineMessages = ({
+  conversationId,
+  afterSeq = 0,
+  snapshotSeq,
+  limit = 10,
+}) => http.get("/messages/offline", {
+  params: { conversationId, afterSeq, snapshotSeq, limit },
+});
 
-export const getVideoDanmaku = (roomId, videoId, { startTime = 0, endTime = 0, limit = 200 } = {}) =>
-  http.get("/messages/danmaku", {
-    params: { roomId, videoId, startTime, endTime, limit },
-  });
-
-export const initDirectUpload = (payload) =>
-  http.post("/files/direct/init", payload);
-
-export const initUpload = (payload) =>
+export const initFileUpload = (payload) =>
   http.post("/files/uploads/init", payload);
 
 export const uploadDirectObjectToStorage = (url, file, signal) =>
@@ -172,26 +162,17 @@ export const uploadDirectObjectToStorage = (url, file, signal) =>
     signal,
   });
 
-export const completeDirectUpload = (uploadId) =>
-  http.post(`/files/direct/${uploadId}/complete`);
-
-export const completeUpload = (uploadId) =>
+export const completeFileUpload = (uploadId) =>
   http.post(`/files/uploads/${uploadId}/complete`);
 
-export const initMultipartUpload = (payload) =>
-  http.post("/files/multipart/init", payload);
-
 export const presignMultipartParts = (uploadId, partNumbers) =>
-  http.post(`/files/multipart/${uploadId}/parts/presign`, { partNumbers });
+  http.post(`/files/uploads/${uploadId}/parts/presign`, { partNumbers });
 
 export const uploadMultipartPartToStorage = (url, chunk, signal) =>
   axios.put(url, chunk, {
     headers: { "Content-Type": "application/octet-stream" },
     signal,
   });
-
-export const completeMultipartUpload = (uploadId) =>
-  http.post(`/files/multipart/${uploadId}/complete`);
 
 export const getAttachmentAccessURLs = (attachmentIds = []) =>
   http.post("/files/attachments/access-urls", {
