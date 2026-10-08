@@ -207,18 +207,18 @@ func (rc *RoomCache) recordActivityAt(ctx context.Context, roomId string, now ti
 	return err
 }
 
-// ActivateLevel 统计最近一个窗口内的消息数，并返回当前活跃等级。
-func (rc *RoomCache) ActivateLevel(ctx context.Context, roomId string) (int, error) {
+// ActivateLevel 只读取窗口消息数，按当前在线连接数计算等级，不增加计数。
+func (rc *RoomCache) ActivateLevel(ctx context.Context, roomId string, onlineSessions int) (int, error) {
 	if roomId == "" {
 		return roomcache.RoomActivityNormal, errors.New("roomID 不能为空")
 	}
 	if rc == nil || rc.store == nil || rc.store.Client() == nil {
 		return roomcache.RoomActivityNormal, errors.New("房间活跃度缓存未配置")
 	}
-	return rc.activateLevelAt(ctx, roomId, time.Now())
+	return rc.activateLevelAt(ctx, roomId, time.Now(), onlineSessions)
 }
 
-func (rc *RoomCache) activateLevelAt(ctx context.Context, roomId string, now time.Time) (int, error) {
+func (rc *RoomCache) activateLevelAt(ctx context.Context, roomId string, now time.Time, onlineSessions int) (int, error) {
 	settings, err := rc.activitySettings()
 	if err != nil {
 		return roomcache.RoomActivityNormal, err
@@ -258,7 +258,7 @@ func (rc *RoomCache) activateLevelAt(ctx context.Context, roomId string, now tim
 		}
 		total += int64(count)
 	}
-	return classifyActivityLevel(total, 1, settings), nil
+	return classifyActivityLevel(total, int64(max(onlineSessions, 0)), settings), nil
 }
 
 func classifyActivityLevel(totalMessages, onlineSessions int64, settings activitySettings) int {

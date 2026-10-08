@@ -51,6 +51,41 @@ func TestRoomCacheActivityLevelScalesWithOnlineSessions(t *testing.T) {
 	}
 }
 
+func TestRoomCacheReadingActivityDoesNotIncreaseMessageCount(t *testing.T) {
+	cache, client, _ := newActivityCacheTest(t)
+	ctx := context.Background()
+	now := time.Now()
+	if err := cache.recordActivityAt(ctx, "read-only", now); err != nil {
+		t.Fatal(err)
+	}
+	before, err := client.HGetAll(ctx, ActivateLevelKey("read-only")).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		level, err := cache.activateLevelAt(ctx, "read-only", now, 4)
+		if err != nil || level != roomcache.RoomActivityActive {
+			t.Fatalf("level=%d err=%v", level, err)
+		}
+	}
+	after, err := client.HGetAll(ctx, ActivateLevelKey("read-only")).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatal("reading changed activity buckets")
+	}
+	for key, value := range before {
+		if after[key] != value {
+			t.Fatal("reading increased activity count")
+		}
+	}
+	level, err := cache.activateLevelAt(ctx, "read-only", now, 0)
+	if err != nil || level != roomcache.RoomActivityNormal {
+		t.Fatalf("offline room level=%d err=%v", level, err)
+	}
+}
+
 func TestRoomCacheActivityLevelUsesRecentWindow(t *testing.T) {
 	cache, client, _ := newActivityCacheTest(t)
 	ctx := context.Background()
@@ -60,7 +95,7 @@ func TestRoomCacheActivityLevelUsesRecentWindow(t *testing.T) {
 	if err := cache.recordActivityAt(ctx, roomID, now); err != nil {
 		t.Fatal(err)
 	}
-	level, err := cache.activateLevelAt(ctx, roomID, now)
+	level, err := cache.activateLevelAt(ctx, roomID, now, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +106,7 @@ func TestRoomCacheActivityLevelUsesRecentWindow(t *testing.T) {
 	if err := cache.recordActivityAt(ctx, roomID, now); err != nil {
 		t.Fatal(err)
 	}
-	level, err = cache.activateLevelAt(ctx, roomID, now)
+	level, err = cache.activateLevelAt(ctx, roomID, now, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +119,7 @@ func TestRoomCacheActivityLevelUsesRecentWindow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	level, err = cache.activateLevelAt(ctx, roomID, now)
+	level, err = cache.activateLevelAt(ctx, roomID, now, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +146,7 @@ func TestRoomCacheActivityWindowDropsExpiredBuckets(t *testing.T) {
 	if err := cache.recordActivityAt(ctx, roomID, t1); err != nil {
 		t.Fatal(err)
 	}
-	level, err := cache.activateLevelAt(ctx, roomID, t1)
+	level, err := cache.activateLevelAt(ctx, roomID, t1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

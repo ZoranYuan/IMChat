@@ -18,6 +18,7 @@ import (
 	roomrepo "IM_backend/internal/application/ports/persistence/repository/room"
 	userrepo "IM_backend/internal/application/ports/persistence/repository/user"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
+	"IM_backend/internal/application/ports/realtime"
 	objectstorage "IM_backend/internal/application/ports/storage/object"
 	conversationentity "IM_backend/internal/domain/conversation/entity"
 	conversationvo "IM_backend/internal/domain/conversation/value_object"
@@ -29,6 +30,7 @@ import (
 	roomvo "IM_backend/internal/domain/room/value_object"
 	"unicode/utf8"
 
+	"IM_backend/internal/shared/diagnostics"
 	"IM_backend/internal/shared/protocol"
 	"context"
 	"crypto/sha256"
@@ -64,13 +66,13 @@ type MessageApplication struct {
 	messageAttachmentsRepository messagerepo.MessageAttachmentRepository
 	messageOutboxRepository      outboxport.OutboxRepository
 	producerNotifier             eventbus.ProducerNotifier
+	roomOnlineSessionCounter     realtime.RoomOnlineSessionCounter
 	userRepository               userrepo.UserRepository
 	roomUserRepository           roomrepo.RoomUserRepository
 	roomRepository               roomrepo.RoomRepository
 	sf                           singleflight.Group
 	idGenerator                  idport.Generator
 	config                       configs.Config
-	writeBatcher                 *conversationMessageWriteBatcher
 }
 
 // SetProducerNotifier 在事务提交后唤醒 Producer；定时扫描仍负责兜底。
@@ -79,6 +81,42 @@ func (ma *MessageApplication) SetProducerNotifier(notifier eventbus.ProducerNoti
 		return
 	}
 	ma.producerNotifier = notifier
+}
+
+// SetRoomOnlineSessionCounter 提供当前节点在线连接数，用于群消息缓存策略。
+func (ma *MessageApplication) SetRoomOnlineSessionCounter(counter realtime.RoomOnlineSessionCounter) {
+	ma.roomOnlineSessionCounter = counter
+}
+
+// warmRoomMessageCache 只处理已经提交的新群消息；失败不改变发送结果。
+func (ma *MessageApplication) warmRoomMessageCache(ctx context.Context, event protocol.MessageEvent) {
+	if event.ConvType != protocol.RoomChat || ma.roomCache == nil || ma.roomRepository == nil {
+		return
+	}
+	room, err := ma.roomRepository.FindActiveRoom(event.ConversationId, int(roomvo.Normal))
+	if err != nil || room == nil {
+		log.Printf("读取群消息缓存策略失败：room=%s error=%v", event.ConversationId, err)
+		return
+	}
+	onlineSessions := room.MemberCount
+	if ma.roomOnlineSessionCounter != nil {
+		if count, err := ma.roomOnlineSessionCounter.OnlineRoomSessionCount(ctx, event.ConversationId); err != nil {
+			log.Printf("读取房间在线连接数失败，使用成员数估算：room=%s error=%v", event.ConversationId, err)
+		} else {
+			onlineSessions = count
+		}
+	}
+	level, err := ma.roomCache.RecordActivityAndGetLevel(ctx, event.ConversationId, onlineSessions)
+	if err != nil {
+		log.Printf("记录房间活跃度失败：room=%s error=%v", event.ConversationId, err)
+		level = roomcache.RoomActivityNormal
+	}
+	if room.MemberCount <= ma.config.Message.RoomRealtimeFanoutLimit && level < roomcache.RoomActivityWarn {
+		return
+	}
+	if err := ma.roomCache.AppendRecentMessageSeq(ctx, event.ConversationId, event); err != nil {
+		log.Printf("写入已提交群消息缓存失败：room=%s seq=%d error=%v", event.ConversationId, event.Seq, err)
+	}
 }
 
 func (ma *MessageApplication) notifyProducer() {
@@ -136,20 +174,7 @@ func NewMessageApplication(
 		config:                       config,
 		messageAttachmentsRepository: messageAttachmentsRepository,
 	}
-	app.writeBatcher = newConversationMessageWriteBatcher(app, ConversationMessageWriteBatchOptions{
-		Linger:      time.Duration(config.Message.ConversationWriteLingerMilliseconds) * time.Millisecond,
-		MaxMessages: config.Message.ConversationWriteMaxMessages,
-		ShardCount:  config.Message.ConversationWriteShardCount,
-		MaxPending:  config.Message.ConversationWriteMaxPending,
-	})
 	return app
-}
-
-// Close 停止异步消息写入器，并刷新已受理的队列请求。
-func (ma *MessageApplication) Close(ctx context.Context) {
-	if ma != nil && ma.writeBatcher != nil {
-		ma.writeBatcher.close(ctx)
-	}
 }
 
 func (ma *MessageApplication) HandleReadMessage(
@@ -632,31 +657,33 @@ func (ma *MessageApplication) validateMessageCType(dto SendMessageDTO) error {
 	return nil
 }
 
-// handleSendMessageSingle 用于批量事务失败后的逐条重试。
-func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto SendMessageDTO) (*MessageAckDTO, error) {
+// HandleSendMessage 在请求内提交消息、会话序号和 Outbox，提交成功后返回 ACK。
+func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMessageDTO) (*MessageAckDTO, error) {
+	failedAck := &MessageAckDTO{ClientMessageID: dto.ClientMessageID, Status: string(protocol.AckStatusFailed)}
+	fail := func(err error) (*MessageAckDTO, error) { return failedAck, err }
+	if err := ctx.Err(); err != nil {
+		return fail(err)
+	}
+	if ma == nil || ma.txManager == nil || ma.messageOutboxRepository == nil {
+		return fail(errors.New("消息出箱组件未配置"))
+	}
 	conversationId := conversationentity.GetConversationID(dto.SenderID, dto.ReceiverID, dto.ConversationType)
 	dto.ConversationID = conversationId
 
 	if err := ma.validateMessageCType(dto); err != nil {
-		return &MessageAckDTO{
-			ClientMessageID: dto.ClientMessageID,
-			Status:          string(protocol.AckStatusFailed),
-		}, err
+		return fail(err)
 	}
 
 	requestHash, err := buildMessageRequestHash(dto)
 	if err != nil {
-		return &MessageAckDTO{
-			ClientMessageID: dto.ClientMessageID,
-			Status:          string(protocol.AckStatusFailed),
-		}, err
+		return fail(err)
 	}
 
-	// 幂等检查：同一 clientMsgId 在 5 分钟内只处理一次，当遇到一样的消息时，不会重复入库，而是直接返回之前的结果
+	// Redis 加速重试检查；数据库唯一约束负责缓存失效和并发请求下的幂等。
 	if dto.ClientMessageID != "" && ma.messageCache != nil {
 		if entry, err := ma.messageCache.GetDedupEntry(ctx, dto.SenderID, dto.ClientMessageID); err == nil && entry.MessageID != "" {
 			if entry.RequestHash != requestHash {
-				return &MessageAckDTO{ClientMessageID: dto.ClientMessageID, Status: string(protocol.AckStatusFailed)}, messageentity.ErrClientMessageConflict
+				return fail(messageentity.ErrClientMessageConflict)
 			}
 
 			if entry.ConversationID != "" && entry.Seq > 0 {
@@ -674,25 +701,16 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 	}
 
 	if err := ma.checkConvMember(ctx, dto); err != nil {
-		return &MessageAckDTO{
-			ClientMessageID: dto.ClientMessageID,
-			Status:          string(protocol.AckStatusFailed),
-		}, err
+		return fail(err)
 	}
 
 	if err := ma.normalizeMediaDTO(ctx, &dto); err != nil {
-		return &MessageAckDTO{
-			ClientMessageID: dto.ClientMessageID,
-			Status:          string(protocol.AckStatusFailed),
-		}, err
+		return fail(err)
 	}
 
 	messageId, err := ma.idGenerator.Generate()
 	if err != nil {
-		return &MessageAckDTO{
-			ClientMessageID: dto.ClientMessageID,
-			Status:          string(protocol.AckStatusFailed),
-		}, err
+		return fail(err)
 	}
 
 	messageType := messagevo.CType(dto.Type)
@@ -703,8 +721,6 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 		0,
 		messageType,
 		dto.Content,
-		dto.VideoID,
-		dto.VideoTime,
 	)
 	if dto.ClientMessageID != "" {
 		clientMsgID := dto.ClientMessageID
@@ -712,41 +728,17 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 	}
 	message.RequestHash = requestHash
 
+	failedAck.MessageID = messageId
 	mediaWriter, err := ma.buildMediaWriter(&dto, messageId)
 	if err != nil {
-		return &MessageAckDTO{
-			ClientMessageID: dto.ClientMessageID,
-			MessageID:       messageId,
-			Status:          string(protocol.AckStatusFailed),
-		}, err
+		return fail(err)
 	}
-
-	conv := conversationentity.NewConversation(
-		conversationId,
-		dto.SenderID,
-		dto.ReceiverID,
-		dto.ConversationType,
-		0,
-		messageId,
-	)
 
 	userConv := conversationentity.BuildUserConversation(
 		dto.SenderID,
 		conversationId,
 		0,
 	)
-
-	// 弹幕需要同时满足前端发送有视频时间以及在房间内
-	isDanmaku := dto.ConversationType == int(conversationvo.RoomChat) && dto.VideoTime != nil
-	if ma.txManager == nil || ma.messageOutboxRepository == nil {
-		return nil, fmt.Errorf("消息出箱组件未配置")
-	}
-
-	value := ctx.Value("op")
-	op, ok := value.(string)
-	if !ok || op == "" {
-		return nil, ErrUnknown
-	}
 
 	senderUsername := ma.getUsername(dto.SenderID)
 	messageEvent := protocol.MessageEvent{
@@ -758,8 +750,6 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 		ConvType:       protocol.ConvType(dto.ConversationType),
 		CType:          dto.Type,
 		Content:        dto.Content,
-		VideoId:        dto.VideoID,
-		VideoTime:      dto.VideoTime,
 		SendTime:       message.SendTime,
 		ClientMsgId:    dto.ClientMessageID,
 		Status:         int8(message.Status),
@@ -769,16 +759,17 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 		DurationMs:     dto.DurationMs,
 		StickerId:      dto.StickerID,
 		PackId:         dto.PackID,
-		HasVideoTime:   dto.VideoTime != nil,
 	}
 
 	var nextSeq int64 = 0
+	transactionStartedAt := time.Now()
+	var sequenceDuration time.Duration
 	err = ma.txManager.WithinTransaction(ctx, func(tx any) error {
 		msgRepo := ma.messageRepository.WithTx(tx)
 		convRepo := ma.conversationRepository.WithTx(tx)
 		userConvRepo := ma.userConversationRepository.WithTx(tx)
 		outboxRepo := ma.messageOutboxRepository.WithTx(tx)
-		var mediaFile *fileentity.File
+		var warmupOutbox *outboxport.Entry
 
 		if messagevo.CType(dto.Type) == messagevo.Image || messagevo.CType(dto.Type) == messagevo.Video || messagevo.CType(dto.Type) == messagevo.File {
 			lockedFile, lockErr := ma.fileRepository.WithTx(tx).FindUploadedFileByIDAndUploaderForUpdate(ctx, dto.FileID, dto.SenderID)
@@ -794,10 +785,15 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 			dto.Content = lockedFile.FileName
 			message.Content = dto.Content
 			messageEvent.Content = dto.Content
-			mediaFile = lockedFile
+			warmupOutbox, err = ma.fileCardWarmupOutbox(dto, messageId, lockedFile)
+			if err != nil {
+				return err
+			}
 		}
 
+		sequenceStartedAt := time.Now()
 		nextSeq, err = convRepo.UpdateLatestSequence(ctx, conversationId, messageId)
+		sequenceDuration = time.Since(sequenceStartedAt)
 		if err != nil {
 			if errors.Is(err, conversationentity.ErrConversationNotCreated) {
 				return ErrConversationNotFound
@@ -806,7 +802,6 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 		}
 
 		message.Seq = nextSeq
-		conv.LatestSeq = nextSeq
 		messageEvent.Seq = nextSeq
 		userConv.UpdateReadSeq(nextSeq)
 
@@ -817,10 +812,8 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 			return ErrMessageSave
 		}
 
-		if !isDanmaku {
-			if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
-				return err
-			}
+		if err := userConvRepo.UpdateReadSeq(ctx, userConv); err != nil {
+			return err
 		}
 
 		if mediaWriter != nil {
@@ -829,81 +822,35 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 			}
 		}
 
-		eventPayload, err := json.Marshal(messageEvent)
+		outbox, err := messageOutboxEntry(protocol.EventTypeSendMessage, conversationId, dto.SenderID, dto.ReceiverID, messageEvent)
 		if err != nil {
 			return err
-		}
-
-		messagePayload, err := json.Marshal(protocol.Envelope{
-			From:    messageEvent.SenderId,
-			To:      messageEvent.RecvId,
-			Payload: eventPayload,
-		})
-
-		if err != nil {
-			return err
-		}
-
-		outbox := &outboxport.Entry{
-			EventType:  string(protocol.EventTypeSendMessage),
-			MessageKey: conversationId,
-			Payload:    messagePayload,
 		}
 		if err := outboxRepo.Create(ctx, outbox); err != nil {
 			return err
 		}
-
-		if mediaFile != nil && dto.AttachmentID != "" {
-			warmupEvent := protocol.FileCardWarmupEvent{
-				AttachmentID:       dto.AttachmentID,
-				MessageID:          messageId,
-				ConversationID:     conversationId,
-				FileID:             mediaFile.FileId,
-				ObjectKey:          mediaFile.ObjectKey,
-				FileName:           mediaFile.FileName,
-				ContentType:        mediaFile.ContentType,
-				Size:               mediaFile.Size,
-				Status:             mediaFile.Status,
-				CType:              dto.Type,
-				AttachmentExpireAt: time.Now().Add(time.Duration(ma.config.Message.AttachmentTTLSeconds) * time.Second).UnixMilli(),
-			}
-			warmupPayload, err := json.Marshal(warmupEvent)
-			if err != nil {
-				return err
-			}
-			warmupEnvelope, err := json.Marshal(protocol.Envelope{
-				From:    messageEvent.SenderId,
-				To:      mediaFile.FileId,
-				Payload: warmupPayload,
-			})
-			if err != nil {
-				return err
-			}
-			if err := outboxRepo.Create(ctx, &outboxport.Entry{
-				EventType:  string(protocol.EventFileCardWarmup),
-				MessageKey: mediaFile.FileId,
-				Payload:    warmupEnvelope,
-			}); err != nil {
+		if warmupOutbox != nil {
+			if err := outboxRepo.Create(ctx, warmupOutbox); err != nil {
 				return err
 			}
 		}
 
 		return nil
 	})
+	diagnostics.Logf("stage=mysql_message_transaction conversation_id=%s messages=1 reserve_seq_us=%d transaction_us=%d error=%v",
+		conversationId, sequenceDuration.Microseconds(), time.Since(transactionStartedAt).Microseconds(), err)
 	if err == nil {
+		ma.warmRoomMessageCache(ctx, messageEvent)
 		ma.notifyProducer()
 	}
 
-	// 判断是否出发唯一键索引冲突
+	// 唯一键冲突会回滚整个事务，包括本次 seq 更新，再回查首次提交的消息。
 	if errors.Is(err, messageentity.ErrDuplicateClientMessage) && dto.ClientMessageID != "" {
 		// 消息重复写入，尝试从数据库中找到这条消息并直接返回
 		existing, findErr := ma.messageRepository.FindByClientMsgID(ctx, dto.SenderID, dto.ClientMessageID)
 		if findErr == nil && existing != nil {
 			if !sameClientMessage(dto, existing, requestHash) {
-				return &MessageAckDTO{
-					ClientMessageID: dto.ClientMessageID,
-					Status:          string(protocol.AckStatusFailed),
-				}, messageentity.ErrClientMessageConflict
+				return fail(messageentity.ErrClientMessageConflict)
 			}
 			result := ma.existingMessageResult(ctx, dto, existing)
 			if result != nil && ma.messageCache != nil {
@@ -924,11 +871,7 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 	}
 
 	if err != nil {
-		return &MessageAckDTO{
-			ClientMessageID: dto.ClientMessageID,
-			MessageID:       messageId,
-			Status:          string(protocol.AckStatusFailed),
-		}, err
+		return fail(err)
 	}
 
 	// 标记已处理，5 分钟内同一 clientMsgId 幂等返回
@@ -953,14 +896,6 @@ func (ma *MessageApplication) handleSendMessageSingle(ctx context.Context, dto S
 		SendTime:        message.SendTime,
 		Status:          string(protocol.AckStatusSent),
 	}, nil
-}
-
-// HandleSendMessage 按会话批量持久化，同时保持原有校验、幂等和 ACK 语义。
-func (ma *MessageApplication) HandleSendMessage(ctx context.Context, dto SendMessageDTO) (*MessageAckDTO, error) {
-	if ma == nil || ma.writeBatcher == nil {
-		return nil, errors.New("消息写入批处理器未初始化")
-	}
-	return ma.writeBatcher.submit(ctx, dto)
 }
 
 // existingMessageResult 将数据库中的已有消息转换成幂等请求的返回值。
@@ -1005,8 +940,6 @@ type messageRequestFingerprint struct {
 	DurationMs     *int64 `json:"durationMs,omitempty"`
 	StickerID      string `json:"stickerId"`
 	PackID         string `json:"packId"`
-	VideoID        string `json:"videoId"`
-	VideoTime      *int64 `json:"videoTime,omitempty"`
 }
 
 func buildMessageRequestHash(dto SendMessageDTO) (string, error) {
@@ -1030,8 +963,6 @@ func buildMessageRequestHash(dto SendMessageDTO) (string, error) {
 		DurationMs:     dto.DurationMs,
 		StickerID:      dto.StickerID,
 		PackID:         dto.PackID,
-		VideoID:        dto.VideoID,
-		VideoTime:      dto.VideoTime,
 	})
 	if err != nil {
 		return "", err
@@ -1049,16 +980,33 @@ func sameClientMessage(dto SendMessageDTO, existing *messageentity.Message, requ
 	}
 	return existing.ConversationId == conversationentity.GetConversationID(dto.SenderID, dto.ReceiverID, dto.ConversationType) &&
 		existing.Type == messagevo.CType(dto.Type) &&
-		existing.Content == dto.Content &&
-		existing.VideoId == dto.VideoID &&
-		sameOptionalInt64(existing.VideoTime, dto.VideoTime)
+		existing.Content == dto.Content
 }
 
-func sameOptionalInt64(left, right *int64) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
+// fileCardWarmupOutbox 在取得会话行锁前，用事务内锁定的文件记录构建预热事件。
+func (ma *MessageApplication) fileCardWarmupOutbox(dto SendMessageDTO, messageID string, file *fileentity.File) (*outboxport.Entry, error) {
+	if dto.AttachmentID == "" {
+		return nil, nil
 	}
-	return *left == *right
+	event := protocol.FileCardWarmupEvent{
+		AttachmentID: dto.AttachmentID, MessageID: messageID, ConversationID: dto.ConversationID,
+		FileID: file.FileId, ObjectKey: file.ObjectKey, FileName: file.FileName,
+		ContentType: file.ContentType, Size: file.Size, Status: file.Status, CType: dto.Type,
+		AttachmentExpireAt: time.Now().Add(time.Duration(ma.config.Message.AttachmentTTLSeconds) * time.Second).UnixMilli(),
+	}
+	return messageOutboxEntry(protocol.EventFileCardWarmup, file.FileId, dto.SenderID, file.FileId, event)
+}
+
+func messageOutboxEntry(eventType, key, from, to string, event any) (*outboxport.Entry, error) {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return nil, err
+	}
+	envelope, err := json.Marshal(protocol.Envelope{From: from, To: to, Payload: payload})
+	if err != nil {
+		return nil, err
+	}
+	return &outboxport.Entry{EventType: eventType, MessageKey: key, Payload: envelope}, nil
 }
 
 // 通过游标的方式来获取历史记录
@@ -1221,7 +1169,7 @@ func (ma *MessageApplication) GetOfflineMessages(
 		nextCursor = messages[len(messages)-1].Seq
 	}
 	if !hasMore {
-		// 最后一页也可能只剩已过滤的视频弹幕；确认扫完整个快照后直接推进扫描水位。
+		// 最后一页确认扫完整个固定快照，推进离线补齐水位。
 		nextCursor = snapshotSeq
 	}
 
@@ -1241,33 +1189,20 @@ func (ma *MessageApplication) SyncMessages(
 	userId string,
 	afterSeq int64,
 ) ([]MessageDTO, error) {
-	result, err := ma.SyncMessagesWithWatermark(ctx, conversationId, userId, afterSeq)
-	if err != nil {
-		return nil, err
-	}
-	return result.Messages, nil
-}
-
-func (ma *MessageApplication) SyncMessagesWithWatermark(
-	ctx context.Context,
-	conversationId string,
-	userId string,
-	afterSeq int64,
-) (MessageSyncResult, error) {
 	if afterSeq < 0 {
 		afterSeq = 0
 	}
 
 	resolvedConversationID, conversation, err := ma.resolveHistoryConversation(ctx, conversationId, userId)
 	if err != nil {
-		return MessageSyncResult{}, err
+		return nil, err
 	}
 	latestSeq := conversation.LatestSeq
 	if latestSeq <= afterSeq {
-		return MessageSyncResult{Messages: []MessageDTO{}, ThroughSeq: latestSeq}, nil
+		return []MessageDTO{}, nil
 	}
 
-	// 大群消息消费后已经写入 Redis 的 seq ZSET，优先从缓存同步。Redis 只是加速层，缓存未覆盖完整区间或读取失败时继续回源 MySQL。
+	// 新群消息提交后按策略写入 Redis 的 seq ZSET，优先从缓存同步。缓存未覆盖完整区间或读取失败时回源 MySQL。
 	if conversation.Convtype == conversationvo.RoomChat && ma.roomCache != nil {
 		page, cacheErr := ma.roomCache.ListMessageAfterSeq(
 			ctx,
@@ -1283,10 +1218,7 @@ func (ma *MessageApplication) SyncMessagesWithWatermark(
 				cacheErr,
 			)
 		} else if page.Covered {
-			return MessageSyncResult{
-				Messages:   messageEventsToAppDTO(page.Events, resolvedConversationID),
-				ThroughSeq: latestSeq,
-			}, nil
+			return messageEventsToAppDTO(page.Events, resolvedConversationID), nil
 		}
 	}
 
@@ -1340,15 +1272,15 @@ func (ma *MessageApplication) SyncMessagesWithWatermark(
 		return msgsApp, nil
 	})
 	if err != nil {
-		return MessageSyncResult{}, err
+		return nil, err
 	}
 
 	syncResult, ok := result.([]MessageDTO)
 	if !ok {
-		return MessageSyncResult{}, errors.New("同步消息结果类型错误")
+		return nil, errors.New("同步消息结果类型错误")
 	}
 
-	return MessageSyncResult{Messages: syncResult, ThroughSeq: latestSeq}, nil
+	return syncResult, nil
 }
 
 // messageEventsToAppDTO 将近期消息缓存中的内部事件转换为应用层消息 DTO。
@@ -1376,7 +1308,6 @@ func messageEventsToAppDTO(events []protocol.MessageEvent, conversationID string
 			Seq:            event.Seq,
 			Type:           event.CType,
 			Content:        event.Content,
-			VideoID:        event.VideoId,
 			SendTime:       event.SendTime,
 			Status:         event.Status,
 			AttachmentID:   event.AttachmentId,
@@ -1385,7 +1316,6 @@ func messageEventsToAppDTO(events []protocol.MessageEvent, conversationID string
 			DurationMs:     event.DurationMs,
 			StickerID:      event.StickerId,
 			PackID:         event.PackId,
-			VideoTime:      event.VideoTime,
 		}
 		if item.Status == 0 {
 			item.Status = int8(messagevo.Normal)
@@ -1431,7 +1361,6 @@ func messageAppDTOsToEvents(messages []MessageDTO, conversationID string) []prot
 			Seq:            message.Seq,
 			CType:          message.Type,
 			Content:        message.Content,
-			VideoId:        message.VideoID,
 			SendTime:       message.SendTime,
 			ClientMsgId:    clientMsgID,
 			Status:         message.Status,
@@ -1441,8 +1370,6 @@ func messageAppDTOsToEvents(messages []MessageDTO, conversationID string) []prot
 			DurationMs:     message.DurationMs,
 			StickerId:      message.StickerID,
 			PackId:         message.PackID,
-			HasVideoTime:   message.VideoTime != nil,
-			VideoTime:      message.VideoTime,
 		})
 	}
 
@@ -1566,97 +1493,4 @@ func (ma *MessageApplication) fillAttachmentIDs(ctx context.Context, messages []
 		}
 	}
 	return nil
-}
-
-func (ma *MessageApplication) GetVideoDanmaku(
-	ctx context.Context,
-	roomId string,
-	userId string,
-	videoId string,
-	startTime int64,
-	endTime int64,
-	limit int,
-) ([]DanmakuDTO, error) {
-	if err := ma.isRoomConvMember(ctx, userId, roomId); err != nil {
-		return nil, err
-	}
-
-	if limit <= 0 || limit > 500 {
-		limit = 200
-	}
-	if startTime < 0 {
-		startTime = 0
-	}
-
-	msgs, err := ma.messageRepository.GetDanmakuByRoomVideo(ctx, roomId, videoId, startTime, endTime, limit)
-	if err != nil {
-		return nil, err
-	}
-	if len(msgs) == 0 {
-		return []DanmakuDTO{}, nil
-	}
-
-	res := make([]DanmakuDTO, 0, len(msgs))
-	for _, msg := range msgs {
-		if msg == nil || msg.Type != messagevo.Text || msg.VideoTime == nil {
-			continue
-		}
-
-		res = append(res, DanmakuDTO{
-			MessageID: msg.MessageId,
-			SenderID:  msg.SenderId,
-			Content:   msg.Content,
-			Seq:       msg.Seq,
-			TimeMs:    *msg.VideoTime,
-			SendTime:  msg.SendTime,
-		})
-	}
-
-	return res, nil
-}
-func (ma *MessageApplication) GetRoomVideoHistory(
-
-	ctx context.Context,
-	roomId string,
-	userId string,
-	limit int,
-) ([]RoomVideoHistoryDTO, error) {
-	if err := ma.isRoomConvMember(ctx, userId, roomId); err != nil {
-		return nil, err
-	}
-
-	items, err := ma.messageRepository.GetRoomVideoHistory(ctx, roomId, limit)
-	if err != nil {
-		return nil, err
-	}
-	if len(items) == 0 {
-		return []RoomVideoHistoryDTO{}, nil
-	}
-
-	res := make([]RoomVideoHistoryDTO, 0, len(items))
-	for _, item := range items {
-		if item == nil || item.VideoId == "" {
-			continue
-		}
-
-		videoTime := item.VideoTime
-		fileName := item.VideoId
-		messageCount, err := ma.messageRepository.CountRoomVideoMessages(ctx, roomId, item.VideoId)
-		if err != nil {
-			return nil, err
-		}
-		if file, err := ma.fileRepository.FindFileByID(ctx, item.VideoId); err == nil && file != nil && file.FileName != "" {
-			fileName = file.FileName
-		}
-
-		res = append(res, RoomVideoHistoryDTO{
-			VideoID:        item.VideoId,
-			FileName:       fileName,
-			LatestSendTime: item.SendTime,
-			VideoTime:      videoTime,
-			MessageCount:   messageCount,
-		})
-	}
-
-	return res, nil
 }

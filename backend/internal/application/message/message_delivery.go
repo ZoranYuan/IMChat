@@ -18,12 +18,9 @@ import (
 	"time"
 )
 
-var ErrLargeRoomMessageBatchFull = errors.New("大群消息批处理队列已满")
-
 type LargeRoomMessageBatchOptions struct {
 	Linger     time.Duration
 	ShardCount int
-	MaxPending int
 }
 
 type MessageDelivery struct {
@@ -42,9 +39,8 @@ func NewMessageDelivery(
 ) *MessageDelivery {
 	if config.RoomRealtimeFanoutLimit <= 0 ||
 		config.LargeRoomNoticeLingerMilliseconds <= 0 ||
-		config.LargeRoomNoticeShardCount <= 0 ||
-		config.LargeRoomNoticeMaxPending <= 0 {
-		panic("消息投递配置无效：请检查 message.room_realtime_fanout_limit、large_room_notice_linger_milliseconds、large_room_notice_shard_count 和 large_room_notice_max_pending")
+		config.LargeRoomNoticeShardCount <= 0 {
+		panic("消息投递配置无效：请检查 message.room_realtime_fanout_limit、large_room_notice_linger_milliseconds 和 large_room_notice_shard_count")
 	}
 
 	return &MessageDelivery{
@@ -52,10 +48,9 @@ func NewMessageDelivery(
 		roomRepository: roomRepository,
 		roomCache:      roomCache,
 		config:         config,
-		messageBatcher: newLargeRoomMessageBatcher(delivery, roomCache, LargeRoomMessageBatchOptions{
+		messageBatcher: newLargeRoomMessageBatcher(delivery, LargeRoomMessageBatchOptions{
 			Linger:     time.Duration(config.LargeRoomNoticeLingerMilliseconds) * time.Millisecond,
 			ShardCount: config.LargeRoomNoticeShardCount,
-			MaxPending: config.LargeRoomNoticeMaxPending,
 		}),
 	}
 }
@@ -106,11 +101,10 @@ func (delivery *MessageDelivery) deliverRoomMessage(
 		return roomentity.ErrRoomNotFound
 	}
 
-	// 弹幕走独立的按视频时间查询接口，不参与普通消息同步缓存和活跃群判断。
 	activityLevel := roomcache.RoomActivityNormal
 	activityDuration := time.Duration(0)
 	onlineSessions := room.MemberCount
-	if delivery.roomCache != nil && !event.HasVideoTime {
+	if delivery.roomCache != nil {
 		activityStartedAt := time.Now()
 		if counter, ok := delivery.realtime.(realtime.RoomOnlineSessionCounter); ok {
 			if count, countErr := counter.OnlineRoomSessionCount(ctx, roomID); countErr != nil {
@@ -119,9 +113,9 @@ func (delivery *MessageDelivery) deliverRoomMessage(
 				onlineSessions = count
 			}
 		}
-		level, err := delivery.roomCache.RecordActivityAndGetLevel(ctx, roomID, onlineSessions)
+		level, err := delivery.roomCache.ActivateLevel(ctx, roomID, onlineSessions)
 		if err != nil {
-			log.Printf("记录房间活跃度失败: room=%s err=%v", roomID, err)
+			log.Printf("读取房间活跃度失败: room=%s err=%v", roomID, err)
 		} else {
 			activityLevel = level
 		}
@@ -129,27 +123,16 @@ func (delivery *MessageDelivery) deliverRoomMessage(
 	}
 
 	// 成员数是硬阈值；消息频率达到 ACTIVE 后也切换为 PULL。
-	// WARN 提前把消息写入 seq ZSET，为客户端稍后拉取预热数据。
+	// 这里只读取当前活跃等级，消息计数和缓存预热在发送事务提交后完成。
 	hardPull := room.MemberCount > delivery.config.RoomRealtimeFanoutLimit
 	activePull := activityLevel == roomcache.RoomActivityActive
 	if hardPull || activePull {
 		noticeStartedAt := time.Now()
-		err := delivery.deliverLargeRoomNotice(roomID, envelope, event)
+		err := delivery.deliverLargeRoomNotice(roomID, event)
 		diagnostics.Logf("stage=room_delivery message_id=%s seq=%d room_id=%s room_lookup_us=%d activity_us=%d notice_enqueue_us=%d total_us=%d member_count=%d online_sessions=%d activity_level=%d mode=light_notice outcome=%s",
 			event.MessageId, event.Seq, roomID, roomLookupDuration.Microseconds(), activityDuration.Microseconds(), time.Since(noticeStartedAt).Microseconds(),
 			time.Since(startedAt).Microseconds(), room.MemberCount, onlineSessions, activityLevel, deliveryOutcome(err))
 		return err
-	}
-
-	if activityLevel == roomcache.RoomActivityWarn && delivery.roomCache != nil && !event.HasVideoTime {
-		if err := delivery.roomCache.AppendRecentMessageSeq(ctx, roomID, event); err != nil {
-			log.Printf(
-				"写入房间近期消息缓存失败: room=%s seq=%d err=%v",
-				roomID,
-				event.Seq,
-				err,
-			)
-		}
 	}
 
 	fanoutStartedAt := time.Now()
@@ -165,19 +148,11 @@ func (delivery *MessageDelivery) deliverRoomMessage(
 	return err
 }
 
-// 当房间需要进行轻量推送时，收集本批消息并在 flush 时批量预热缓存。
-func (delivery *MessageDelivery) deliverLargeRoomNotice(
-	roomID string,
-	envelope protocol.Envelope,
-	event protocol.MessageEvent,
-) error {
+// 大群只合并最新消息游标，不保存完整消息或预热缓存。
+func (delivery *MessageDelivery) deliverLargeRoomNotice(roomID string, event protocol.MessageEvent) error {
 	startedAt := time.Now()
-	err := delivery.messageBatcher.enqueue(largeRoomNotice{
-		ConversationID: roomID,
-		SenderID:       envelope.From,
-		MessageID:      event.MessageId,
-		Seq:            event.Seq,
-		Event:          event,
+	err := delivery.messageBatcher.enqueue(protocol.MessageNotifyEvent{
+		ConversationId: roomID, MessageId: event.MessageId, Seq: event.Seq,
 	})
 	diagnostics.Logf("stage=large_room_notice_enqueue message_id=%s seq=%d room_id=%s enqueue_us=%d outcome=%s",
 		event.MessageId, event.Seq, roomID, time.Since(startedAt).Microseconds(), deliveryOutcome(err))
@@ -195,209 +170,134 @@ func (delivery *MessageDelivery) Close(ctx context.Context) {
 	delivery.messageBatcher.close(ctx)
 }
 
-type largeRoomNotice struct {
-	ConversationID string
-	SenderID       string
-	MessageID      string
-	Seq            int64
-	Event          protocol.MessageEvent
-}
-
-type pendingRoomMessages struct {
-	events          []protocol.MessageEvent
-	notice          largeRoomNotice
+type pendingRoomNotice struct {
+	notice          protocol.MessageNotifyEvent
 	firstEnqueuedAt time.Time
 }
 
 type largeRoomMessageBatcher struct {
-	delivery  realtime.RoomMemberDelivery
-	roomCache roomcache.RoomCache
-	shards    []*largeRoomMessageBatchShard
-	done      chan struct{}
-	once      sync.Once
+	delivery realtime.RoomMemberDelivery
+	shards   []*largeRoomMessageBatchShard
+	done     chan struct{}
+	stopped  chan struct{}
+	once     sync.Once
 }
 
 type largeRoomMessageBatchShard struct {
-	mu           sync.Mutex
-	pending      map[string]*pendingRoomMessages
-	pendingCount int
-	maxPending   int
-	ticker       *time.Ticker
-	parent       *largeRoomMessageBatcher
+	mu      sync.Mutex
+	pending map[string]pendingRoomNotice
+	closed  bool
+	ticker  *time.Ticker
+	parent  *largeRoomMessageBatcher
 }
 
-func newLargeRoomMessageBatcher(
-	delivery realtime.RoomMemberDelivery,
-	roomCache roomcache.RoomCache,
-	options LargeRoomMessageBatchOptions,
-) *largeRoomMessageBatcher {
-	if options.Linger <= 0 || options.ShardCount <= 0 || options.MaxPending <= 0 {
-		panic("大群消息批处理配置无效")
-	}
+var ErrLargeRoomMessageBatchClosed = errors.New("大群通知合并器已关闭")
 
+func newLargeRoomMessageBatcher(delivery realtime.RoomMemberDelivery, options LargeRoomMessageBatchOptions) *largeRoomMessageBatcher {
+	if options.Linger <= 0 || options.ShardCount <= 0 {
+		panic("大群通知合并配置无效")
+	}
 	batcher := &largeRoomMessageBatcher{
-		delivery:  delivery,
-		roomCache: roomCache,
-		shards:    make([]*largeRoomMessageBatchShard, options.ShardCount),
-		done:      make(chan struct{}),
+		delivery: delivery, shards: make([]*largeRoomMessageBatchShard, options.ShardCount),
+		done: make(chan struct{}), stopped: make(chan struct{}),
 	}
-	shardMax := options.MaxPending / options.ShardCount
-	if shardMax <= 0 {
-		shardMax = 1
-	}
+	var workers sync.WaitGroup
 	for i := range batcher.shards {
 		shard := &largeRoomMessageBatchShard{
-			pending:    make(map[string]*pendingRoomMessages),
-			maxPending: shardMax,
-			ticker:     time.NewTicker(options.Linger),
-			parent:     batcher,
+			pending: make(map[string]pendingRoomNotice),
+			ticker:  time.NewTicker(options.Linger), parent: batcher,
 		}
 		batcher.shards[i] = shard
-		go shard.run()
+		workers.Add(1)
+		go func() { defer workers.Done(); shard.run() }()
 	}
+	go func() { workers.Wait(); close(batcher.stopped) }()
 	return batcher
 }
 
-// 根据 roomID 收集消息；同一批最终只保留一个最新 notice。
-func (coalescer *largeRoomMessageBatcher) enqueue(notice largeRoomNotice) error {
-	if coalescer == nil {
-		return nil
-	}
-	// 大房间只按照会话 ID 推送提示，不再查询房间成员
-	key := notice.ConversationID
-	return coalescer.shardFor(key).put(key, notice)
+func (batcher *largeRoomMessageBatcher) enqueue(notice protocol.MessageNotifyEvent) error {
+	return batcher.shardFor(notice.ConversationId).put(pendingRoomNotice{notice: notice, firstEnqueuedAt: time.Now()})
 }
 
-func (coalescer *largeRoomMessageBatcher) flushAll(ctx context.Context) {
-	if coalescer == nil {
-		return
-	}
-	for _, shard := range coalescer.shards {
-		shard.flush(ctx)
-	}
-}
-
-func (coalescer *largeRoomMessageBatcher) close(ctx context.Context) {
-	if coalescer == nil {
-		return
-	}
-	coalescer.once.Do(func() {
-		close(coalescer.done)
-		for _, shard := range coalescer.shards {
+func (batcher *largeRoomMessageBatcher) close(ctx context.Context) {
+	batcher.once.Do(func() {
+		for _, shard := range batcher.shards {
+			shard.mu.Lock()
+			shard.closed = true
+			shard.mu.Unlock()
 			shard.ticker.Stop()
 		}
-		coalescer.flushAll(ctx)
+		close(batcher.done)
+		select {
+		case <-batcher.stopped:
+			for _, shard := range batcher.shards {
+				shard.flush(ctx)
+			}
+		case <-ctx.Done():
+			log.Printf("等待大群通知合并器关闭超时：%v", ctx.Err())
+		}
 	})
 }
 
-func (coalescer *largeRoomMessageBatcher) shardFor(key string) *largeRoomMessageBatchShard {
+func (batcher *largeRoomMessageBatcher) shardFor(key string) *largeRoomMessageBatchShard {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(key))
-	return coalescer.shards[int(h.Sum32())%len(coalescer.shards)]
+	return batcher.shards[int(h.Sum32())%len(batcher.shards)]
 }
 
-func (shard *largeRoomMessageBatchShard) put(key string, notice largeRoomNotice) error {
+func (shard *largeRoomMessageBatchShard) put(item pendingRoomNotice) error {
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
-
+	if shard.closed {
+		return ErrLargeRoomMessageBatchClosed
+	}
+	key := item.notice.ConversationId
 	current, exists := shard.pending[key]
-	if shard.pendingCount >= shard.maxPending {
-		return ErrLargeRoomMessageBatchFull
+	if exists {
+		if current.notice.Seq > item.notice.Seq {
+			item.notice = current.notice
+		}
+		if current.firstEnqueuedAt.Before(item.firstEnqueuedAt) {
+			item.firstEnqueuedAt = current.firstEnqueuedAt
+		}
 	}
-
-	if !exists {
-		current = &pendingRoomMessages{firstEnqueuedAt: time.Now()}
-		shard.pending[key] = current
-	}
-
-	if shard.parent.roomCache != nil && !notice.Event.HasVideoTime {
-		current.events = append(current.events, notice.Event)
-	}
-	shard.pendingCount++
-	// 只保留最大的 seq 作为本轮通知的游标，但缓存预热保留本轮全部消息。
-	if !exists || current.notice.Seq < notice.Seq {
-		current.notice = notice
-	}
+	shard.pending[key] = item
 	return nil
 }
 
 func (shard *largeRoomMessageBatchShard) run() {
 	for {
 		select {
-		case <-shard.ticker.C:
-			shard.flush(context.Background())
 		case <-shard.parent.done:
 			return
+		case <-shard.ticker.C:
+			shard.flush(context.Background())
 		}
 	}
 }
 
 func (shard *largeRoomMessageBatchShard) flush(ctx context.Context) {
 	shard.mu.Lock()
-	if len(shard.pending) == 0 {
-		shard.mu.Unlock()
-		return
-	}
-	pending := make(map[string]*pendingRoomMessages, len(shard.pending))
-	for key, roomPending := range shard.pending {
-		pending[key] = roomPending
-	}
-	shard.pending = make(map[string]*pendingRoomMessages)
-	shard.pendingCount = 0
+	pending := shard.pending
+	shard.pending = make(map[string]pendingRoomNotice)
 	shard.mu.Unlock()
-
-	for _, roomPending := range pending {
-		flushStartedAt := time.Now()
-		linger := time.Duration(0)
-		if !roomPending.firstEnqueuedAt.IsZero() {
-			linger = flushStartedAt.Sub(roomPending.firstEnqueuedAt)
+	for _, item := range pending {
+		if ctx.Err() != nil {
+			return
 		}
-		cacheWarmDuration := time.Duration(0)
-		if shard.parent.roomCache != nil && len(roomPending.events) > 0 {
-			cacheStartedAt := time.Now()
-			if err := shard.parent.roomCache.WarmRecentMessageEvents(
-				ctx,
-				roomPending.notice.ConversationID,
-				roomPending.events,
-			); err != nil {
-				// Redis 只是消息同步的加速层。缓存预热失败时仍然发送 notice，
-				// 客户端同步接口会回源 MySQL。
-				log.Printf(
-					"批量写入房间近期消息缓存失败: room=%s count=%d seq=%d err=%v",
-					roomPending.notice.ConversationID,
-					len(roomPending.events),
-					roomPending.notice.Seq,
-					err,
-				)
-			}
-			cacheWarmDuration = time.Since(cacheStartedAt)
+		startedAt := time.Now()
+		payload, err := json.Marshal(item.notice)
+		if err == nil {
+			// 合并批次可能包含多个发送者，所有在线成员都需要获知最新游标。
+			err = shard.parent.delivery.DeliverToOnlineRoomMembers(protocol.EventRoomMessageNotice, item.notice.ConversationId, payload, "")
 		}
-
-		notice := roomPending.notice
-		// 将 notice 推送给房间内当前在线的成员；客户端通过 seq 拉取完整消息。
-		payload, err := json.Marshal(protocol.MessageNotifyEvent{
-			ConversationId: notice.ConversationID,
-			MessageId:      notice.MessageID,
-			Seq:            notice.Seq,
-		})
 		if err != nil {
-			log.Printf("序列化大群轻量提醒失败：%v", err)
-			diagnostics.Logf("stage=large_room_notice_flush room_id=%s seq=%d messages=%d linger_us=%d cache_warm_us=%d outcome=marshal_error error=%q",
-				notice.ConversationID, notice.Seq, len(roomPending.events), linger.Microseconds(), cacheWarmDuration.Microseconds(), err.Error())
-			continue
+			log.Printf("投递大群轻量提醒失败：room=%s seq=%d error=%v", item.notice.ConversationId, item.notice.Seq, err)
+			if retryErr := shard.put(item); retryErr != nil {
+				log.Printf("重新合并大群提醒失败：room=%s seq=%d error=%v", item.notice.ConversationId, item.notice.Seq, retryErr)
+			}
 		}
-		noticeStartedAt := time.Now()
-		deliveryErr := shard.parent.delivery.DeliverToOnlineRoomMembers(
-			protocol.EventRoomMessageNotice,
-			notice.ConversationID,
-			payload,
-			notice.SenderID,
-		)
-		if deliveryErr != nil && ctx.Err() == nil {
-			log.Printf("投递大群轻量提醒失败：会话=%s seq=%d 错误=%v", notice.ConversationID, notice.Seq, deliveryErr)
-		}
-		diagnostics.Logf("stage=large_room_notice_flush room_id=%s seq=%d messages=%d linger_us=%d cache_warm_us=%d notice_publish_us=%d total_us=%d outcome=%s",
-			notice.ConversationID, notice.Seq, len(roomPending.events), linger.Microseconds(), cacheWarmDuration.Microseconds(),
-			time.Since(noticeStartedAt).Microseconds(), time.Since(flushStartedAt).Microseconds(), deliveryOutcome(deliveryErr))
+		diagnostics.Logf("stage=large_room_notice_flush room_id=%s seq=%d linger_us=%d total_us=%d outcome=%s",
+			item.notice.ConversationId, item.notice.Seq, startedAt.Sub(item.firstEnqueuedAt).Microseconds(), time.Since(startedAt).Microseconds(), deliveryOutcome(err))
 	}
 }

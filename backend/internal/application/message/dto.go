@@ -10,8 +10,6 @@ type SendMessageDTO struct {
 	ConversationType int
 	Type             int
 	Content          string
-	VideoID          string
-	VideoTime        *int64
 	AttachmentID     string
 	FileID           string
 	FileName         string
@@ -42,8 +40,6 @@ type MessageDTO struct {
 	Seq             int64
 	Type            int
 	Content         string
-	VideoID         string
-	VideoTime       *int64
 	Status          int8
 	SendTime        int64
 
@@ -53,28 +49,6 @@ type MessageDTO struct {
 	DurationMs   *int64
 	StickerID    string
 	PackID       string
-}
-
-type MessageSyncResult struct {
-	Messages   []MessageDTO
-	ThroughSeq int64
-}
-
-type DanmakuDTO struct {
-	MessageID string
-	SenderID  string
-	Content   string
-	Seq       int64
-	TimeMs    int64
-	SendTime  int64
-}
-
-type RoomVideoHistoryDTO struct {
-	VideoID        string
-	FileName       string
-	LatestSendTime int64
-	VideoTime      *int64
-	MessageCount   int64
 }
 
 func toMessageDTOs(ms []*messageentity.Message) []MessageDTO {
@@ -95,8 +69,6 @@ func toMessageDTOs(ms []*messageentity.Message) []MessageDTO {
 			Seq:            m.Seq,
 			Type:           int(m.Type),
 			Content:        m.Content,
-			VideoID:        m.VideoId,
-			VideoTime:      m.VideoTime,
 			Status:         int8(m.Status),
 			SendTime:       m.SendTime,
 		}

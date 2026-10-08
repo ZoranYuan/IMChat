@@ -27,7 +27,7 @@ const (
 
 type RoomCache interface {
 	RecordActivity(ctx context.Context, roomId string) error
-	ActivateLevel(ctx context.Context, roomId string) (int, error)
+	ActivateLevel(ctx context.Context, roomId string, onlineSessions int) (int, error)
 	RecordActivityAndGetLevel(ctx context.Context, roomId string, onlineSessions int) (int, error)
 	ListMessageAfterSeq(ctx context.Context, roomId string, afterSeq, latestSeq int64) (RecentMessageRange, error)
 	AppendRecentMessageSeq(ctx context.Context, roomId string, event protocol.MessageEvent) error
