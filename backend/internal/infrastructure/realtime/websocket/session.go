@@ -41,11 +41,12 @@ type Session struct {
 
 	identity SessionIdentity
 
-	idGenerator *snow.Generator
-	batchConfig MessageBatchConfig
-	maxReadSize int64
-	outbound    chan OutboundItem
-	inbound     chan Message
+	idGenerator        *snow.Generator
+	batchConfig        MessageBatchConfig
+	maxReadSize        int64
+	outbound           chan OutboundItem
+	inbound            chan Message
+	inboundWorkerCount int
 
 	cancel context.CancelFunc
 
@@ -65,25 +66,30 @@ func NewSession(
 	conn *gorilla.Conn,
 	identity SessionIdentity,
 	maxBufferSize int,
+	inboundWorkerCount int,
 	idGenerator *snow.Generator,
 	batchConfig MessageBatchConfig,
 ) *Session {
 	if maxBufferSize <= 0 {
 		maxBufferSize = DefaultBatchConfig().ReadyQueueSize
 	}
+	if inboundWorkerCount <= 0 {
+		panic("Session 入站 worker 数量必须大于 0")
+	}
 
 	return &Session{
-		conn:        conn,
-		ctx:         ctx,
-		cancel:      cancel,
-		identity:    identity,
-		idle:        time.Now().UnixMilli(),
-		idGenerator: idGenerator,
-		batchConfig: batchConfig.withDefaults(),
-		outbound:    make(chan OutboundItem, maxBufferSize),
-		inbound:     make(chan Message, maxBufferSize),
-		writeDone:   make(chan struct{}),
-		accepting:   true,
+		conn:               conn,
+		ctx:                ctx,
+		cancel:             cancel,
+		identity:           identity,
+		idle:               time.Now().UnixMilli(),
+		idGenerator:        idGenerator,
+		batchConfig:        batchConfig.withDefaults(),
+		outbound:           make(chan OutboundItem, maxBufferSize),
+		inbound:            make(chan Message, maxBufferSize),
+		inboundWorkerCount: inboundWorkerCount,
+		writeDone:          make(chan struct{}),
+		accepting:          true,
 	}
 }
 
@@ -323,24 +329,59 @@ func (s *Session) PushEvent(
 }
 
 func (s *Session) dispatchLoop(handler MessageHandler) {
+	// 无缓冲任务通道保持接收顺序提交，不额外增加排队容量；执行和 ACK 完成顺序允许不同。
+	jobs := make(chan Message)
+	var workers sync.WaitGroup
+	for i := 0; i < s.inboundWorkerCount; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for {
+				select {
+				case <-s.ctx.Done():
+					return
+				case message, ok := <-jobs:
+					if !ok || s.ctx.Err() != nil {
+						return
+					}
+					s.dispatchMessage(handler, message)
+				}
+			}
+		}()
+	}
+	defer func() {
+		close(jobs)
+		workers.Wait()
+	}()
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
-		case message := <-s.inbound:
-			queueWait := time.Since(message.inboundEnqueuedAt)
-			queueDepth := len(s.inbound)
-			if handler == nil {
-				diagnostics.Logf("stage=ws_inbound_dispatch session_id=%s op=%s queue_wait_us=%d handler_us=0 queue_depth=%d queue_capacity=%d payload_bytes=%d outcome=handler_missing",
-					s.SessionID(), message.Op, queueWait.Microseconds(), queueDepth, cap(s.inbound), len(message.Data))
-				continue
+		case message, ok := <-s.inbound:
+			if !ok || s.ctx.Err() != nil {
+				return
 			}
-			handlerStartedAt := time.Now()
-			handler(s.ctx, s, message.Op, message.Data)
-			diagnostics.Logf("stage=ws_inbound_dispatch session_id=%s op=%s queue_wait_us=%d handler_us=%d queue_depth=%d queue_capacity=%d payload_bytes=%d outcome=handled",
-				s.SessionID(), message.Op, queueWait.Microseconds(), time.Since(handlerStartedAt).Microseconds(), queueDepth, cap(s.inbound), len(message.Data))
+			select {
+			case <-s.ctx.Done():
+				return
+			case jobs <- message:
+			}
 		}
 	}
+}
+
+func (s *Session) dispatchMessage(handler MessageHandler, message Message) {
+	queueWait := time.Since(message.inboundEnqueuedAt)
+	queueDepth := len(s.inbound)
+	if handler == nil {
+		diagnostics.Logf("stage=ws_inbound_dispatch session_id=%s op=%s queue_wait_us=%d handler_us=0 queue_depth=%d queue_capacity=%d payload_bytes=%d outcome=handler_missing",
+			s.SessionID(), message.Op, queueWait.Microseconds(), queueDepth, cap(s.inbound), len(message.Data))
+		return
+	}
+	handlerStartedAt := time.Now()
+	handler(s.ctx, s, message.Op, message.Data)
+	diagnostics.Logf("stage=ws_inbound_dispatch session_id=%s op=%s queue_wait_us=%d handler_us=%d queue_depth=%d queue_capacity=%d payload_bytes=%d outcome=handled",
+		s.SessionID(), message.Op, queueWait.Microseconds(), time.Since(handlerStartedAt).Microseconds(), queueDepth, cap(s.inbound), len(message.Data))
 }
 
 func (s *Session) readLoop(pongWait int, handler MessageHandler, onClose func(*Session)) {

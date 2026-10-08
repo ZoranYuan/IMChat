@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ func newTestSession(t *testing.T, bufferSize int) *Session {
 		nil,
 		identity,
 		bufferSize,
+		1,
 		nil,
 		MessageBatchConfig{},
 	)
@@ -70,6 +72,136 @@ func newWebSocketPair(t *testing.T) (*websocket.Conn, *websocket.Conn) {
 	return serverConn, clientConn
 }
 
+func TestSessionDispatchAllowsOutOfOrderCompletion(t *testing.T) {
+	session := newTestSession(t, 8)
+	session.inboundWorkerCount = 2
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	completed := make(chan string, 2)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		session.dispatchLoop(func(ctx context.Context, _ *Session, op string, _ []byte) {
+			if op == "first" {
+				close(firstStarted)
+				select {
+				case <-releaseFirst:
+				case <-ctx.Done():
+					return
+				}
+			}
+			completed <- op
+		})
+	}()
+	session.inbound <- Message{Op: "first", inboundEnqueuedAt: time.Now()}
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not start")
+	}
+	session.inbound <- Message{Op: "second", inboundEnqueuedAt: time.Now()}
+	select {
+	case op := <-completed:
+		if op != "second" {
+			t.Fatalf("expected second request to finish first, got %s", op)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second request was blocked by first request")
+	}
+	close(releaseFirst)
+	select {
+	case op := <-completed:
+		if op != "first" {
+			t.Fatalf("unexpected completed request: %s", op)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first request did not finish")
+	}
+	session.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("dispatcher did not stop")
+	}
+}
+
+func TestSessionDispatchBoundsWorkersAndStopsOnClose(t *testing.T) {
+	session := newTestSession(t, 8)
+	session.inboundWorkerCount = 3
+	started := make(chan struct{}, 8)
+	var active atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		session.dispatchLoop(func(ctx context.Context, _ *Session, _ string, _ []byte) {
+			active.Add(1)
+			defer active.Add(-1)
+			started <- struct{}{}
+			<-ctx.Done()
+		})
+	}()
+	for i := 0; i < 6; i++ {
+		session.inbound <- Message{Op: "msg", inboundEnqueuedAt: time.Now()}
+	}
+	for i := 0; i < 3; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("worker did not start")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatal("worker limit exceeded")
+	case <-time.After(25 * time.Millisecond):
+	}
+	session.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("workers did not exit after session close")
+	}
+	if active.Load() != 0 {
+		t.Fatalf("handlers still active: %d", active.Load())
+	}
+	select {
+	case <-started:
+		t.Fatal("queued request started after close")
+	default:
+	}
+}
+
+func TestSessionDispatchSingleWorkerPreservesOrder(t *testing.T) {
+	session := newTestSession(t, 8)
+	completed := make(chan byte, 6)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		session.dispatchLoop(func(_ context.Context, _ *Session, _ string, data []byte) {
+			completed <- data[0]
+		})
+	}()
+	for i := byte(0); i < 6; i++ {
+		session.inbound <- Message{Op: "msg", Data: []byte{i}, inboundEnqueuedAt: time.Now()}
+	}
+	for i := byte(0); i < 6; i++ {
+		select {
+		case got := <-completed:
+			if got != i {
+				t.Fatalf("expected request %d, got %d", i, got)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("request did not finish")
+		}
+	}
+	session.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("dispatcher did not stop")
+	}
+}
+
 func TestSessionEnqueueReturnsQueueFull(t *testing.T) {
 	session := newTestSession(t, 1)
 
@@ -98,6 +230,7 @@ func TestSessionReadLoopReturnsQueueFullAndClosesSession(t *testing.T) {
 		serverConn,
 		identity,
 		1,
+		1,
 		nil,
 		MessageBatchConfig{},
 	)
@@ -118,14 +251,10 @@ func TestSessionReadLoopReturnsQueueFullAndClosesSession(t *testing.T) {
 		return data
 	}
 
-	if err := clientConn.WriteMessage(websocket.BinaryMessage, frame()); err != nil {
-		t.Fatalf("write first test frame: %v", err)
-	}
-	if err := clientConn.WriteMessage(websocket.BinaryMessage, frame()); err != nil {
-		t.Fatalf("write second test frame: %v", err)
-	}
-	if err := clientConn.WriteMessage(websocket.BinaryMessage, frame()); err != nil {
-		t.Fatalf("write third test frame: %v", err)
+	for i := 0; i < 10; i++ {
+		if err := clientConn.WriteMessage(websocket.BinaryMessage, frame()); err != nil {
+			break
+		}
 	}
 
 	select {
@@ -143,7 +272,7 @@ func TestSessionSendBatchReturnsWriteError(t *testing.T) {
 		cancel()
 		t.Fatal(err)
 	}
-	session := NewSession(ctx, cancel, serverConn, identity, 1, nil, MessageBatchConfig{})
+	session := NewSession(ctx, cancel, serverConn, identity, 1, 1, nil, MessageBatchConfig{})
 	t.Cleanup(session.Close)
 
 	if err := serverConn.Close(); err != nil {
@@ -185,6 +314,7 @@ func TestSessionShutdownFlushesPendingBatch(t *testing.T) {
 		serverConn,
 		identity,
 		8,
+		1,
 		idGenerator,
 		MessageBatchConfig{MaxMessages: 10, MaxBytes: 1024, Linger: time.Second},
 	)

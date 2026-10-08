@@ -83,9 +83,31 @@ func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
 		Content:        event.Content,
 		SendTime:       event.SendTime,
 		ClientMsgId:    event.ClientMsgId,
-		VideoId:        event.VideoId,
-		VideoTime:      event.VideoTime,
 		Status:         int32(event.Status),
 		AttachmentId:   event.AttachmentId,
 	}
+}
+
+func realtimeMessageIdentity(eventType string, payload []byte) (string, int64) {
+	switch eventType {
+	case string(protocol.EventTypeSendMessage):
+		var event wspb.MessageEvent
+		if err := proto.Unmarshal(payload, &event); err == nil {
+			return event.GetMessageId(), event.GetSeq()
+		}
+		var eventJSON protocol.MessageEvent
+		if err := json.Unmarshal(payload, &eventJSON); err == nil {
+			return eventJSON.MessageId, eventJSON.Seq
+		}
+	case protocol.EventRoomMessageNotice:
+		var event wspb.RoomMessageNotice
+		if err := proto.Unmarshal(payload, &event); err == nil {
+			return event.GetMessageId(), event.GetSeq()
+		}
+		var eventJSON protocol.MessageNotifyEvent
+		if err := json.Unmarshal(payload, &eventJSON); err == nil {
+			return eventJSON.MessageId, eventJSON.Seq
+		}
+	}
+	return "", 0
 }

@@ -188,7 +188,6 @@ func (wh *WSHandler) handleSendMessage(ctx context.Context, session *realtimews.
 		FileID:           req.FileId,
 		StickerID:        req.StickerId,
 		PackID:           req.PackId,
-		VideoTime:        req.VideoTime,
 	})
 	appDuration := time.Since(appStartedAt)
 
@@ -327,6 +326,7 @@ func (wh *WSHandler) Handler(c *gin.Context) {
 		conn,
 		identity,
 		wh.config.WebSocket.MaxMessageSendBufferSize,
+		wh.config.WebSocket.InboundWorkerCount,
 		wh.idGenerator,
 		batchConfig,
 	)
