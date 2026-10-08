@@ -11,22 +11,27 @@ Go、Gin、GORM、MySQL、Redis、Kafka、MinIO、Protobuf、gRPC、SSE、Vue 3�
 ```text
 WebSocket MessageReq
   → 鉴权、关系校验和客户端重试检查
-  → 按 conversationId 进入消息写入分片，聚合批次
   → MySQL 事务：分配会话 seq、持久化消息与附件、写入 Outbox
   → 返回 msg_ack（sent 表示事务提交，不代表对方已接收）
-  → Kafka Producer 领取 Outbox，按 MessageKey 分配 worker
-  → Kafka Consumer 批量处理，使用 Inbox 管理幂等与处理租约
-  → MessageDelivery / Gateway
+  → Kafka Producer 批量领取 Outbox，以 MessageKey 为 Kafka Key 直接批量投递
+  → Kafka Consumer 逐条提交 worker，使用 Inbox 管理幂等与处理租约
+  → MessageDelivery / 本地 Gateway
   → Session 出站聚合队列 → WebSocket 批量帧
 ```
 
-会话序号由 MySQL 事务内锁定会话并批量分配，不由 Redis INCR 生成。Kafka 分区键使相同会话进入同一分区，但不能单独保证多实例 Outbox 投递时的 seq 顺序；客户端仍需按 seq 去重、排序和补齐缺口。
+发送请求直接执行单条 MySQL 事务，不经过应用层写入队列或凑批窗口。会话序号由事务内锁定会话行逐条分配，不由 Redis INCR 生成。Kafka 分区键使相同会话进入同一分区，但不能单独保证多实例 Outbox 投递时的 seq 顺序；客户端仍需按 seq 去重、排序和补齐缺口。
 
-普通房间推送完整消息；大群或活跃房间使用 `room_msg_notice` 合并通知，客户端通过 `/messages/sync` 补拉。房间判断和通知聚合参数位于 [config.yaml](backend/configs/config.yaml)。
+普通房间推送完整消息；大群或活跃房间使用 `room_msg_notice` 合并通知，客户端通过 `/messages/sync` 补拉。新群消息事务提交后记录活跃度，并为大群或 WARN/ACTIVE 房间写入近期消息缓存；缓存失败不影响成功 ACK。Consumer 只读取当前活跃等级选择投递方式，通知合并器每房间只保留最大 seq 对应的轻量通知，定时向所有在线成员推送，不保存完整消息或预热缓存。待通知房间数不设固定上限。房间判断和通知聚合参数位于 [config.yaml](backend/configs/config.yaml)。
+
+Kafka Key 仍使用会话 ID；Consumer 的本地 worker 调度与 Kafka 分区独立。普通新消息按 eventId 分片，允许同会话不同消息并发处理、乱序到达；其他事件仍按原 Key 串行处理。客户端从本地连续水位补齐缺口后有序展示，worker 独立执行、更新 Inbox 和重试；消费循环持续接收，只有 worker 队列满时施加背压。worker 完成业务和 Inbox 状态更新后直接标记 offset，不维护连续完成水位；较大的 offset 可能先提交，重启后较小的未完成事件可能不再被 Kafka 重放。聊天推送依赖客户端同步补偿，其他事件也需要对应的业务恢复机制。
 
 ## WebSocket 协议
 
+当前使用单节点 Gateway，用户推送、房间广播和在线连接统计直接使用本地连接索引。
+
 入口：`GET /api/v1/ws`，需要有效 JWT。Session 绑定用户、设备及登录会话，用户可以有多个连接。服务端维护 Ping/Pong、读写截止时间和慢客户端隔离。
+
+每个 Session 按接收顺序向有界入站 worker pool 提交请求，`ws.inbound_worker_count` 当前配置为 4；执行完成、seq 分配及 ACK 返回顺序可能不同，客户端按 `clientMsgId` 关联 ACK、按 seq 排列消息。成功 ACK 仍在数据库事务提交后返回。连接关闭时取消 worker 上下文及尚未提交的发送事务；已提交但未收到 ACK 的消息使用原 clientMsgId 重试。入站队列满时仍关闭连接；增加并行度不等于提高单房间数据库写入容量。
 
 | Op | 方向 | Payload |
 |---|---|---|
@@ -75,7 +80,9 @@ message WsBatch {
 | 房间成员变更 | `im.room` |
 | 文件卡片预热 | `im.file-card-warmup` |
 
-Producer 内部负责领取 Outbox、投递和更新任务状态；Consumer 内部负责 Inbox 抢占、处理、重试和死信。Outbox/Inbox 表保留，它们不是独立的应用层调度入口。具体批量粒度和失败处理以 [producer.go](backend/internal/infrastructure/mq/kafka/producer.go) 与 [consumer.go](backend/internal/infrastructure/mq/kafka/consumer.go) 为准。
+Producer 每次在短事务内领取一批 Outbox，提交领取事务后直接调用 SendMessages；Sarama 根据 Kafka Key 选择分区并组织发送。整批结果返回后，分类为 successMessages、retryMessages 和 deadMessages，分别执行批量更新：成功标记 sent，重试回到 pending 并保存各自的错误与重试时间，达到上限标记 dead；所有更新均校验每条记录的租约。不使用本地 Producer worker pool 或二次凑批。Consumer 内部负责 Inbox 抢占、处理、重试和死信。
+
+Outbox/Inbox 表保留，它们不是独立的应用层调度入口。具体批量粒度和失败处理以 [producer.go](backend/internal/infrastructure/mq/kafka/producer.go) 与 [consumer.go](backend/internal/infrastructure/mq/kafka/consumer.go) 为准。
 
 ## 统一媒体上传
 
@@ -217,7 +224,6 @@ scope 租约由初始化请求创建，Agent 执行期间使用原 `lockToken` �
 | 消息 | GET | `/messages/offline` | 固定快照内向前分页补齐 |
 | 消息 | GET | `/messages/sync` | 实时增量补拉 |
 | 消息 | GET | `/messages/history`、`/messages/seqs` | 历史分页 / 按序号补查 |
-| 消息 | GET | `/messages/videos`、`/messages/danmaku` | 视频历史 / 弹幕 |
 | 房间 | POST | `/rooms`、`/rooms/join`、`/rooms/:roomId/leave` | 创建、加入、退出 |
 | 房间 | GET | `/rooms/:roomId/invite-code` | 邀请码 |
 | 上传 | POST | `/files/uploads/init` | 统一初始化 |
