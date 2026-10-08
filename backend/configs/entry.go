@@ -86,8 +86,6 @@ type KafkaTopics struct {
 }
 
 type KafkaConsumerConfig struct {
-	BatchSize                int    `yaml:"batch_size"`
-	BatchLingerMs            int    `yaml:"batch_linger_milliseconds"`
 	WorkerCount              int    `yaml:"worker_count"`
 	QueueSize                int    `yaml:"queue_size"`
 	GroupID                  string `yaml:"group_id"`
@@ -100,20 +98,16 @@ type KafkaConsumerConfig struct {
 }
 
 type KafkaProducerConfig struct {
-	Acks                  string `yaml:"acks"`
-	Retries               int    `yaml:"retries"`
-	BatchSize             int    `yaml:"batch_size"`
-	LingerMs              int    `yaml:"linger_ms"`
-	Compression           string `yaml:"compression"`
-	ClaimBatchSize        int    `yaml:"claim_batch_size"`
-	WorkerCount           int    `yaml:"worker_count"`
-	QueueSize             int    `yaml:"queue_size"`
-	MarkSentBatchSize     int    `yaml:"mark_sent_batch_size"`
-	MarkSentBatchLingerMs int    `yaml:"mark_sent_batch_linger_ms"`
-	PollIntervalSeconds   int    `yaml:"poll_interval_seconds"`
-	StaleAfterSeconds     int    `yaml:"stale_after_seconds"`
-	BaseRetryWaitSeconds  int    `yaml:"base_retry_wait_seconds"`
-	WorkerMaxRetries      int    `yaml:"worker_max_retries"`
+	Acks                 string `yaml:"acks"`
+	Retries              int    `yaml:"retries"`
+	BatchSize            int    `yaml:"batch_size"`
+	LingerMs             int    `yaml:"linger_ms"`
+	Compression          string `yaml:"compression"`
+	ClaimBatchSize       int    `yaml:"claim_batch_size"`
+	PollIntervalSeconds  int    `yaml:"poll_interval_seconds"`
+	StaleAfterSeconds    int    `yaml:"stale_after_seconds"`
+	BaseRetryWaitSeconds int    `yaml:"base_retry_wait_seconds"`
+	MaxRetries           int    `yaml:"max_retries"`
 }
 
 type KafkaPartitionConfig struct {
@@ -170,6 +164,7 @@ type WebSocketConfig struct {
 	TimerInterval            int `yaml:"timer_interval_seconds"`
 	MaxMessageSize           int `yaml:"max_message_size"`
 	MaxMessageSendBufferSize int `yaml:"max_message_send_buffer_size"`
+	InboundWorkerCount       int `yaml:"inbound_worker_count"`
 	SendMessageRate          int `yaml:"send_message_rate"`
 	SendMessageBurst         int `yaml:"send_message_burst"`
 	BatchMaxMessages         int `yaml:"batch_max_messages"`
@@ -179,29 +174,24 @@ type WebSocketConfig struct {
 }
 
 type MessageConfig struct {
-	ConversationWriteLingerMilliseconds int   `yaml:"conversation_write_linger_milliseconds"`
-	ConversationWriteMaxMessages        int   `yaml:"conversation_write_max_messages"`
-	ConversationWriteShardCount         int   `yaml:"conversation_write_shard_count"`
-	ConversationWriteMaxPending         int   `yaml:"conversation_write_max_pending"`
-	RoomRealtimeFanoutLimit             int   `yaml:"room_realtime_fanout_limit"`
-	LargeRoomNoticeLingerMilliseconds   int   `yaml:"large_room_notice_linger_milliseconds"`
-	LargeRoomNoticeShardCount           int   `yaml:"large_room_notice_shard_count"`
-	LargeRoomNoticeMaxPending           int   `yaml:"large_room_notice_max_pending"`
-	RoomActivityWindowSeconds           int   `yaml:"room_activity_window_seconds"`
-	RoomActivityBucketSeconds           int   `yaml:"room_activity_bucket_seconds"`
-	RoomActivityKeyTTLSeconds           int   `yaml:"room_activity_key_ttl_seconds"`
-	RoomActivityWarnFanoutWork          int   `yaml:"room_activity_warn_fanout_work"`
-	RoomActivityActiveFanoutWork        int   `yaml:"room_activity_active_fanout_work"`
-	RoomMemberStateTTLSeconds           int   `yaml:"room_member_state_ttl_seconds"`
-	RoomMemberNegativeTTLSeconds        int   `yaml:"room_member_negative_ttl_seconds"`
-	HistoryDefaultLimit                 int   `yaml:"history_default_limit"`
-	HistoryMaxLimit                     int   `yaml:"history_max_limit"`
-	MaxTextRunes                        int   `yaml:"max_text_runes"`
-	MaxWidth                            int   `yaml:"max_width"`
-	MaxHeight                           int   `yaml:"max_height"`
-	MaxVideoMs                          int64 `yaml:"max_video_ms"`
-	MaxIdentifierLength                 int   `yaml:"max_identifier_length"`
-	AttachmentTTLSeconds                int64 `yaml:"attachment_ttl_seconds"`
+	RoomRealtimeFanoutLimit           int   `yaml:"room_realtime_fanout_limit"`
+	LargeRoomNoticeLingerMilliseconds int   `yaml:"large_room_notice_linger_milliseconds"`
+	LargeRoomNoticeShardCount         int   `yaml:"large_room_notice_shard_count"`
+	RoomActivityWindowSeconds         int   `yaml:"room_activity_window_seconds"`
+	RoomActivityBucketSeconds         int   `yaml:"room_activity_bucket_seconds"`
+	RoomActivityKeyTTLSeconds         int   `yaml:"room_activity_key_ttl_seconds"`
+	RoomActivityWarnFanoutWork        int   `yaml:"room_activity_warn_fanout_work"`
+	RoomActivityActiveFanoutWork      int   `yaml:"room_activity_active_fanout_work"`
+	RoomMemberStateTTLSeconds         int   `yaml:"room_member_state_ttl_seconds"`
+	RoomMemberNegativeTTLSeconds      int   `yaml:"room_member_negative_ttl_seconds"`
+	HistoryDefaultLimit               int   `yaml:"history_default_limit"`
+	HistoryMaxLimit                   int   `yaml:"history_max_limit"`
+	MaxTextRunes                      int   `yaml:"max_text_runes"`
+	MaxWidth                          int   `yaml:"max_width"`
+	MaxHeight                         int   `yaml:"max_height"`
+	MaxVideoMs                        int64 `yaml:"max_video_ms"`
+	MaxIdentifierLength               int   `yaml:"max_identifier_length"`
+	AttachmentTTLSeconds              int64 `yaml:"attachment_ttl_seconds"`
 }
 
 type Server struct {
@@ -342,6 +332,7 @@ func (c Config) Validate() error {
 		return fmt.Errorf("文件上传限制必须大于 0")
 	}
 	if c.WebSocket.MaxMessageSize <= 0 || c.WebSocket.MaxMessageSendBufferSize <= 0 ||
+		c.WebSocket.InboundWorkerCount <= 0 ||
 		c.WebSocket.WriteWaitSeconds <= 0 || c.WebSocket.PongWaitSeconds <= 0 ||
 		c.WebSocket.PingPeriodSeconds <= 0 || c.WebSocket.PingPeriodSeconds >= c.WebSocket.PongWaitSeconds {
 		return fmt.Errorf("WebSocket 配置无效")

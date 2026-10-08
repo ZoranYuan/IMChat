@@ -33,6 +33,7 @@ ws:
   timer_interval_seconds: 30
   max_message_size: 5120
   max_message_send_buffer_size: 256
+  inbound_worker_count: 4 # 每个连接最多并行处理 4 个请求，ACK 按 clientMsgId 关联。
   send_message_rate: 10
   send_message_burst: 20
   batch_max_messages: 64
@@ -40,14 +41,9 @@ ws:
   batch_linger_milliseconds: 20
   batch_ready_queue_size: 16
 message:
-  conversation_write_linger_milliseconds: 5
-  conversation_write_max_messages: 50
-  conversation_write_shard_count: 16
-  conversation_write_max_pending: 100000
   room_realtime_fanout_limit: 500
   large_room_notice_linger_milliseconds: 50
   large_room_notice_shard_count: 16
-  large_room_notice_max_pending: 100000
   max_text_runes: 4096
   max_width: 8192
   max_height: 8192
@@ -79,10 +75,8 @@ kafka:
     version: "2.6.0"
     assignor: "range"   # range / roundrobin / sticky
     max_retries: 3
-    batch_size: 50
-    batch_linger_milliseconds: 5
     worker_count: 16
-    queue_size: 100
+    queue_size: 1024
     lease_stale_after_seconds: 10
     consume_retry_interval_seconds: 1
     dead_letter_suffix: ".dlq"
@@ -94,14 +88,10 @@ kafka:
     linger_ms: 10
     compression: "snappy"
     claim_batch_size: 100
-    worker_count: 10
-    queue_size: 300
-    mark_sent_batch_size: 32
-    mark_sent_batch_linger_ms: 5
     poll_interval_seconds: 2
     stale_after_seconds: 30
     base_retry_wait_seconds: 2
-    worker_max_retries: 10
+    max_retries: 10
 
   partition:
     strategy: "conversation_hash"   # room_hash / user_hash / random

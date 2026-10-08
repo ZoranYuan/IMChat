@@ -106,8 +106,7 @@ func main() {
 	}
 	passwordHasher := passwordsecurity.NewHasher()
 
-	realtimeGateway := realtimews.NewGatewayWithRedis(ctx, redisClient)
-	defer realtimeGateway.Close(context.Background())
+	realtimeGateway := realtimews.NewGateway()
 	realtimeGateway.KeepAlive(ctx, cfg.WebSocket.TimerInterval, cfg.WebSocket.PongWaitSeconds)
 
 	authCache := authcache.NewAuthCache(redisClient)
@@ -352,7 +351,7 @@ func main() {
 		messageAttachmentsRepository,
 	)
 	messageApplication.SetProducerNotifier(messageProducer)
-	defer messageApplication.Close(context.Background())
+	messageApplication.SetRoomOnlineSessionCounter(realtimeGateway)
 
 	// Producer 使用事务提交后的唤醒信号降低正常投递延迟，
 	// 同时保留定时扫描作为最终兜底。
