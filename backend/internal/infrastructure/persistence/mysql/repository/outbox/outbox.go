@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	idport "IM_backend/internal/application/ports/id"
@@ -113,38 +114,6 @@ func (r *OutboxRepository) Create(ctx context.Context, outbox *outboxport.Entry)
 	return r.db.WithContext(ctx).Create(m).Error
 }
 
-// CreateBatch 在同一事务内批量创建 Outbox 事件。
-func (r *OutboxRepository) CreateBatch(ctx context.Context, outboxes []*outboxport.Entry) error {
-	if len(outboxes) == 0 {
-		return nil
-	}
-	models := make([]*model.OutboxRecord, 0, len(outboxes))
-	now := time.Now()
-	for _, outbox := range outboxes {
-		if outbox == nil {
-			continue
-		}
-		if outbox.ID == "" {
-			id, err := r.idGenerator.Generate()
-			if err != nil {
-				return err
-			}
-			outbox.ID = id
-		}
-		if outbox.Status == "" {
-			outbox.Status = outboxport.StatusPending
-		}
-		if outbox.NextRetryAt.IsZero() {
-			outbox.NextRetryAt = now
-		}
-		models = append(models, toModel(outbox))
-	}
-	if len(models) == 0 {
-		return nil
-	}
-	return r.db.WithContext(ctx).Create(&models).Error
-}
-
 func (r *OutboxRepository) ClaimPending(
 	ctx context.Context,
 	now time.Time,
@@ -201,84 +170,71 @@ func (r *OutboxRepository) ClaimPending(
 	return result, nil
 }
 
-// MarkSentBatch 按同一租约批量确认已成功发布的 Outbox 事件。
-func (r *OutboxRepository) MarkSentBatch(ctx context.Context, ids []string, lockToken string, sentAt time.Time) error {
-	if len(ids) == 0 {
+// MarkSentBatch 使用每条记录的 id + lockToken，一条 SQL 确认成功事件。
+func (r *OutboxRepository) MarkSentBatch(ctx context.Context, leases []outboxport.Lease, sentAt time.Time) error {
+	return r.updateLeasedBatch(ctx, leases, map[string]interface{}{
+		"status": outboxport.StatusSent, "sent_at": sentAt, "locked_at": nil, "lock_token": "",
+	})
+}
+
+// MarkRetryBatch 一条 SQL 更新重试状态，保留每条记录的错误和下次重试时间。
+func (r *OutboxRepository) MarkRetryBatch(ctx context.Context, updates []outboxport.RetryUpdate) error {
+	leases := make([]outboxport.Lease, 0, len(updates))
+	errorArgs := make([]interface{}, 0, len(updates)*2)
+	retryArgs := make([]interface{}, 0, len(updates)*2)
+	for _, update := range updates {
+		leases = append(leases, update.Lease)
+		errorArgs = append(errorArgs, update.ID, update.LastError)
+		retryArgs = append(retryArgs, update.ID, update.NextRetryAt)
+	}
+	return r.updateLeasedBatch(ctx, leases, map[string]interface{}{
+		"status": outboxport.StatusPending, "locked_at": nil, "lock_token": "",
+		"retry_count":   gorm.Expr("retry_count + 1"),
+		"last_error":    gorm.Expr("CASE id "+strings.Repeat("WHEN ? THEN ? ", len(updates))+"ELSE last_error END", errorArgs...),
+		"next_retry_at": gorm.Expr("CASE id "+strings.Repeat("WHEN ? THEN ? ", len(updates))+"ELSE next_retry_at END", retryArgs...),
+	})
+}
+
+// MarkDeadBatch 一条 SQL 标记达到重试上限的记录，保留各自的错误原因。
+func (r *OutboxRepository) MarkDeadBatch(ctx context.Context, updates []outboxport.DeadUpdate) error {
+	leases := make([]outboxport.Lease, 0, len(updates))
+	errorArgs := make([]interface{}, 0, len(updates)*2)
+	for _, update := range updates {
+		leases = append(leases, update.Lease)
+		errorArgs = append(errorArgs, update.ID, update.LastError)
+	}
+	return r.updateLeasedBatch(ctx, leases, map[string]interface{}{
+		"status": outboxport.StatusDead, "locked_at": nil, "lock_token": "",
+		"last_error": gorm.Expr("CASE id "+strings.Repeat("WHEN ? THEN ? ", len(updates))+"ELSE last_error END", errorArgs...),
+	})
+}
+
+func (r *OutboxRepository) updateLeasedBatch(ctx context.Context, leases []outboxport.Lease, assignments map[string]interface{}) error {
+	if len(leases) == 0 {
 		return nil
 	}
-	if lockToken == "" {
-		return outboxport.ErrLeaseLost
-	}
-
-	uniqueIDs := make([]string, 0, len(ids))
-	seen := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		if id == "" {
+	pairs := make([][]interface{}, 0, len(leases))
+	seen := make(map[string]string, len(leases))
+	for _, lease := range leases {
+		if lease.ID == "" || lease.LockToken == "" {
 			return outboxport.ErrLeaseLost
 		}
-		if _, exists := seen[id]; exists {
+		if token, exists := seen[lease.ID]; exists {
+			if token != lease.LockToken {
+				return outboxport.ErrLeaseLost
+			}
 			continue
 		}
-		seen[id] = struct{}{}
-		uniqueIDs = append(uniqueIDs, id)
+		seen[lease.ID] = lease.LockToken
+		pairs = append(pairs, []interface{}{lease.ID, lease.LockToken})
 	}
-	if len(uniqueIDs) == 0 {
-		return nil
-	}
-
-	result := r.db.WithContext(ctx).
-		Model(&model.OutboxRecord{}).
-		Where("id IN ? AND status = ? AND lock_token = ?", uniqueIDs, outboxport.StatusProcessing, lockToken).
-		Updates(map[string]interface{}{
-			"status":     outboxport.StatusSent,
-			"sent_at":    sentAt,
-			"locked_at":  nil,
-			"lock_token": "",
-		})
+	result := r.db.WithContext(ctx).Model(&model.OutboxRecord{}).
+		Where("status = ? AND (id, lock_token) IN ?", outboxport.StatusProcessing, pairs).
+		Updates(assignments)
 	if result.Error != nil {
 		return result.Error
 	}
-	if result.RowsAffected != int64(len(uniqueIDs)) {
-		return outboxport.ErrLeaseLost
-	}
-	return nil
-}
-
-func (r *OutboxRepository) MarkRetry(ctx context.Context, id, lockToken string, nextRetryAt time.Time, lastError string) error {
-	result := r.db.WithContext(ctx).
-		Model(&model.OutboxRecord{}).
-		Where("id = ? AND status = ? AND lock_token = ?", id, outboxport.StatusProcessing, lockToken).
-		Updates(map[string]interface{}{
-			"status":        outboxport.StatusPending,
-			"next_retry_at": nextRetryAt,
-			"last_error":    lastError,
-			"locked_at":     nil,
-			"lock_token":    "",
-			"retry_count":   gorm.Expr("retry_count + 1"),
-		})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return outboxport.ErrLeaseLost
-	}
-	return nil
-}
-
-func (r *OutboxRepository) MarkDead(ctx context.Context, id, lockToken string, lastError string) error {
-	result := r.db.WithContext(ctx).
-		Model(&model.OutboxRecord{}).
-		Where("id = ? AND status = ? AND lock_token = ?", id, outboxport.StatusProcessing, lockToken).
-		Updates(map[string]interface{}{
-			"status":     outboxport.StatusDead,
-			"last_error": lastError,
-			"locked_at":  nil,
-			"lock_token": "",
-		})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
+	if result.RowsAffected != int64(len(pairs)) {
 		return outboxport.ErrLeaseLost
 	}
 	return nil

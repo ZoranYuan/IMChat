@@ -6,12 +6,15 @@ import (
 	inboxport "IM_backend/internal/application/ports/inbox"
 	txmanager "IM_backend/internal/application/ports/persistence/tx_manager"
 	"IM_backend/internal/shared/diagnostics"
+	"IM_backend/internal/shared/protocol"
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -37,8 +40,6 @@ type Consumer struct {
 	maxRetries          int
 	deadLetterPublisher eventbus.Publisher
 	deadLetterSuffix    string
-	batchSize           int
-	batchLinger         time.Duration
 }
 
 // claimRetryInterval 根据 Inbox 租约时间推导抢占失败后的检查间隔，避免额外增加配置项。
@@ -160,9 +161,17 @@ func (c *Consumer) handle(ctx context.Context, message eventbus.IncomingEvent) e
 		return nil
 	}
 
+	workCtx, cancel := context.WithCancelCause(ctx)
+	stopRefresh := c.refreshLease(workCtx, cancel, []string{message.EventID}, inboxState.lockToken)
+	defer cancel(nil)
+	defer stopRefresh()
 	handlerStartedAt := time.Now()
-	handlerErr := c.execute(ctx, message)
+	handlerErr := c.execute(workCtx, message)
 	handlerDuration := time.Since(handlerStartedAt)
+	stopRefresh()
+	if workCtx.Err() != nil {
+		return context.Cause(workCtx)
+	}
 	if handlerErr != nil {
 		diagnostics.Logf("stage=kafka_consumer event_id=%s event_type=%s claim_us=%d handler_us=%d total_us=%d outcome=handler_error error=%q",
 			message.EventID, message.Name, claimDuration.Microseconds(), handlerDuration.Microseconds(), time.Since(startedAt).Microseconds(), handlerErr.Error())
@@ -205,19 +214,6 @@ func (c *Consumer) handle(ctx context.Context, message eventbus.IncomingEvent) e
 		message.EventID, message.Name, claimDuration.Microseconds(), handlerDuration.Microseconds(), time.Since(markCompletedStartedAt).Microseconds(), time.Since(startedAt).Microseconds())
 
 	return nil
-}
-
-func (c *Consumer) handleOnWorker(ctx context.Context, message eventbus.IncomingEvent) error {
-	if c == nil || c.workerPool == nil {
-		return c.handle(ctx, message)
-	}
-	done, err := c.workerPool.Submit(ctx, string(message.Key), func(workerCtx context.Context) error {
-		return c.handle(workerCtx, message)
-	})
-	if err != nil {
-		return err
-	}
-	return <-done
 }
 
 func (c *Consumer) markRetry(ctx context.Context, message eventbus.IncomingEvent, lockToken, lastError string) error {
@@ -301,66 +297,26 @@ func (h saramaAdapter) incomingEvent(claim sarama.ConsumerGroupClaim, message *s
 func (saramaAdapter) Setup(sarama.ConsumerGroupSession) error   { return nil }
 func (saramaAdapter) Cleanup(sarama.ConsumerGroupSession) error { return nil }
 
-func (h saramaAdapter) consumeMessages(
-	session sarama.ConsumerGroupSession,
-	claim sarama.ConsumerGroupClaim,
-	initialRetries int,
-) error {
-	ctx := session.Context()
-	claimRetryInterval := h.consumer.claimRetryInterval()
-	const maxLocalRetries = 2
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case message, ok := <-claim.Messages():
-			if !ok {
-				return nil
-			}
-			incomingEvent, err := h.incomingEvent(claim, message)
-			if err != nil {
-				return err
-			}
-
-			localRetryCount := initialRetries
-			initialRetries = 0
-			for {
-				err := h.consumer.handleOnWorker(ctx, incomingEvent)
-				if err == nil {
-					break
-				}
-
-				if errors.Is(err, inboxport.ErrEventInProgress) {
-					if err := waitForInboxRetry(ctx, claimRetryInterval); err != nil {
-						return err
-					}
-					continue
-				}
-
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if localRetryCount >= maxLocalRetries {
-					return fmt.Errorf(
-						"处理消息队列消息失败：主题=%s 分区=%d 偏移量=%d：%w",
-						message.Topic,
-						message.Partition,
-						message.Offset,
-						err,
-					)
-				}
-
-				localRetryCount++
-				retryDelay := time.Duration(1<<uint(localRetryCount-1)) * time.Second
-				if err := waitForInboxRetry(ctx, retryDelay); err != nil {
-					return err
-				}
-			}
-
-			session.MarkMessage(message, "")
+// 重试由 worker 自己完成，不占用消费循环；业务失败次数仍由 Inbox 控制。
+func (c *Consumer) handleUntilCompleted(ctx context.Context, event eventbus.IncomingEvent) error {
+	delay := time.Second
+	for ctx.Err() == nil {
+		err := c.handle(ctx, event)
+		if err == nil {
+			return nil
+		}
+		retryDelay := delay
+		if errors.Is(err, inboxport.ErrEventInProgress) {
+			retryDelay = c.claimRetryInterval()
+		} else {
+			log.Printf("worker 消息处理失败，准备重试：event_id=%s，error=%v", event.EventID, err)
+			delay = min(delay*2, 5*time.Second)
+		}
+		if err := waitForInboxRetry(ctx, retryDelay); err != nil {
+			return err
 		}
 	}
+	return context.Cause(ctx)
 }
 
 func waitForInboxRetry(ctx context.Context, delay time.Duration) error {
@@ -448,8 +404,6 @@ func NewConsumer(
 		maxRetries:          config.MaxRetries,
 		deadLetterPublisher: deadLetterPublisher,
 		deadLetterSuffix:    config.DeadLetterSuffix,
-		batchSize:           config.BatchSize,
-		batchLinger:         time.Duration(config.BatchLingerMs) * time.Millisecond,
 	}
 	return consumer, nil
 }
@@ -492,133 +446,61 @@ func (c *Consumer) Close() error {
 	return c.group.Close()
 }
 
-type bufferedClaim struct {
-	sarama.ConsumerGroupClaim
-	messages chan *sarama.ConsumerMessage
-}
-
-func (c bufferedClaim) Messages() <-chan *sarama.ConsumerMessage { return c.messages }
-
 func (h saramaAdapter) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	size, linger := h.consumer.batchSize, h.consumer.batchLinger
-	if size <= 0 {
-		size = 50
+	ctx, cancel := context.WithCancel(session.Context())
+	defer cancel()
+	pool := h.consumer.workerPool
+	if pool == nil || len(pool.shards) == 0 {
+		return ErrInvalidClient
 	}
-	if linger <= 0 {
-		linger = 5 * time.Millisecond
-	}
-	for {
-		messages, closed, err := collectPartitionBatch(session.Context(), claim.Messages(), size, linger)
-		if err != nil {
-			return err
-		}
-		if len(messages) > 0 {
-			if err := h.consumeBatch(session, claim, messages); err != nil {
+	// 只用于消息通道关闭时收尾，不参与 offset 管理或限制接收窗口。
+	var active atomic.Int64
+	finished := make(chan struct{}, 1)
+	source := claim.Messages()
+	for source != nil || active.Load() > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-finished:
+		case message, ok := <-source:
+			if !ok {
+				source = nil
+				continue
+			}
+			event, err := h.incomingEvent(claim, message)
+			if err != nil {
+				return err
+			}
+			active.Add(1)
+			_, err = pool.Submit(ctx, consumerWorkerKey(event), func(context.Context) error {
+				defer func() {
+					active.Add(-1)
+					select {
+					case finished <- struct{}{}:
+					default:
+					}
+				}()
+				// 使用本次分区租约的 context，rebalance 后排队任务不得继续执行。
+				if err := h.consumer.handleUntilCompleted(ctx, event); err != nil {
+					return err
+				}
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				// 按完成顺序直接标记；较大的 offset 可越过尚未完成的消息。
+				session.MarkMessage(message, "")
+				return nil
+			})
+			if err != nil {
+				active.Add(-1)
 				return err
 			}
 		}
-		if closed {
-			return nil
-		}
 	}
+	return nil
 }
 
-// 每个 ConsumeClaim 只收集自己的分区，满数量或到达时间窗口即停止收集。
-func collectPartitionBatch(ctx context.Context, source <-chan *sarama.ConsumerMessage, size int, linger time.Duration) ([]*sarama.ConsumerMessage, bool, error) {
-	var first *sarama.ConsumerMessage
-	select {
-	case <-ctx.Done():
-		return nil, false, ctx.Err()
-	case message, ok := <-source:
-		if !ok {
-			return nil, true, nil
-		}
-		first = message
-	}
-	messages := []*sarama.ConsumerMessage{first}
-	timer := time.NewTimer(linger)
-	defer timer.Stop()
-	for len(messages) < size {
-		select {
-		case <-ctx.Done():
-			return nil, false, ctx.Err()
-		case <-timer.C:
-			return messages, false, nil
-		case message, ok := <-source:
-			if !ok {
-				return messages, true, nil
-			}
-			messages = append(messages, message)
-		}
-	}
-	return messages, false, nil
-}
-
-func (h saramaAdapter) consumeBatch(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim, messages []*sarama.ConsumerMessage) error {
-	ctx := session.Context()
-	events := make([]eventbus.IncomingEvent, len(messages))
-	for i, message := range messages {
-		event, err := h.incomingEvent(claim, message)
-		if err != nil {
-			return err
-		}
-		events[i] = event
-	}
-	completed, retryErr, err := h.consumer.handleBatch(ctx, events)
-	if err != nil {
-		return fmt.Errorf("批量处理 Inbox 失败：%w", err)
-	}
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	// 只标记数据库已确认完成的连续前缀，不能跳过失败消息提交后面的 offset。
-	for _, message := range messages[:completed] {
-		session.MarkMessage(message, "")
-	}
-	if completed == len(messages) {
-		return nil
-	}
-	initialRetries := 0
-	if retryErr != nil {
-		if err := waitForInboxRetry(ctx, time.Second); err != nil {
-			return err
-		}
-		initialRetries = 1
-	}
-	buffer := make(chan *sarama.ConsumerMessage, len(messages)-completed)
-	for _, message := range messages[completed:] {
-		buffer <- message
-	}
-	close(buffer)
-	return h.consumeMessages(session, bufferedClaim{ConsumerGroupClaim: claim, messages: buffer}, initialRetries)
-}
-
-// 新事件批量抢占；已有事件、重复 event_id 和未知处理器走逐条状态机处理。
-func (c *Consumer) handleBatch(ctx context.Context, events []eventbus.IncomingEvent) (completed int, retryErr error, err error) {
-	if len(events) == 0 {
-		return 0, nil, nil
-	}
-	if c == nil {
-		return 0, nil, ErrHandlerNotFound
-	}
-	if c.inbox == nil || c.txManager == nil {
-		return 0, nil, errors.New("Inbox 依赖未配置")
-	}
-	claims := make([]inboxport.ClaimEvent, len(events))
-	ids := make([]string, len(events))
-	seen := make(map[string]bool, len(events))
-	for i, event := range events {
-		if event.EventID == "" || seen[event.EventID] || c.handlers[event.Name] == nil {
-			return 0, nil, nil
-		}
-		seen[event.EventID] = true
-		ids[i] = event.EventID
-		claims[i] = inboxport.ClaimEvent{EventID: event.EventID, EventType: event.Name}
-	}
-	return c.processBatch(ctx, events, claims, ids)
-}
-
-func (c *Consumer) refreshBatchLease(ctx context.Context, cancel context.CancelCauseFunc, ids []string, token string) func() {
+func (c *Consumer) refreshLease(ctx context.Context, cancel context.CancelCauseFunc, ids []string, token string) func() {
 	interval := c.leaseStaleAfter / 3
 	if interval <= 0 {
 		interval = time.Second
@@ -649,212 +531,12 @@ func (c *Consumer) refreshBatchLease(ctx context.Context, cancel context.CancelC
 	return func() { once.Do(func() { close(stop); <-done }) }
 }
 
-type batchWorkerOutcome struct {
-	attempted bool
-	err       error
-	dead      bool
-}
-
-type conversationBatch struct {
-	key     string
-	indices []int
-}
-
-func (c *Consumer) processBatch(
-	ctx context.Context,
-	events []eventbus.IncomingEvent,
-	claims []inboxport.ClaimEvent,
-	ids []string,
-) (completed int, retryErr error, err error) {
-	startedAt := time.Now()
-	token := uuid.NewString()
-	claimStartedAt := time.Now()
-	err = c.txManager.WithinTransaction(ctx, func(tx any) error {
-		return c.inbox.WithTx(tx).TryClaimBatch(ctx, claims, token, time.Now())
-	})
-	if errors.Is(err, inboxport.ErrBatchConflict) {
-		return 0, nil, nil
+// 新消息按 eventId 分片允许同会话并发推送，其他事件保留原 Key 的串行处理；不修改 Kafka Key 和业务路由。
+func consumerWorkerKey(event eventbus.IncomingEvent) string {
+	if event.Name == protocol.EventTypeSendMessage && event.EventID != "" {
+		return "__message_event:" + event.EventID
 	}
-	if err != nil {
-		return 0, nil, err
-	}
-	claimDuration := time.Since(claimStartedAt)
-
-	workCtx, cancel := context.WithCancelCause(ctx)
-	stopRefresh := c.refreshBatchLease(workCtx, cancel, ids, token)
-
-	outcomes := make([]batchWorkerOutcome, len(events))
-	groups := groupBatchByKey(events)
-	if c.workerPool == nil {
-		indices := make([]int, len(events))
-		for i := range indices {
-			indices[i] = i
-		}
-		groups = []conversationBatch{{indices: indices}}
-	}
-	finalized := false
-	defer func() {
-		stopRefresh()
-		cancel(nil)
-		if finalized {
-			return
-		}
-		attemptedIDs := make([]string, 0, len(ids))
-		unattemptedIDs := make([]string, 0, len(ids))
-		for i, outcome := range outcomes {
-			if outcome.attempted {
-				attemptedIDs = append(attemptedIDs, ids[i])
-			} else {
-				unattemptedIDs = append(unattemptedIDs, ids[i])
-			}
-		}
-		cleanupCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-		defer stop()
-		if releaseErr := c.inbox.ReleaseBatch(cleanupCtx, attemptedIDs, token, false); releaseErr != nil {
-			err = errors.Join(err, fmt.Errorf("释放 Inbox 已执行租约失败：%w", releaseErr))
-		}
-		if releaseErr := c.inbox.ReleaseBatch(cleanupCtx, unattemptedIDs, token, true); releaseErr != nil {
-			err = errors.Join(err, fmt.Errorf("释放 Inbox 批量预占失败：%w", releaseErr))
-		}
-	}()
-
-	runGroup := func(group conversationBatch) error {
-		for _, index := range group.indices {
-			if err := workCtx.Err(); err != nil {
-				return err
-			}
-			outcomes[index].attempted = true
-			outcomes[index].err = c.execute(workCtx, events[index])
-			if outcomes[index].err != nil {
-				break
-			}
-		}
-		return nil
-	}
-	if c.workerPool == nil {
-		for _, group := range groups {
-			if err := runGroup(group); err != nil {
-				return 0, nil, err
-			}
-		}
-	} else {
-		tasks := make([]<-chan error, 0, len(groups))
-		var submitErr error
-		for _, group := range groups {
-			group := group
-			done, err := c.workerPool.Submit(workCtx, group.key, func(context.Context) error {
-				return runGroup(group)
-			})
-			if err != nil {
-				submitErr = err
-				break
-			}
-			tasks = append(tasks, done)
-		}
-		var workerErr error
-		for _, done := range tasks {
-			if err := <-done; err != nil && workerErr == nil {
-				workerErr = err
-			}
-		}
-		if submitErr != nil {
-			return 0, nil, submitErr
-		}
-		if workerErr != nil {
-			return 0, nil, workerErr
-		}
-	}
-	if workCtx.Err() != nil {
-		return 0, nil, context.Cause(workCtx)
-	}
-	stopRefresh()
-	if workCtx.Err() != nil {
-		return 0, nil, context.Cause(workCtx)
-	}
-
-	for i := range outcomes {
-		if !outcomes[i].attempted || outcomes[i].err == nil {
-			continue
-		}
-		if !eventbus.IsNonRetryable(outcomes[i].err) && c.maxRetries != 1 {
-			continue
-		}
-		if err := c.publishDeadLetter(ctx, events[i]); err != nil {
-			return 0, nil, err
-		}
-		outcomes[i].dead = true
-	}
-
-	completeIDs := make([]string, 0, len(ids))
-	unattemptedIDs := make([]string, 0, len(ids))
-	for i, outcome := range outcomes {
-		switch {
-		case !outcome.attempted:
-			unattemptedIDs = append(unattemptedIDs, ids[i])
-		case outcome.err == nil:
-			completeIDs = append(completeIDs, ids[i])
-		}
-	}
-	finalizeStartedAt := time.Now()
-	err = c.txManager.WithinTransaction(ctx, func(tx any) error {
-		txInbox := c.inbox.WithTx(tx)
-		if err := txInbox.CompleteBatch(ctx, completeIDs, token, time.Now()); err != nil {
-			return err
-		}
-		for i, outcome := range outcomes {
-			if !outcome.attempted || outcome.err == nil {
-				continue
-			}
-			if outcome.dead {
-				if err := txInbox.MarkDead(ctx, ids[i], token, outcome.err.Error(), time.Now()); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := txInbox.MarkRetry(ctx, ids[i], token, outcome.err.Error()); err != nil {
-				return err
-			}
-		}
-		return txInbox.ReleaseBatch(ctx, unattemptedIDs, token, true)
-	})
-	finalizeDuration := time.Since(finalizeStartedAt)
-	if err != nil {
-		return 0, nil, err
-	}
-	finalized = true
-
-	for _, outcome := range outcomes {
-		if outcome.attempted && (outcome.err == nil || outcome.dead) {
-			completed++
-			continue
-		}
-		if outcome.attempted && outcome.err != nil && retryErr == nil {
-			retryErr = outcome.err
-		}
-		break
-	}
-	diagnostics.Logf("stage=kafka_consumer_batch size=%d worker_groups=%d completed_prefix=%d retry=%t claim_us=%d finalize_us=%d total_us=%d",
-		len(events), len(groups), completed, retryErr != nil, claimDuration.Microseconds(), finalizeDuration.Microseconds(), time.Since(startedAt).Microseconds())
-	return completed, retryErr, nil
-}
-
-func groupBatchByKey(events []eventbus.IncomingEvent) []conversationBatch {
-	groups := make([]conversationBatch, 0, len(events))
-	indices := make(map[string]int, len(events))
-	for i, event := range events {
-		key := string(event.Key)
-		if key == "" {
-			key = fmt.Sprintf("__empty_key_%d", i)
-		}
-		groupIndex, ok := indices[key]
-		if !ok {
-			groupIndex = len(groups)
-			indices[key] = groupIndex
-			groups = append(groups, conversationBatch{key: key})
-		}
-		groups[groupIndex].indices = append(groups[groupIndex].indices, i)
-	}
-	return groups
+	return string(event.Key)
 }
 
 type consumerWorkerTask struct {
@@ -863,7 +545,7 @@ type consumerWorkerTask struct {
 	submittedAt time.Time
 }
 
-// consumerWorkerPool 按 Kafka message key 将事件固定路由到一个串行 worker。
+// consumerWorkerPool 按调度 Key 路由到串行 worker；新消息使用 eventId，其他事件使用 Kafka Key。
 type consumerWorkerPool struct {
 	shards []chan consumerWorkerTask
 	wg     sync.WaitGroup
@@ -874,7 +556,7 @@ func newConsumerWorkerPool(workerCount, queueSize int) *consumerWorkerPool {
 		workerCount = 16
 	}
 	if queueSize <= 0 {
-		queueSize = 100
+		queueSize = 1024
 	}
 	pool := &consumerWorkerPool{shards: make([]chan consumerWorkerTask, workerCount)}
 	for i := range pool.shards {
@@ -938,4 +620,10 @@ func (pool *consumerWorkerPool) Wait() {
 	if pool != nil {
 		pool.wg.Wait()
 	}
+}
+
+func messageKeyHash(key string) uint32 {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(key))
+	return hash.Sum32()
 }
