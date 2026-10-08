@@ -13,5 +13,4 @@ type MessageReq struct {
 	FileId      string `json:"fileId,omitempty"`
 	StickerId   string `json:"stickerId,omitempty"`
 	PackId      string `json:"packId,omitempty"`
-	VideoTime   *int64 `json:"videoTime"`
 }

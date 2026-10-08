@@ -24,9 +24,8 @@ message MessageReq {
   int32  conv_type      = 3;
   int32  c_type         = 4;
   string content        = 5;
-  int64  video_time     = 6;
-  bool   has_video_time = 7;
-	string file_id        = 10;
+  string file_id        = 10;
+  reserved 6, 7;
   string sticker_id     = 17;
   string pack_id        = 18;
 }
@@ -66,11 +65,9 @@ message MessageEvent {
   string content         = 8;
   int64  send_time       = 9;
   string client_msg_id   = 11;
-  string video_id        = 12;
-  optional int64 video_time = 13;
   int32  status          = 14;
   string attachment_id   = 25;
 
   // 路由、用户展示以及媒体子表字段不属于消息推送本体。
-  reserved 4, 6, 10, 18 to 24;
+  reserved 4, 6, 10, 12, 13, 18 to 24;
 }

@@ -50,34 +50,6 @@ func (r *UserConversationRepository) UpdateReadSeq(
 	})
 }
 
-// BatchUpdateReadSeq 批量推进用户会话的已读游标。
-func (r *UserConversationRepository) BatchUpdateReadSeq(
-	ctx context.Context,
-	conversations []*conversationentity.UserConversation,
-) error {
-	if len(conversations) == 0 {
-		return nil
-	}
-	models := make([]*model.UserConversation, 0, len(conversations))
-	for _, conversation := range conversations {
-		if conversation != nil {
-			models = append(models, toUserConversationModel(conversation))
-		}
-	}
-	if len(models) == 0 {
-		return nil
-	}
-	return r.db.WithContext(ctx).
-		Model(&model.UserConversation{}).
-		Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "user_id"}, {Name: "conversation_id"}},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"last_read_seq": gorm.Expr("GREATEST(last_read_seq, VALUES(last_read_seq))"),
-			}),
-		}).
-		Create(&models).Error
-}
-
 // AdvanceReadSeq atomically advances the read cursor and reports whether the
 // stored value actually moved forward. The result controls read notifications.
 func (r *UserConversationRepository) AdvanceReadSeq(

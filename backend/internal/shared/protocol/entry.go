@@ -117,8 +117,6 @@ type MessageEvent struct {
 	ConvType       ConvType `json:"convType"`
 	CType          int      `json:"cType"`
 	Content        string   `json:"content"`
-	VideoId        string   `json:"videoId,omitempty"`
-	VideoTime      *int64   `json:"videoTime,omitempty"`
 	SendTime       int64    `json:"sendTime"`
 	ClientMsgId    string   `json:"clientMsgId"`
 	Status         int8     `json:"status"`
@@ -128,7 +126,6 @@ type MessageEvent struct {
 	DurationMs     *int64   `json:"durationMs,omitempty"`
 	StickerId      string   `json:"stickerId,omitempty"`
 	PackId         string   `json:"packId,omitempty"`
-	HasVideoTime   bool     `json:"hasVideoTime,omitempty"`
 }
 
 type WSErrorEvent struct {

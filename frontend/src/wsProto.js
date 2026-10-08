@@ -8,7 +8,7 @@ message WsBatch { repeated WsFrame frames = 1; }
 message MessageReadAckReq { string message_id = 1; }
 message MessageReq {
   string client_msg_id = 1; string recv_id = 2; int32 conv_type = 3; int32 c_type = 4;
-  string content = 5; int64 video_time = 6; bool has_video_time = 7;
+  string content = 5; reserved 6, 7;
   string file_id = 10;
   string sticker_id = 17; string pack_id = 18;
 }
@@ -18,7 +18,7 @@ message MessageReadAckEvent { string user_id = 1; string conversation_id = 2; in
 message MessageEvent {
   string message_id = 1; string conversation_id = 2; string sender_id = 3;
   int64 seq = 5; int32 c_type = 7; string content = 8; int64 send_time = 9;
-  string client_msg_id = 11; string video_id = 12; optional int64 video_time = 13;
+  string client_msg_id = 11; reserved 12, 13;
   int32 status = 14; string attachment_id = 25;
 }
 `;

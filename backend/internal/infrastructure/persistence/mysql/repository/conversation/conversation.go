@@ -87,39 +87,6 @@ func (r *ConversationRepository) UpdateLatestSequence(
 	return nextSeq, nil
 }
 
-func (r *ConversationRepository) ReserveSequenceRange(
-	ctx context.Context,
-	conversationID, latestMessageID string,
-	count int,
-) (int64, error) {
-	if count <= 0 {
-		return 0, errors.New("预留消息序号数量必须大于 0")
-	}
-
-	var row model.Conversation
-	if err := r.db.WithContext(ctx).
-		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("conversation_id = ?", conversationID).
-		First(&row).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, conversationentity.ErrConversationNotCreated
-		}
-		return 0, err
-	}
-
-	baseSeq := row.LatestSeq
-	if err := r.db.WithContext(ctx).
-		Model(&model.Conversation{}).
-		Where("conversation_id = ?", conversationID).
-		Updates(map[string]any{
-			"latest_seq":        baseSeq + int64(count),
-			"latest_message_id": latestMessageID,
-		}).Error; err != nil {
-		return 0, err
-	}
-	return baseSeq, nil
-}
-
 func (r *ConversationRepository) GetConversationSeq(
 	ctx context.Context,
 	conversationID string,

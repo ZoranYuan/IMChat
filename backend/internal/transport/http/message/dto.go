@@ -27,19 +27,6 @@ type MessageSeqsRequest struct {
 	Seqs           string `form:"seqs" binding:"required"`
 }
 
-type DanmakuRequest struct {
-	RoomID    string `form:"roomId" binding:"required"`
-	VideoID   string `form:"videoId" binding:"required"`
-	StartTime int64  `form:"startTime"`
-	EndTime   int64  `form:"endTime"`
-	Limit     int    `form:"limit"`
-}
-
-type RoomVideoHistoryRequest struct {
-	RoomID string `form:"roomId" binding:"required"`
-	Limit  int    `form:"limit"`
-}
-
 type MessageResponse struct {
 	MessageID       string  `json:"messageId"`
 	ConversationID  string  `json:"conversationId"`
@@ -48,8 +35,6 @@ type MessageResponse struct {
 	Seq             int64   `json:"seq"`
 	Type            int     `json:"cType"`
 	Content         string  `json:"content"`
-	VideoID         string  `json:"videoId,omitempty"`
-	VideoTime       *int64  `json:"videoTime,omitempty"`
 	Status          int8    `json:"status"`
 	SendTime        int64   `json:"sendTime"`
 	AttachmentID    string  `json:"attachmentId,omitempty"`
@@ -62,8 +47,7 @@ type MessageHistoryResponse struct {
 }
 
 type MessageSyncResponse struct {
-	Messages   []MessageResponse `json:"messages"`
-	ThroughSeq int64             `json:"throughSeq"`
+	Messages []MessageResponse `json:"messages"`
 }
 
 type MessageOfflineResponse struct {
@@ -76,31 +60,6 @@ type MessageSeqsResponse struct {
 	Messages []MessageResponse `json:"messages"`
 }
 
-type DanmakuResponse struct {
-	MessageID string `json:"messageId"`
-	SenderID  string `json:"senderId"`
-	Content   string `json:"content"`
-	Seq       int64  `json:"seq"`
-	TimeMs    int64  `json:"timeMs"`
-	SendTime  int64  `json:"sendTime"`
-}
-
-type DanmakuListResponse struct {
-	Items []DanmakuResponse `json:"items"`
-}
-
-type RoomVideoHistoryResponseItem struct {
-	VideoID        string `json:"videoId"`
-	FileName       string `json:"fileName"`
-	LatestSendTime int64  `json:"latestSendTime"`
-	VideoTime      *int64 `json:"videoTime,omitempty"`
-	MessageCount   int64  `json:"messageCount"`
-}
-
-type RoomVideoHistoryResponse struct {
-	Items []RoomVideoHistoryResponseItem `json:"items"`
-}
-
 func toHistoryMessageResponse(messages []messageapp.MessageDTO, nextCursor int64, hasMore bool) (res MessageHistoryResponse) {
 	ms := toMessageResponses(messages)
 
@@ -111,9 +70,8 @@ func toHistoryMessageResponse(messages []messageapp.MessageDTO, nextCursor int64
 	return
 }
 
-func toSyncMessageResponse(messages []messageapp.MessageDTO, throughSeq int64) (res MessageSyncResponse) {
+func toSyncMessageResponse(messages []messageapp.MessageDTO) (res MessageSyncResponse) {
 	res.Messages = toMessageResponses(messages)
-	res.ThroughSeq = throughSeq
 	return
 }
 
@@ -141,8 +99,6 @@ func toMessageResponses(messages []messageapp.MessageDTO) []MessageResponse {
 			Seq:             m.Seq,
 			Type:            m.Type,
 			Content:         m.Content,
-			VideoID:         m.VideoID,
-			VideoTime:       m.VideoTime,
 			Status:          m.Status,
 			SendTime:        m.SendTime,
 			AttachmentID:    m.AttachmentID,
@@ -152,33 +108,4 @@ func toMessageResponses(messages []messageapp.MessageDTO) []MessageResponse {
 	}
 
 	return ms
-}
-
-func toDanmakuResponse(items []messageapp.DanmakuDTO) (res DanmakuListResponse) {
-	res.Items = make([]DanmakuResponse, 0, len(items))
-	for _, item := range items {
-		res.Items = append(res.Items, DanmakuResponse{
-			MessageID: item.MessageID,
-			SenderID:  item.SenderID,
-			Content:   item.Content,
-			Seq:       item.Seq,
-			TimeMs:    item.TimeMs,
-			SendTime:  item.SendTime,
-		})
-	}
-	return res
-}
-
-func toRoomVideoHistoryResponse(items []messageapp.RoomVideoHistoryDTO) (res RoomVideoHistoryResponse) {
-	res.Items = make([]RoomVideoHistoryResponseItem, 0, len(items))
-	for _, item := range items {
-		res.Items = append(res.Items, RoomVideoHistoryResponseItem{
-			VideoID:        item.VideoID,
-			FileName:       item.FileName,
-			LatestSendTime: item.LatestSendTime,
-			VideoTime:      item.VideoTime,
-			MessageCount:   item.MessageCount,
-		})
-	}
-	return res
 }

@@ -478,14 +478,10 @@ const processRealtimeMessage = async (
       bySeq.set(messageSeq, message);
       messagesToPersist = [...bySeq.values()].sort((left, right) => Number(left.seq) - Number(right.seq));
 
-      // /sync 会过滤视频弹幕，客户端只校验可见消息有序，并用 throughSeq 推进扫描水位。
       if (!isOrderedAfter(messagesToPersist, localBoundary)) {
         throw new Error("消息同步结果存在重复或乱序");
       }
-      nextBoundary = Math.max(
-        Number(syncResult?.throughSeq) || localBoundary,
-        Number(messagesToPersist.at(-1)?.seq) || localBoundary,
-      );
+      nextBoundary = Number(messagesToPersist.at(-1)?.seq) || localBoundary;
     }
 
     const persisted = await persistConfirmedMessages(messagesToPersist, {
@@ -644,7 +640,7 @@ const syncConversationFromLocal = async (
     }
 
     const latestMessageSeq = Number(messages.at(-1)?.seq) || localBoundary;
-    const nextBoundary = Math.max(Number(result?.throughSeq) || localBoundary, latestMessageSeq);
+    const nextBoundary = latestMessageSeq;
     if (nextBoundary <= localBoundary) return;
 
     const persisted = await persistConfirmedMessages(messages, {
@@ -713,10 +709,7 @@ const syncInitialConversation = async (conversationId) => {
       throw new Error("首次消息同步结果存在重复或乱序");
     }
 
-    const nextBoundary = Math.max(
-      Number(result?.throughSeq) || localBoundary,
-      Number(messages.at(-1)?.seq) || localBoundary,
-    );
+    const nextBoundary = Number(messages.at(-1)?.seq) || localBoundary;
     if (nextBoundary <= localBoundary) return;
     const persisted = await persistConfirmedMessages(messages, {
       session,

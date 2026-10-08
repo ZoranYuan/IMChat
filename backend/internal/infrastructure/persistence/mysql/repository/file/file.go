@@ -68,7 +68,6 @@ func (r *FileRepository) FindUploadedFileByIDAndUploader(ctx context.Context, fi
 }
 
 // FindUploadedFileByIDAndUploaderForUpdate 查询指定上传者拥有的已上传文件，并锁定该行。
-// 该方法必须在事务中调用，避免发送消息和文件清理任务并发修改同一文件状态。
 func (r *FileRepository) FindUploadedFileByIDAndUploaderForUpdate(ctx context.Context, fileId string, uploaderId string) (*fileentity.File, error) {
 	if fileId == "" || uploaderId == "" {
 		return nil, nil

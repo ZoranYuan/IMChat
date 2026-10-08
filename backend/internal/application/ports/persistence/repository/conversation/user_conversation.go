@@ -11,7 +11,6 @@ type UserConversationRepository interface {
 	GetUsersByConversationID(ctx context.Context, conversationID string) ([]string, error)
 	GetUserConversation(ctx context.Context, userId, conversationId string) (*conversationentity.UserConversation, error)
 	UpdateReadSeq(ctx context.Context, conversation *conversationentity.UserConversation) error
-	BatchUpdateReadSeq(ctx context.Context, conversations []*conversationentity.UserConversation) error
 	AdvanceReadSeq(ctx context.Context, conversation *conversationentity.UserConversation) (bool, error)
 	ListByUser(ctx context.Context, userId string) ([]*conversationentity.UserConversation, error)
 	DelUserConversation(ctx context.Context, userId string, conversationId string) error

@@ -14,11 +14,6 @@ func encodeWebSocketPayload(op string, payload []byte) ([]byte, error) {
 // messageReqFromPB 将 WebSocket 层的 protobuf 请求转换为业务层发送请求。
 // 请求中的接收方、会话类型和文件标识等控制字段只用于服务端处理，不属于推送消息本体。
 func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
-	var videoTime *int64
-	if pb.GetHasVideoTime() {
-		v := pb.GetVideoTime()
-		videoTime = &v
-	}
 	return MessageReq{
 		ClientMsgId: pb.GetClientMsgId(),
 		RecvId:      pb.GetRecvId(),
@@ -28,7 +23,6 @@ func messageReqFromPB(pb *wspb.MessageReq) MessageReq {
 		FileId:      pb.GetFileId(),
 		StickerId:   pb.GetStickerId(),
 		PackId:      pb.GetPackId(),
-		VideoTime:   videoTime,
 	}
 }
 
@@ -67,8 +61,6 @@ func messageEventToPB(event protocol.MessageEvent) *wspb.MessageEvent {
 		Content:        event.Content,
 		SendTime:       event.SendTime,
 		ClientMsgId:    event.ClientMsgId,
-		VideoId:        event.VideoId,
-		VideoTime:      event.VideoTime,
 		Status:         int32(event.Status),
 		AttachmentId:   event.AttachmentId,
 	}

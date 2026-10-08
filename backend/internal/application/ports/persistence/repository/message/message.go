@@ -6,7 +6,6 @@ import (
 )
 
 type MessageRepository interface {
-	CreateNewMessages(ctx context.Context, msgs []*messageentity.Message) error
 	CreateNewMessage(ctx context.Context, msg *messageentity.Message) error
 	FindByMessageID(ctx context.Context, messageID string) (*messageentity.Message, error)
 	FindByClientMsgID(ctx context.Context, senderID, clientMsgID string) (*messageentity.Message, error)
@@ -44,35 +43,6 @@ type MessageRepository interface {
 		conversationId string,
 		seqs []int64,
 	) ([]*messageentity.Message, error)
-
-	GetMessagesBySendTime(
-		ctx context.Context,
-		conversationId string,
-		startTime int64,
-		endTime int64,
-		limit int,
-	) ([]*messageentity.Message, error)
-
-	GetDanmakuByRoomVideo(
-		ctx context.Context,
-		conversationId string,
-		videoId string,
-		startTime int64,
-		endTime int64,
-		limit int,
-	) ([]*messageentity.Message, error)
-
-	GetRoomVideoHistory(
-		ctx context.Context,
-		conversationId string,
-		limit int,
-	) ([]*messageentity.Message, error)
-
-	CountRoomVideoMessages(
-		ctx context.Context,
-		conversationId string,
-		videoId string,
-	) (int64, error)
 
 	GetLatestMessagesByConversationIDs(
 		ctx context.Context,

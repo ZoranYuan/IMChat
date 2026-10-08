@@ -23,6 +23,19 @@ func TestSyncMessagesRequiresAuthentication(t *testing.T) {
 	}
 }
 
+func TestMessageRoutesExcludeWatchTogether(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterRoutes(router.Group("/messages"), NewMessageHandle(nil))
+	for _, path := range []string{"/messages/danmaku", "/messages/videos"} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("removed route %s: expected 404, got %d", path, recorder.Code)
+		}
+	}
+}
+
 func TestSyncMessagesRequiresConversationID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	req := httptest.NewRequest(http.MethodGet, "/message/sync?afterSeq=10", nil)
@@ -54,12 +67,9 @@ func TestOfflineMessagesRequiresSnapshotSeq(t *testing.T) {
 }
 
 func TestSyncMessageResponseCarriesMessages(t *testing.T) {
-	result := toSyncMessageResponse([]messageapp.MessageDTO{{MessageID: "m1", Seq: 11}}, 15)
+	result := toSyncMessageResponse([]messageapp.MessageDTO{{MessageID: "m1", Seq: 11}})
 	if len(result.Messages) != 1 || result.Messages[0].MessageID != "m1" {
 		t.Fatalf("message mapping failed: %+v", result)
-	}
-	if result.ThroughSeq != 15 {
-		t.Fatalf("expected throughSeq 15, got %d", result.ThroughSeq)
 	}
 }
 

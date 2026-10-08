@@ -107,7 +107,7 @@ func (mh *MessageHandle) SyncMessages(c *gin.Context) {
 		return
 	}
 
-	syncResult, err := mh.app.SyncMessagesWithWatermark(
+	syncResult, err := mh.app.SyncMessages(
 		c.Request.Context(),
 		req.ConversationID,
 		userId,
@@ -125,7 +125,7 @@ func (mh *MessageHandle) SyncMessages(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.Success(toSyncMessageResponse(syncResult.Messages, syncResult.ThroughSeq)))
+	c.JSON(http.StatusOK, response.Success(toSyncMessageResponse(syncResult)))
 }
 
 func (mh *MessageHandle) GetMessagesBySeqs(c *gin.Context) {
@@ -181,56 +181,4 @@ func parseMessageSeqs(raw string) ([]int64, error) {
 		seqs = append(seqs, seq)
 	}
 	return seqs, nil
-}
-
-func (mh *MessageHandle) GetVideoDanmaku(c *gin.Context) {
-	userId := c.GetString("userId")
-	if userId == "" {
-		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
-		return
-	}
-
-	var req DanmakuRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
-		return
-	}
-
-	items, err := mh.app.GetVideoDanmaku(
-		c.Request.Context(),
-		req.RoomID,
-		userId,
-		req.VideoID,
-		req.StartTime,
-		req.EndTime,
-		req.Limit,
-	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取弹幕失败，请稍后再试"))
-		return
-	}
-
-	c.JSON(http.StatusOK, response.Success(toDanmakuResponse(items)))
-}
-
-func (mh *MessageHandle) GetRoomVideoHistory(c *gin.Context) {
-	userId := c.GetString("userId")
-	if userId == "" {
-		c.JSON(http.StatusUnauthorized, response.Error(http.StatusUnauthorized, "登录过期"))
-		return
-	}
-
-	var req RoomVideoHistoryRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, response.Error(http.StatusBadRequest, "参数错误"))
-		return
-	}
-
-	items, err := mh.app.GetRoomVideoHistory(c.Request.Context(), req.RoomID, userId, req.Limit)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, response.Error(http.StatusInternalServerError, "获取历史视频失败，请稍后再试"))
-		return
-	}
-
-	c.JSON(http.StatusOK, response.Success(toRoomVideoHistoryResponse(items)))
 }

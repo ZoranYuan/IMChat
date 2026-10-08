@@ -461,8 +461,11 @@ func (fa *FriendRequestApplication) acceptFriendRequest(
 		}
 
 		// 初始消息必须和好友关系、会话处于同一事务，并进入 Outbox。
-		if err := fa.messageRepository.WithTx(tx).CreateNewMessages(ctx, messages); err != nil {
-			return err
+		messageRepo := fa.messageRepository.WithTx(tx)
+		for _, message := range messages {
+			if err := messageRepo.CreateNewMessage(ctx, message); err != nil {
+				return err
+			}
 		}
 		if err := fa.createInitialMessageOutboxes(ctx, tx, record, conv, messages); err != nil {
 			return err
